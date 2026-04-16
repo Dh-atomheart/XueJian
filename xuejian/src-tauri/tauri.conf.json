@@ -1,0 +1,48 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "学笺",
+  "version": "0.1.0",
+  "identifier": "com.xuejian.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "学笺",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Productivity",
+    "shortDescription": "AI驱动的智能学习记忆应用",
+    "longDescription": "学笺是一个AI驱动的智能学习记忆应用，支持文档上传、卡片生成、贴笺式学习和FSRS间隔重复。"
+  },
+  "plugins": {
+    "fs": {
+      "scope": ["$APP/**", "$DOCUMENT/**", "$DOWNLOAD/**"]
+    }
+  }
+}

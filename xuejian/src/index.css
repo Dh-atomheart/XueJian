@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 默认字体定义 - 极简学术感 + 中度手绘漫画风格 */
+@font-face {
+  font-family: 'Kose';
+  src: url('/fonts/Xiaolai-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Yozai';
+  src: url('/fonts/yozai.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'LXGW WenKai';
+  src: url('/fonts/lxgw-wenkai.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 基础样式 */
+:root {
+  --paper-base: #fbfbf9;
+  --ink: #1a1a1a;
+  --ink-muted: #666666;
+  --ink-soft: #a0a0a0;
+  --line-soft: #e5e5e0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'LXGW WenKai', serif;
+  background-color: var(--paper-base);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+/* 纸感纹理背景 */
+.paper-texture {
+  background-image: url('/textures/paper-grain.png');
+  background-repeat: repeat;
+  background-size: 200px 200px;
+}
+
+/* 手绘细墨线边框 */
+.sketch-border {
+  border: 0.5px solid var(--line-soft);
+  border-radius: 2px;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--paper-base);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-soft);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-soft);
+}
+
+/* 选中文字样式 */
+::selection {
+  background-color: rgba(248, 225, 108, 0.3);
+  color: var(--ink);
+}
