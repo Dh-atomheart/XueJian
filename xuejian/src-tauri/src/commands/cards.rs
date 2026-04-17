@@ -682,7 +682,7 @@ fn spawn_card_generation_worker(app_handle: AppHandle, run_id: String) {
 }
 
 async fn execute_card_generation_worker(app_handle: &AppHandle, run_id: &str) -> CommandResult<()> {
-    let (document, chunks, anchors, mut payload, run) =
+    let (document, _chunks, _anchors, mut payload, run) =
         load_generation_context(app_handle, run_id)?;
 
     {
@@ -713,44 +713,69 @@ async fn execute_card_generation_worker(app_handle: &AppHandle, run_id: &str) ->
         )?;
     }
 
-    let anchor_index = anchors
-        .into_iter()
-        .map(|anchor| (anchor.hash.clone(), anchor))
-        .collect::<HashMap<_, _>>();
+    // Try Python orchestration service first
+    let orchestration_result = try_orchestration_card_generation(app_handle, run_id, &document, &payload).await;
 
-    for chunk in chunks.iter().skip(payload.chunk_cursor) {
-        if payload.generated_count >= payload.max_candidates {
-            break;
-        }
-
-        let budget = payload
-            .max_candidates
-            .saturating_sub(payload.generated_count);
-        let requests = build_candidates_for_chunk(run_id, &document, chunk, &anchor_index, budget);
-        let counts = {
+    if let Ok(generated_count) = orchestration_result {
+        payload.generated_count = generated_count;
+        payload.phase = "generating".to_string();
+        log::info!("Python orchestration generated {generated_count} candidates for run {run_id}");
+    } else {
+        // Fallback to local rule-based generation
+        log::warn!("Python orchestration unavailable, falling back to local rule-based generation for run {run_id}");
+        {
             let state = app_handle.state::<AppState>();
             let db = state.lock_db()?;
-            let card_repo = CardRepository::new(&db);
-            if !requests.is_empty() {
-                let result = card_repo.insert_generated_candidates(requests)?;
-                payload.generated_count += result.inserted_count;
-                payload.duplicate_count += result.duplicate_count;
-            }
-            card_repo.count_candidates_for_run(run_id)?
-        };
-
-        payload.pending_count = counts.pending as usize;
-        payload.chunk_cursor = (chunk.chunk_index as usize).saturating_add(1);
-        payload.last_chunk_index = Some(chunk.chunk_index as usize);
-        payload.phase = "generating".to_string();
-        let checkpoint_ref = format!("chunk-{}", chunk.chunk_index);
-        persist_generation_progress(app_handle, run_id, &payload, &counts, &checkpoint_ref)?;
-
-        if payload.generated_count >= payload.max_candidates {
-            break;
+            let workflow_repo = WorkflowRepository::new(&db);
+            workflow_repo.append_event(AppendWorkflowEventRequest {
+                run_id: run_id.to_string(),
+                event_type: "fallback".to_string(),
+                message: Some("Orchestration service unavailable, using local rule-based generation".to_string()),
+                progress: None,
+                payload: None,
+            })?;
         }
 
-        sleep(Duration::from_millis(60)).await;
+        let (_, chunks, anchors, _, _) = load_generation_context(app_handle, run_id)?;
+        let anchor_index = anchors
+            .into_iter()
+            .map(|anchor| (anchor.hash.clone(), anchor))
+            .collect::<HashMap<_, _>>();
+
+        for chunk in chunks.iter().skip(payload.chunk_cursor) {
+            if payload.generated_count >= payload.max_candidates {
+                break;
+            }
+
+            let budget = payload
+                .max_candidates
+                .saturating_sub(payload.generated_count);
+            let requests = build_candidates_for_chunk(run_id, &document, chunk, &anchor_index, budget);
+            let counts = {
+                let state = app_handle.state::<AppState>();
+                let db = state.lock_db()?;
+                let card_repo = CardRepository::new(&db);
+                if !requests.is_empty() {
+                    let result = card_repo.insert_generated_candidates(requests)?;
+                    payload.generated_count += result.inserted_count;
+                    payload.duplicate_count += result.duplicate_count;
+                }
+                card_repo.count_candidates_for_run(run_id)?
+            };
+
+            payload.pending_count = counts.pending as usize;
+            payload.chunk_cursor = (chunk.chunk_index as usize).saturating_add(1);
+            payload.last_chunk_index = Some(chunk.chunk_index as usize);
+            payload.phase = "generating".to_string();
+            let checkpoint_ref = format!("chunk-{}", chunk.chunk_index);
+            persist_generation_progress(app_handle, run_id, &payload, &counts, &checkpoint_ref)?;
+
+            if payload.generated_count >= payload.max_candidates {
+                break;
+            }
+
+            sleep(Duration::from_millis(60)).await;
+        }
     }
 
     let final_counts = {
@@ -814,6 +839,48 @@ async fn execute_card_generation_worker(app_handle: &AppHandle, run_id: &str) ->
     })?;
 
     Ok(())
+}
+
+async fn try_orchestration_card_generation(
+    app_handle: &AppHandle,
+    run_id: &str,
+    document: &Document,
+    payload: &CardGenerationCheckpointPayload,
+) -> Result<usize, String> {
+    let state = app_handle.state::<AppState>();
+    let health = state.orchestration.health().await.map_err(|e| e.to_string())?;
+
+    let endpoint = health.endpoint.ok_or("No orchestration endpoint")?;
+    if health.status != "healthy" && health.status != "degraded" {
+        return Err(format!("Orchestration service status: {}", health.status));
+    }
+
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .post(format!("{endpoint}/workflows/card-generation"))
+        .json(&serde_json::json!({
+            "runId": run_id,
+            "documentId": document.id,
+            "maxCandidates": payload.max_candidates,
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Orchestration request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("Orchestration returned {status}: {body}"));
+    }
+
+    let result: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let generated = result["generatedCount"].as_u64().unwrap_or(0) as usize;
+    Ok(generated)
 }
 
 fn load_generation_context(

@@ -16,7 +16,7 @@ canonical: true
 
 - [../../product-specs/v4.md](../../product-specs/v4.md)
 - [../completed/m1-platform-foundation.md](../completed/m1-platform-foundation.md) ✅
-- [./m2-document-import-and-anchors.md](./m2-document-import-and-anchors.md)
+- [../completed/m2-document-import-and-anchors.md](../completed/m2-document-import-and-anchors.md) ✅
 - [./m3-card-production-line.md](./m3-card-production-line.md)
 - [./m4-reading-and-sticky-notes.md](./m4-reading-and-sticky-notes.md)
 - [./m5-study-scheduling.md](./m5-study-scheduling.md)

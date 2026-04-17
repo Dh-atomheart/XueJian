@@ -15,8 +15,8 @@ canonical: true
 ## Depends On
 
 - [../completed/m1-platform-foundation.md](../completed/m1-platform-foundation.md) ✅
-- [./m2-document-import-and-anchors.md](./m2-document-import-and-anchors.md)
-- [./m3-card-production-line.md](./m3-card-production-line.md)
+- [../completed/m2-document-import-and-anchors.md](../completed/m2-document-import-and-anchors.md) ✅
+- [../completed/m3-card-production-line.md](../completed/m3-card-production-line.md) ✅
 - [../../design-docs/pages.md](../../design-docs/pages.md)
 - [../../design-docs/interactions.md](../../design-docs/interactions.md)
 

@@ -1,3 +1,5 @@
+pub mod host_http;
+
 use serde::Serialize;
 
 pub const ORCHESTRATION_PROTOCOL_VERSION: &str = "xuejian-orchestration/v1";

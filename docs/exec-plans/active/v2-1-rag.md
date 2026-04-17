@@ -15,7 +15,7 @@ canonical: true
 ## Depends On
 
 - [../../product-specs/v2.md](../../product-specs/v2.md)
-- [./m2-document-import-and-anchors.md](./m2-document-import-and-anchors.md)
+- [../completed/m2-document-import-and-anchors.md](../completed/m2-document-import-and-anchors.md) ✅
 - [./m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md)
 - [../../references/ai-orchestration.md](../../references/ai-orchestration.md)
 

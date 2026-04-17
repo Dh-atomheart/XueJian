@@ -1,10 +1,11 @@
+mod app_state;
 mod commands;
 mod db;
 mod gateway;
 mod secrets;
 mod tasks;
 
-use commands::AppState;
+use app_state::AppState;
 use tauri::{Manager, RunEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -50,31 +51,53 @@ pub fn run() {
                 }
             };
 
-            let orchestration = match tasks::OrchestrationService::new(app.handle()) {
-                Ok(orchestration) => {
-                    let health =
-                        tauri::async_runtime::block_on(orchestration.start()).map_err(|error| {
-                            log::error!("Failed to start orchestration service: {}", error);
-                            Box::new(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                format!("Orchestration service startup failed: {error}"),
-                            ))
-                        })?;
-
-                    log::info!(
-                        "Orchestration service started successfully on {:?}",
-                        health.endpoint
-                    );
-                    orchestration
-                }
+            let host_gateway = match gateway::host_http::HostHttpGateway::new(app.handle().clone()) {
+                Ok(gateway) => gateway,
                 Err(error) => {
-                    log::error!("Failed to initialize orchestration service: {}", error);
+                    log::error!("Failed to create host HTTP gateway: {}", error);
                     return Err(Box::new(std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("Orchestration service initialization failed: {error}"),
+                        format!("Host HTTP gateway creation failed: {error}"),
                     )));
                 }
             };
+
+            let host_gateway_port = tauri::async_runtime::block_on(host_gateway.start()).map_err(|error| {
+                log::error!("Failed to start host HTTP gateway: {}", error);
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Host HTTP gateway startup failed: {error}"),
+                ))
+            })?;
+
+            log::info!("Host HTTP gateway started on port {host_gateway_port}");
+
+            let orchestration =
+                match tasks::OrchestrationService::new(app.handle(), Some(host_gateway_port)) {
+                    Ok(orchestration) => {
+                        let health =
+                            tauri::async_runtime::block_on(orchestration.start()).map_err(|error| {
+                                log::error!("Failed to start orchestration service: {}", error);
+                                Box::new(std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    format!("Orchestration service startup failed: {error}"),
+                                ))
+                            })?;
+
+                        log::info!(
+                            "Orchestration service started successfully on {:?}",
+                            health.endpoint
+                        );
+                        orchestration
+                    }
+                    Err(error) => {
+                        log::error!("Failed to initialize orchestration service: {}", error);
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Orchestration service initialization failed: {error}"),
+                        )));
+                    }
+                };
 
             app.manage(AppState::new(db, secrets, orchestration));
 

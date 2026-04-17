@@ -2,19 +2,402 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import logging
 import os
+import re
 import time
+import urllib.request
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [orchestration] %(message)s")
+logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = "xuejian-orchestration/v1"
-SERVICE_VERSION = "0.1.0"
+SERVICE_VERSION = "0.2.0"
+
+# ── Host Gateway Client ────────────────────────────────────
+
+
+class HostGatewayClient:
+    """HTTP client for calling the Rust Host's ModelGateway and ToolGateway."""
+
+    def __init__(self, base_url: str) -> None:
+        self._base = base_url.rstrip("/")
+
+    def _get(self, path: str) -> dict:
+        url = f"{self._base}{path}"
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            logger.error("Host gateway %s returned %s: %s", path, exc.code, body)
+            raise
+        except urllib.error.URLError as exc:
+            logger.error("Host gateway %s unreachable: %s", path, exc)
+            raise
+
+    def _post(self, path: str, payload: dict) -> dict:
+        url = f"{self._base}{path}"
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            logger.error("Host gateway POST %s returned %s: %s", path, exc.code, body)
+            raise
+        except urllib.error.URLError as exc:
+            logger.error("Host gateway POST %s unreachable: %s", path, exc)
+            raise
+
+    # ── ModelGateway ──────────────────────────────────
+
+    def list_api_configs(self) -> list[dict]:
+        return self._get("/model-gateway/configs").get("items", self._get("/model-gateway/configs"))
+
+    def get_api_config(self, config_id: str) -> dict | None:
+        try:
+            return self._get(f"/model-gateway/configs/{config_id}")
+        except urllib.error.HTTPError:
+            return None
+
+    def get_api_key(self, config_id: str) -> str:
+        result = self._get(f"/model-gateway/api-key/{config_id}")
+        return result.get("apiKey", "")
+
+    def get_default_config_with_key(self) -> tuple[dict, str] | None:
+        configs = self.list_api_configs()
+        default = next((c for c in configs if c.get("isDefault") and c.get("isEnabled")), None)
+        if not default:
+            default = next((c for c in configs if c.get("isEnabled")), None)
+        if not default:
+            return None
+        api_key = self.get_api_key(default["id"])
+        if not api_key:
+            return None
+        return default, api_key
+
+    # ── ToolGateway ────────────────────────────────────
+
+    def get_document(self, document_id: str) -> dict | None:
+        try:
+            return self._get(f"/tool-gateway/documents/{document_id}")
+        except urllib.error.HTTPError:
+            return None
+
+    def list_anchors(self, document_id: str) -> list[dict]:
+        return self._get(f"/tool-gateway/anchors?documentId={document_id}")
+
+    def list_chunks(self, document_id: str) -> list[dict]:
+        return self._get(f"/tool-gateway/chunks?documentId={document_id}")
+
+    def persist_candidates(self, run_id: str, document_id: str, candidates: list[dict]) -> dict:
+        return self._post("/tool-gateway/candidates", {
+            "runId": run_id,
+            "documentId": document_id,
+            "candidates": candidates,
+        })
+
+    def count_candidates(self, run_id: str) -> dict:
+        return self._get(f"/tool-gateway/candidates/count?runId={run_id}")
+
+
+# ── Card Generation Workflow ───────────────────────────────
+
+CARD_GENERATION_SYSTEM_PROMPT = """\
+You are a flashcard generation assistant for a spaced-repetition learning app.
+Given a text passage from a document, generate flashcard candidates.
+
+Rules:
+- Each card must have a concise "front" (question or prompt) and a substantive "back" (answer).
+- Front should be 8-120 characters. Back should be 12-300 characters.
+- Generate 1-3 cards per passage, depending on content density.
+- Assign a confidence score between 0.0 and 1.0.
+- Tag each card with relevant topic tags.
+- Output valid JSON only: an array of objects with keys "front", "back", "confidence", "tags".
+"""
+
+CARD_GENERATION_USER_TEMPLATE = """\
+Document: {title}
+Page range: {page_range}
+Source quote: {quote}
+
+Generate flashcard candidates from this passage. Output a JSON array only.
+"""
+
+
+def _compute_dedupe_key(document_id: str, anchor_id: str | None, front: str, back: str) -> str:
+    payload = f"{document_id}::{anchor_id or 'doc'}::{front.strip().lower()}::{back.strip().lower()}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _try_langchain_generation(
+    config: dict, api_key: str, chunks: list[dict], anchors: list[dict],
+    document: dict, run_id: str, max_candidates: int, host: HostGatewayClient,
+) -> int:
+    """Attempt LangChain-based generation. Returns number of candidates persisted."""
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_openai import ChatOpenAI
+    except ImportError:
+        logger.warning("LangChain not installed, falling back to rule-based generation")
+        return 0
+
+    provider = config.get("provider", "openai")
+    model_name = config.get("model") or ("gpt-4o-mini" if provider == "openai" else "claude-3-5-haiku-20241022")
+    base_url = config.get("baseUrl")
+
+    llm_kwargs: dict[str, Any] = {"model": model_name, "api_key": api_key, "temperature": 0.4}
+    if base_url:
+        llm_kwargs["base_url"] = base_url
+
+    if provider == "anthropic":
+        try:
+            from langchain_anthropic import ChatAnthropic
+            llm = ChatAnthropic(model=model_name, api_key=api_key, temperature=0.4, base_url=base_url)
+        except ImportError:
+            logger.warning("langchain-anthropic not installed, using OpenAI-compatible endpoint")
+            llm = ChatOpenAI(**llm_kwargs)
+    else:
+        llm = ChatOpenAI(**llm_kwargs)
+
+    anchor_by_hash = {a.get("hash", ""): a for a in anchors if a.get("hash")}
+    total_persisted = 0
+
+    for chunk in chunks:
+        if total_persisted >= max_candidates:
+            break
+
+        # Find anchor for this chunk
+        anchor = None
+        metadata = chunk.get("metadata") or {}
+        anchor_hashes = metadata.get("anchorHashes", []) if isinstance(metadata, dict) else []
+        for h in anchor_hashes:
+            if h in anchor_by_hash:
+                anchor = anchor_by_hash[h]
+                break
+
+        quote = anchor.get("textQuote", chunk.get("content", ""))[:500] if anchor else chunk.get("content", "")[:500]
+        page_range = f"{chunk.get('pageStart', '?')}-{chunk.get('pageEnd', '?')}"
+
+        prompt = CARD_GENERATION_USER_TEMPLATE.format(
+            title=document.get("title", "Untitled"),
+            page_range=page_range,
+            quote=quote,
+        )
+
+        try:
+            response = llm.invoke([
+                SystemMessage(content=CARD_GENERATION_SYSTEM_PROMPT),
+                HumanMessage(content=prompt),
+            ])
+            raw = response.content
+            # Extract JSON array from response
+            match = re.search(r"\[.*\]", raw, re.DOTALL)
+            if not match:
+                logger.warning("No JSON array found in LLM response for chunk %s", chunk.get("chunkIndex"))
+                continue
+            items = json.loads(match.group())
+        except Exception as exc:
+            logger.error("LLM invocation failed for chunk %s: %s", chunk.get("chunkIndex"), exc)
+            continue
+
+        candidates = []
+        for item in items[:max_candidates - total_persisted]:
+            front = str(item.get("front", "")).strip()
+            back = str(item.get("back", "")).strip()
+            if len(front) < 8 or len(back) < 12:
+                continue
+            confidence = float(item.get("confidence", 0.7))
+            confidence = max(0.0, min(1.0, confidence))
+            tags = item.get("tags", [])
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split(",") if t.strip()]
+            tags = [str(t) for t in tags][:8]
+            if anchor:
+                tags.append(f"page-{anchor.get('page', '?')}")
+
+            dedupe_key = _compute_dedupe_key(
+                document["id"], anchor.get("id") if anchor else None, front, back,
+            )
+            candidates.append({
+                "anchorId": anchor.get("id") if anchor else None,
+                "front": front,
+                "back": back,
+                "confidence": round(confidence, 3),
+                "tags": tags,
+                "dedupeKey": dedupe_key,
+            })
+
+        if candidates:
+            result = host.persist_candidates(run_id, document["id"], candidates)
+            total_persisted += result.get("insertedCount", 0)
+            logger.info(
+                "Persisted %d candidates for chunk %s (%d duplicates skipped)",
+                result.get("insertedCount", 0),
+                chunk.get("chunkIndex"),
+                result.get("duplicateCount", 0),
+            )
+
+    return total_persisted
+
+
+def _rule_based_generation(
+    chunks: list[dict], anchors: list[dict], document: dict,
+    run_id: str, max_candidates: int, host: HostGatewayClient,
+) -> int:
+    """Fallback: rule-based candidate generation (mirrors Rust local rules)."""
+    anchor_by_hash = {a.get("hash", ""): a for a in anchors if a.get("hash")}
+    total_persisted = 0
+
+    for chunk in chunks:
+        if total_persisted >= max_candidates:
+            break
+
+        metadata = chunk.get("metadata") or {}
+        anchor_hashes = metadata.get("anchorHashes", []) if isinstance(metadata, dict) else []
+
+        chunk_anchors = [anchor_by_hash[h] for h in anchor_hashes if h in anchor_by_hash]
+        if not chunk_anchors:
+            # Fallback: find anchors in chunk page range
+            page_start = chunk.get("pageStart")
+            page_end = chunk.get("pageEnd")
+            for a in anchors:
+                if page_start and a.get("page", 0) < page_start:
+                    continue
+                if page_end and a.get("page", 0) > page_end:
+                    continue
+                chunk_anchors.append(a)
+            chunk_anchors.sort(key=lambda a: (a.get("page", 0), a.get("paragraph") or 0))
+
+        candidates = []
+        for anchor in chunk_anchors[:max_candidates - total_persisted]:
+            text = (anchor.get("textQuote") or "").strip()
+            if len(text) < 18:
+                continue
+            front, back, confidence = _extract_flashcard(text, anchor)
+            if not front:
+                continue
+            dedupe_key = _compute_dedupe_key(
+                document["id"], anchor.get("id"), front, back,
+            )
+            tags = [f"page-{anchor.get('page', '?')}"]
+            if anchor.get("paragraph"):
+                tags.append(f"paragraph-{anchor['paragraph']}")
+            candidates.append({
+                "anchorId": anchor.get("id"),
+                "front": front,
+                "back": back,
+                "confidence": round(confidence, 3),
+                "tags": tags,
+                "dedupeKey": dedupe_key,
+            })
+
+        if candidates:
+            result = host.persist_candidates(run_id, document["id"], candidates)
+            total_persisted += result.get("insertedCount", 0)
+
+    return total_persisted
+
+
+def _extract_flashcard(text: str, anchor: dict) -> tuple[str, str, float]:
+    """Rule-based flashcard extraction (mirrors Rust build_flashcard_from_anchor)."""
+    # Chinese definition patterns
+    for marker in ["是指", "指的是", "叫做", "意味着", "是"]:
+        if marker in text:
+            parts = text.split(marker, 1)
+            term = parts[0].strip()
+            definition = parts[1].strip()
+            if 2 <= len(term) <= 32 and len(definition) >= 12:
+                return f"What is {term}?", _truncate(definition, 220), 0.82
+
+    # English "is" definition
+    if " is " in text:
+        parts = text.split(" is ", 1)
+        term = parts[0].strip()
+        definition = parts[1].strip()
+        if 2 <= len(term) <= 32 and len(definition) >= 12:
+            return f"What is {term}?", _truncate(definition, 220), 0.82
+
+    # "contains" pattern
+    if "contains" in text or "包括" in text or "包含" in text:
+        topic = text.split("。")[0].split(".")[0].strip()[:18] or "this passage"
+        return f"What are the key points about {topic}?", _truncate(text, 220), 0.71
+
+    # Default: location-based question
+    page = anchor.get("page", "?")
+    paragraph = anchor.get("paragraph")
+    location = f"Page {page}" + (f", paragraph {paragraph}" if paragraph else "")
+    focus = text.split("。")[0].split(".")[0].strip()[:18] or "this passage"
+    return f"{location}: what is the key idea about {focus}?", _truncate(text, 220), 0.64
+
+
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def run_card_generation_workflow(
+    run_id: str, document_id: str, max_candidates: int, host: HostGatewayClient,
+) -> dict:
+    """Execute the card_generation preset workflow."""
+    document = host.get_document(document_id)
+    if not document:
+        return {"status": "failed", "error": f"Document {document_id} not found"}
+
+    chunks = host.list_chunks(document_id)
+    anchors = host.list_anchors(document_id)
+    if not chunks:
+        return {"status": "failed", "error": "Document has no parsed chunks"}
+
+    # Try AI-based generation first
+    config_with_key = host.get_default_config_with_key()
+    ai_count = 0
+    if config_with_key:
+        config, api_key = config_with_key
+        logger.info(
+            "Using AI model %s (%s) for card generation",
+            config.get("model", "default"),
+            config.get("provider", "openai"),
+        )
+        try:
+            ai_count = _try_langchain_generation(
+                config, api_key, chunks, anchors, document, run_id, max_candidates, host,
+            )
+        except Exception as exc:
+            logger.error("AI generation failed, falling back to rules: %s", exc)
+
+    # If AI produced nothing, fall back to rule-based
+    if ai_count == 0:
+        logger.info("Using rule-based generation (AI unavailable or produced 0 candidates)")
+        ai_count = _rule_based_generation(chunks, anchors, document, run_id, max_candidates, host)
+
+    counts = host.count_candidates(run_id)
+    return {
+        "status": "completed",
+        "generatedCount": ai_count,
+        "totalCandidates": counts.get("total", 0),
+        "pendingCount": counts.get("pending", 0),
+    }
+
+
+# ── HTTP Server ────────────────────────────────────────────
+
+_host_gateway: HostGatewayClient | None = None
 
 
 def build_handler(start_time: float):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "XueJianOrchestration/0.1"
+        server_version = "XueJianOrchestration/0.2"
         protocol_version = "HTTP/1.1"
 
         def log_message(self, format: str, *args) -> None:  # noqa: A003
@@ -27,6 +410,10 @@ def build_handler(start_time: float):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _read_body(self) -> bytes:
+            length = int(self.headers.get("Content-Length", 0))
+            return self.rfile.read(length) if length > 0 else b""
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/health":
@@ -49,12 +436,51 @@ def build_handler(start_time: float):
                         "protocolVersion": PROTOCOL_VERSION,
                         "serviceVersion": SERVICE_VERSION,
                         "service": "python-orchestration",
-                        "capabilities": ["health-check", "preset-workflows"],
+                        "capabilities": ["health-check", "preset-workflows", "card-generation"],
                     },
                 )
                 return
 
             self._write_json(404, {"error": "not_found"})
+
+        def do_POST(self) -> None:  # noqa: N802
+            if self.path == "/workflows/card-generation":
+                self._handle_card_generation()
+                return
+
+            self._write_json(404, {"error": "not_found"})
+
+        def _handle_card_generation(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"error": "host_gateway_unavailable"})
+                return
+
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"error": "invalid_json"})
+                return
+
+            run_id = body.get("runId")
+            document_id = body.get("documentId")
+            max_candidates = int(body.get("maxCandidates", 24))
+
+            if not run_id or not document_id:
+                self._write_json(400, {"error": "missing runId or documentId"})
+                return
+
+            logger.info(
+                "Starting card generation: run=%s doc=%s max=%d",
+                run_id[:8], document_id[:8], max_candidates,
+            )
+            try:
+                result = run_card_generation_workflow(
+                    run_id, document_id, max_candidates, _host_gateway,
+                )
+                self._write_json(200, result)
+            except Exception as exc:
+                logger.error("Card generation workflow failed: %s", exc, exc_info=True)
+                self._write_json(500, {"error": str(exc)})
 
     return Handler
 
@@ -62,13 +488,24 @@ def build_handler(start_time: float):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="XueJian Python orchestration service")
     parser.add_argument("--port", type=int, required=True, help="Local port to bind")
+    parser.add_argument("--host-port", type=int, default=None, help="Host HTTP gateway port")
     return parser.parse_args()
 
 
 def main() -> None:
+    global _host_gateway
+
     args = parse_args()
     start_time = time.monotonic()
+
+    if args.host_port:
+        _host_gateway = HostGatewayClient(f"http://127.0.0.1:{args.host_port}")
+        logger.info("Host gateway client configured at port %d", args.host_port)
+    else:
+        logger.warning("No --host-port provided; workflow endpoints will return 503")
+
     server = ThreadingHTTPServer(("127.0.0.1", args.port), build_handler(start_time))
+    logger.info("Orchestration service listening on 127.0.0.1:%d", args.port)
 
     try:
         server.serve_forever()

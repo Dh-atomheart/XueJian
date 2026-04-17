@@ -12,14 +12,14 @@ Last garden run: `2026-04-17`
 
 | Metric | Score | Notes |
 | --- | --- | --- |
-| Documentation topology | 5 | Layout, frontmatter, links, and truth-source boundaries |
+| Documentation topology | 2 | Layout, frontmatter, links, and truth-source boundaries |
 | Command/source drift | 5 | Shared command surface matches xuejian/package.json |
 | Architecture drift | 5 | Path-level TypeScript and Rust boundaries |
 | Generated artifact freshness | 5 | Generated DB schema matches migrations |
 | Test-and-check clarity | 5 | Workflows and short agent entrypoints remain usable |
 
 ## Signals
-- All current documentation and architecture checks passed.
+- `local_links`: docs\exec-plans\active\m5-study-scheduling.md -> ./m3-card-production-line.md does not resolve; docs\exec-plans\active\v3-1-card-animation.md -> ./m3-card-production-line.md does not resolve; docs\exec-plans\active\v4-3-android-capability-assessment.md -> ./m3-card-production-line.md does not resolve
 
 ## Update Policy
 

@@ -33,15 +33,15 @@ V2 完成后 → V3 阶段可启动
 V3 完成后 → V4 阶段可启动
 ```
 
-当前焦点：**M2 Document Import & Anchors**（下一个待激活）。M1 已归档至 `completed/`。
+当前焦点：**M4 Reading & Sticky Notes**（下一个待激活）。M1、M2、M3 已归档至 `completed/`。
 
 ## 模块计划
 
 ### MVP（当前阶段）
 
 - ~~m1-platform-foundation.md~~ → [已完成](../completed/m1-platform-foundation.md)
-- [m2-document-import-and-anchors.md](./m2-document-import-and-anchors.md) — `draft`
-- [m3-card-production-line.md](./m3-card-production-line.md) — `draft`
+- ~~m2-document-import-and-anchors.md~~ → [已完成](../completed/m2-document-import-and-anchors.md)
+- ~~m3-card-production-line.md~~ → [已完成](../completed/m3-card-production-line.md)
 - [m4-reading-and-sticky-notes.md](./m4-reading-and-sticky-notes.md) — `draft`
 - [m5-study-scheduling.md](./m5-study-scheduling.md) — `draft`
 - [m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md) — `draft`

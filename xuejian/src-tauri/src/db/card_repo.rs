@@ -919,4 +919,142 @@ mod tests {
         assert_eq!(counts.accepted, 1);
         assert_eq!(counts.total, 1);
     }
+
+    #[test]
+    fn bulk_update_candidate_statuses() {
+        let db = test_db();
+        let repo = CardRepository::new(&db);
+        let (document_id, anchor_id) = seed_document_and_anchor(&db);
+
+        let inserted = repo
+            .insert_generated_candidates(vec![
+                CreateCardCandidateRequest {
+                    workflow_run_id: Some("run-bulk".to_string()),
+                    document_id: document_id.clone(),
+                    anchor_id: Some(anchor_id.clone()),
+                    front: "Q1".to_string(),
+                    back: "A1".to_string(),
+                    tags: vec![],
+                    confidence: 0.7,
+                    dedupe_key: "bulk-1".to_string(),
+                },
+                CreateCardCandidateRequest {
+                    workflow_run_id: Some("run-bulk".to_string()),
+                    document_id: document_id.clone(),
+                    anchor_id: Some(anchor_id.clone()),
+                    front: "Q2".to_string(),
+                    back: "A2".to_string(),
+                    tags: vec![],
+                    confidence: 0.8,
+                    dedupe_key: "bulk-2".to_string(),
+                },
+                CreateCardCandidateRequest {
+                    workflow_run_id: Some("run-bulk".to_string()),
+                    document_id: document_id.clone(),
+                    anchor_id: Some(anchor_id.clone()),
+                    front: "Q3".to_string(),
+                    back: "A3".to_string(),
+                    tags: vec![],
+                    confidence: 0.9,
+                    dedupe_key: "bulk-3".to_string(),
+                },
+            ])
+            .expect("insert candidates");
+        assert_eq!(inserted.inserted_count, 3);
+
+        let candidates = repo
+            .list_candidates(Some("run-bulk"), Some(&document_id), None, Some(10))
+            .expect("list candidates");
+        assert_eq!(candidates.len(), 3);
+
+        let ids: Vec<String> = candidates.iter().map(|c| c.id.clone()).collect();
+
+        let affected = repo
+            .update_candidate_statuses("run-bulk", &ids[..2], "accepted")
+            .expect("bulk accept");
+        assert_eq!(affected, 2);
+
+        let affected = repo
+            .update_candidate_statuses("run-bulk", &ids[2..3], "rejected")
+            .expect("bulk reject");
+        assert_eq!(affected, 1);
+
+        let counts = repo
+            .count_candidates_for_run("run-bulk")
+            .expect("count candidates");
+        assert_eq!(counts.accepted, 2);
+        assert_eq!(counts.rejected, 1);
+        assert_eq!(counts.pending, 0);
+    }
+
+    #[test]
+    fn highlight_crud_roundtrip() {
+        let db = test_db();
+        let repo = CardRepository::new(&db);
+        let (document_id, anchor_id) = seed_document_and_anchor(&db);
+
+        let highlight = repo
+            .create_highlight(CreateHighlightRequest {
+                card_id: None,
+                document_id: document_id.clone(),
+                anchor_id: Some(anchor_id.clone()),
+                page_number: 3,
+                rectangles: vec![DocumentAnchorRect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 30.0,
+                }],
+                text_content: "FSRS is a scheduling algorithm".to_string(),
+                color: "#F8E16C".to_string(),
+            })
+            .expect("create highlight");
+
+        assert_eq!(highlight.document_id, document_id);
+        assert_eq!(highlight.page_number, 3);
+        assert_eq!(highlight.rectangles.len(), 1);
+
+        let listed = repo
+            .list_highlights(HighlightFilters {
+                document_id: Some(&document_id),
+                card_id: None,
+                page_number: None,
+                limit: None,
+            })
+            .expect("list highlights");
+        assert_eq!(listed.len(), 1);
+
+        let updated = repo
+            .update_highlight(
+                &highlight.id,
+                UpdateHighlightRequest {
+                    card_id: None,
+                    anchor_id: None,
+                    rectangles: vec![DocumentAnchorRect {
+                        x: 15.0,
+                        y: 25.0,
+                        width: 180.0,
+                        height: 35.0,
+                    }],
+                    text_content: "Updated text".to_string(),
+                    color: "#FF0000".to_string(),
+                },
+            )
+            .expect("update highlight")
+            .unwrap();
+        assert_eq!(updated.text_content, "Updated text");
+        assert_eq!(updated.color, "#FF0000");
+
+        repo.delete_highlight(&highlight.id).expect("delete highlight");
+
+        let after_delete = repo
+            .list_highlights(HighlightFilters {
+                document_id: Some(&document_id),
+                card_id: None,
+                page_number: None,
+                limit: None,
+            })
+            .expect("list after delete");
+        assert!(after_delete.is_empty());
+    }
 }

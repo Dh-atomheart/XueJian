@@ -15,7 +15,7 @@ canonical: true
 ## Depends On
 
 - [../../product-specs/v2.md](../../product-specs/v2.md)
-- [./m2-document-import-and-anchors.md](./m2-document-import-and-anchors.md)
+- [../completed/m2-document-import-and-anchors.md](../completed/m2-document-import-and-anchors.md) ✅
 
 ## Scope
 

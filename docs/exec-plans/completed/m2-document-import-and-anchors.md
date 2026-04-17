@@ -1,6 +1,6 @@
 ---
 title: M2 Document Import And Anchors
-status: active
+status: archived
 owner: app
 last_reviewed: 2026-04-17
 canonical: true

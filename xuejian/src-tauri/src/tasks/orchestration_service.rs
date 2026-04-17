@@ -99,10 +99,10 @@ pub struct OrchestrationService {
 }
 
 impl OrchestrationService {
-    pub fn new(app_handle: &AppHandle) -> Result<Self> {
+    pub fn new(app_handle: &AppHandle, host_gateway_port: Option<u16>) -> Result<Self> {
         let script_path = resolve_script_path(app_handle)?;
         Ok(Self {
-            inner: Mutex::new(OrchestrationServiceManager::new(script_path)),
+            inner: Mutex::new(OrchestrationServiceManager::new(script_path, host_gateway_port)),
         })
     }
 
@@ -125,6 +125,7 @@ impl OrchestrationService {
 
 struct OrchestrationServiceManager {
     script_path: PathBuf,
+    host_gateway_port: Option<u16>,
     process: Option<Child>,
     endpoint: Option<String>,
     started_at: Option<String>,
@@ -132,9 +133,10 @@ struct OrchestrationServiceManager {
 }
 
 impl OrchestrationServiceManager {
-    fn new(script_path: PathBuf) -> Self {
+    fn new(script_path: PathBuf, host_gateway_port: Option<u16>) -> Self {
         Self {
             script_path,
+            host_gateway_port,
             process: None,
             endpoint: None,
             started_at: None,
@@ -159,7 +161,13 @@ impl OrchestrationServiceManager {
             .args(&python.base_args)
             .arg(&self.script_path)
             .arg("--port")
-            .arg(port.to_string())
+            .arg(port.to_string());
+
+        if let Some(host_port) = self.host_gateway_port {
+            command.arg("--host-port").arg(host_port.to_string());
+        }
+
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -389,7 +397,7 @@ mod tests {
     async fn health_roundtrip_succeeds() {
         let script_path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../orchestration_service/main.py");
-        let mut manager = OrchestrationServiceManager::new(script_path);
+        let mut manager = OrchestrationServiceManager::new(script_path, None);
 
         let health = manager.start().await.expect("start service");
         assert_eq!(health.status, "healthy");
