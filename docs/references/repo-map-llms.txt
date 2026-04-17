@@ -1,0 +1,46 @@
+XueJian repo map for coding agents
+
+Primary entrypoints
+- ./AGENTS.md
+- ./ARCHITECTURE.md
+- ./docs/README.md
+- ./xuejian/AGENTS.md
+
+Canonical docs
+- ./docs/product-specs/index.md
+- ./docs/product-specs/mvp.md
+- ./docs/product-specs/v2.md
+- ./docs/product-specs/v3.md
+- ./docs/product-specs/v4.md
+- ./docs/design-docs/README.md
+- ./docs/references/ai-orchestration.md
+- ./docs/QUALITY_SCORE.md
+- ./docs/RELIABILITY.md
+- ./docs/SECURITY.md
+
+Application code map
+- ./xuejian/src/types
+- ./xuejian/src/design-system
+- ./xuejian/src/lib
+- ./xuejian/src/services
+- ./xuejian/src/queries
+- ./xuejian/src/store
+- ./xuejian/src/components
+- ./xuejian/src/features
+- ./xuejian/src-tauri/src/db
+- ./xuejian/src-tauri/src/gateway
+- ./xuejian/src-tauri/src/tasks
+- ./xuejian/src-tauri/src/commands
+
+Generated artifacts
+- ./docs/generated/db-schema.md
+
+Planning workflow
+- Put ongoing work in ./docs/exec-plans/active/
+- Move finished work to ./docs/exec-plans/completed/
+- Track cross-cutting debt in ./docs/exec-plans/tech-debt-tracker.md
+
+Rules
+- Do not treat archive files as canonical truth.
+- Do not hand-edit generated docs.
+- Keep AGENTS files short and navigational.

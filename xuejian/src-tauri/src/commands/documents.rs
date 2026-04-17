@@ -1,9 +1,24 @@
-use tauri::State;
-use crate::commands::{CommandResult, CommandError, AppState};
-use crate::db::{document_repo::CreateDocumentRequest};
+use std::{
+    fs::File,
+    io::Read,
+    path::{Path, PathBuf},
+};
+
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+
+use crate::{
+    commands::{AppState, CommandError, CommandResult},
+    db::{
+        CreateDocumentAnchorRequest, CreateDocumentChunkRequest, CreateDocumentRequest, Document,
+        DocumentAnchor, DocumentChunk, DocumentRepository, ReplaceDocumentAnalysisRequest,
+    },
+};
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentDto {
     pub id: String,
     pub title: String,
@@ -11,12 +26,14 @@ pub struct DocumentDto {
     pub file_type: String,
     pub file_size: Option<i64>,
     pub page_count: Option<i32>,
+    pub content_hash: Option<String>,
     pub status: String,
     pub created_at: String,
+    pub updated_at: String,
 }
 
-impl From<crate::db::document_repo::Document> for DocumentDto {
-    fn from(doc: crate::db::document_repo::Document) -> Self {
+impl From<Document> for DocumentDto {
+    fn from(doc: Document) -> Self {
         Self {
             id: doc.id,
             title: doc.title,
@@ -24,13 +41,105 @@ impl From<crate::db::document_repo::Document> for DocumentDto {
             file_type: doc.file_type,
             file_size: doc.file_size,
             page_count: doc.page_count,
+            content_hash: doc.content_hash,
             status: doc.status,
             created_at: doc.created_at,
+            updated_at: doc.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentAnchorRectDto {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl From<DocumentAnchorRectDto> for crate::db::DocumentAnchorRect {
+    fn from(rect: DocumentAnchorRectDto) -> Self {
+        Self {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }
+    }
+}
+
+impl From<crate::db::DocumentAnchorRect> for DocumentAnchorRectDto {
+    fn from(rect: crate::db::DocumentAnchorRect) -> Self {
+        Self {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentAnchorDto {
+    pub id: String,
+    pub document_id: String,
+    pub page: i32,
+    pub paragraph: Option<i32>,
+    pub text_quote: String,
+    pub rects: Vec<DocumentAnchorRectDto>,
+    pub hash: String,
+    pub created_at: String,
+}
+
+impl From<DocumentAnchor> for DocumentAnchorDto {
+    fn from(anchor: DocumentAnchor) -> Self {
+        Self {
+            id: anchor.id,
+            document_id: anchor.document_id,
+            page: anchor.page,
+            paragraph: anchor.paragraph,
+            text_quote: anchor.text_quote,
+            rects: anchor.rects.into_iter().map(Into::into).collect(),
+            hash: anchor.hash,
+            created_at: anchor.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentChunkDto {
+    pub id: String,
+    pub document_id: String,
+    pub page_start: Option<i32>,
+    pub page_end: Option<i32>,
+    pub chunk_index: i32,
+    pub content: String,
+    pub token_count: Option<i32>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: String,
+}
+
+impl From<DocumentChunk> for DocumentChunkDto {
+    fn from(chunk: DocumentChunk) -> Self {
+        Self {
+            id: chunk.id,
+            document_id: chunk.document_id,
+            page_start: chunk.page_start,
+            page_end: chunk.page_end,
+            chunk_index: chunk.chunk_index,
+            content: chunk.content,
+            token_count: chunk.token_count,
+            metadata: chunk.metadata,
+            created_at: chunk.created_at,
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateDocumentDto {
     pub title: String,
     pub file_path: String,
@@ -40,22 +149,50 @@ pub struct CreateDocumentDto {
     pub content_hash: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveDocumentAnchorDto {
+    pub page: i32,
+    pub paragraph: Option<i32>,
+    pub text_quote: String,
+    pub rects: Vec<DocumentAnchorRectDto>,
+    pub hash: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveDocumentChunkDto {
+    pub page_start: Option<i32>,
+    pub page_end: Option<i32>,
+    pub chunk_index: i32,
+    pub content: String,
+    pub token_count: Option<i32>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveDocumentAnalysisDto {
+    pub page_count: i32,
+    pub anchors: Vec<SaveDocumentAnchorDto>,
+    pub chunks: Vec<SaveDocumentChunkDto>,
+}
+
 #[tauri::command]
 pub fn list_documents(
     state: State<'_, AppState>,
     limit: Option<i64>,
 ) -> CommandResult<Vec<DocumentDto>> {
-    let repo = crate::db::document_repo::DocumentRepository::new(&state.db);
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
     let documents = repo.list_all(limit)?;
     Ok(documents.into_iter().map(Into::into).collect())
 }
 
 #[tauri::command]
-pub fn get_document(
-    state: State<'_, AppState>,
-    id: String,
-) -> CommandResult<Option<DocumentDto>> {
-    let repo = crate::db::document_repo::DocumentRepository::new(&state.db);
+pub fn get_document(state: State<'_, AppState>, id: String) -> CommandResult<Option<DocumentDto>> {
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
     let document = repo.find_by_id(&id)?;
     Ok(document.map(Into::into))
 }
@@ -65,7 +202,8 @@ pub fn create_document(
     state: State<'_, AppState>,
     data: CreateDocumentDto,
 ) -> CommandResult<DocumentDto> {
-    let repo = crate::db::document_repo::DocumentRepository::new(&state.db);
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
 
     let req = CreateDocumentRequest {
         title: data.title,
@@ -81,22 +219,288 @@ pub fn create_document(
 }
 
 #[tauri::command]
+pub async fn pick_and_import_pdf_document(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<DocumentDto>> {
+    let Some(file_path) = app
+        .dialog()
+        .file()
+        .add_filter("PDF", &["pdf"])
+        .set_title("Select a PDF document")
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+
+    let source_path = file_path
+        .into_path()
+        .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
+
+    let document = import_pdf_document_from_source(&app, &state, &source_path)?;
+    Ok(Some(document))
+}
+
+#[tauri::command]
+pub fn import_document_from_path(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file_path: String,
+) -> CommandResult<DocumentDto> {
+    import_pdf_document_from_source(&app, &state, Path::new(&file_path))
+}
+
+#[tauri::command]
 pub fn update_document_status(
     state: State<'_, AppState>,
     id: String,
     status: String,
 ) -> CommandResult<()> {
-    let repo = crate::db::document_repo::DocumentRepository::new(&state.db);
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
     repo.update_status(&id, &status)?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn delete_document(
+pub fn save_document_analysis(
     state: State<'_, AppState>,
     id: String,
-) -> CommandResult<()> {
-    let repo = crate::db::document_repo::DocumentRepository::new(&state.db);
+    data: SaveDocumentAnalysisDto,
+) -> CommandResult<DocumentDto> {
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
+
+    let request = ReplaceDocumentAnalysisRequest {
+        page_count: data.page_count,
+        anchors: data
+            .anchors
+            .into_iter()
+            .map(|anchor| CreateDocumentAnchorRequest {
+                page: anchor.page,
+                paragraph: anchor.paragraph,
+                text_quote: anchor.text_quote,
+                rects: anchor.rects.into_iter().map(Into::into).collect(),
+                hash: anchor.hash,
+            })
+            .collect(),
+        chunks: data
+            .chunks
+            .into_iter()
+            .map(|chunk| CreateDocumentChunkRequest {
+                page_start: chunk.page_start,
+                page_end: chunk.page_end,
+                chunk_index: chunk.chunk_index,
+                content: chunk.content,
+                token_count: chunk.token_count,
+                metadata: chunk.metadata,
+            })
+            .collect(),
+    };
+
+    repo.replace_analysis(&id, request)?;
+
+    let document = repo.find_by_id(&id)?.ok_or(CommandError::NotFound)?;
+    Ok(document.into())
+}
+
+#[tauri::command]
+pub fn list_document_anchors(
+    state: State<'_, AppState>,
+    document_id: String,
+) -> CommandResult<Vec<DocumentAnchorDto>> {
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
+    let anchors = repo.list_anchors(&document_id)?;
+    Ok(anchors.into_iter().map(Into::into).collect())
+}
+
+#[tauri::command]
+pub fn list_document_chunks(
+    state: State<'_, AppState>,
+    document_id: String,
+) -> CommandResult<Vec<DocumentChunkDto>> {
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
+    let chunks = repo.list_chunks(&document_id)?;
+    Ok(chunks.into_iter().map(Into::into).collect())
+}
+
+#[tauri::command]
+pub fn read_document_binary(state: State<'_, AppState>, id: String) -> CommandResult<Vec<u8>> {
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
+    let document = repo.find_by_id(&id)?.ok_or(CommandError::NotFound)?;
+
+    std::fs::read(&document.file_path)
+        .map_err(|error| CommandError::Internal(format!("Failed to read document binary: {error}")))
+}
+
+#[tauri::command]
+pub fn delete_document(state: State<'_, AppState>, id: String) -> CommandResult<()> {
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
+    let document = repo.find_by_id(&id)?;
+
     repo.delete(&id)?;
+
+    if let Some(document) = document {
+        let path = PathBuf::from(document.file_path);
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
     Ok(())
+}
+
+fn import_pdf_document_from_source(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    source_path: &Path,
+) -> CommandResult<DocumentDto> {
+    validate_pdf_source(source_path)?;
+
+    let metadata = std::fs::metadata(source_path)
+        .map_err(|error| CommandError::Internal(format!("Failed to read PDF metadata: {error}")))?;
+    let file_size = metadata.len() as i64;
+    let content_hash = compute_file_hash(source_path)?;
+    let target_path = prepare_document_target_path(app, source_path, &content_hash)?;
+
+    if target_path != source_path && !target_path.exists() {
+        std::fs::copy(source_path, &target_path).map_err(|error| {
+            CommandError::Internal(format!(
+                "Failed to copy PDF into application storage: {error}"
+            ))
+        })?;
+    }
+
+    let title = source_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| CommandError::InvalidInput("Invalid PDF file name".to_string()))?;
+
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
+
+    let document = match repo.create(CreateDocumentRequest {
+        title,
+        file_path: target_path.to_string_lossy().to_string(),
+        file_type: "pdf".to_string(),
+        file_size: Some(file_size),
+        page_count: None,
+        content_hash: Some(content_hash),
+    }) {
+        Ok(document) => document,
+        Err(error) => {
+            if target_path.exists() && target_path != source_path {
+                let _ = std::fs::remove_file(&target_path);
+            }
+            return Err(error.into());
+        }
+    };
+
+    Ok(document.into())
+}
+
+fn validate_pdf_source(source_path: &Path) -> CommandResult<()> {
+    if !source_path.exists() {
+        return Err(CommandError::InvalidInput(format!(
+            "PDF file does not exist: {}",
+            source_path.display()
+        )));
+    }
+
+    if !source_path.is_file() {
+        return Err(CommandError::InvalidInput(format!(
+            "Selected path is not a file: {}",
+            source_path.display()
+        )));
+    }
+
+    let extension = source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if extension != "pdf" {
+        return Err(CommandError::InvalidInput(
+            "Only PDF files are supported in MVP".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn prepare_document_target_path(
+    app: &AppHandle,
+    source_path: &Path,
+    content_hash: &str,
+) -> CommandResult<PathBuf> {
+    let documents_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| CommandError::Internal("Failed to resolve app data directory".to_string()))?
+        .join("documents");
+
+    std::fs::create_dir_all(&documents_dir).map_err(|error| {
+        CommandError::Internal(format!(
+            "Failed to create application documents directory: {error}"
+        ))
+    })?;
+
+    let stem = source_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("document");
+    let sanitized_stem = sanitize_file_stem(stem);
+    let hash_prefix: String = content_hash.chars().take(12).collect();
+    let file_name = format!("{hash_prefix}-{sanitized_stem}.pdf");
+
+    Ok(documents_dir.join(file_name))
+}
+
+fn sanitize_file_stem(file_stem: &str) -> String {
+    let mut sanitized = String::with_capacity(file_stem.len());
+
+    for character in file_stem.chars() {
+        if character.is_alphanumeric() {
+            sanitized.push(character);
+        } else if !sanitized.ends_with('-') {
+            sanitized.push('-');
+        }
+    }
+
+    let trimmed = sanitized.trim_matches('-');
+    let truncated: String = trimmed.chars().take(48).collect();
+
+    if truncated.is_empty() {
+        "document".to_string()
+    } else {
+        truncated
+    }
+}
+
+fn compute_file_hash(source_path: &Path) -> CommandResult<String> {
+    let mut file = File::open(source_path).map_err(|error| {
+        CommandError::Internal(format!("Failed to open PDF for hashing: {error}"))
+    })?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 16 * 1024];
+
+    loop {
+        let bytes_read = file
+            .read(&mut buffer)
+            .map_err(|error| CommandError::Internal(format!("Failed to hash PDF file: {error}")))?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
 }

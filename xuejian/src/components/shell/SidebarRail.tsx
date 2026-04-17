@@ -1,10 +1,11 @@
 import { cn } from '@/lib/utils'
-import { useState } from 'react'
+import type { ReactNode } from 'react'
+import { useAppUiStore, type NavItemId } from '@/store'
 
 interface NavItem {
-  id: string
+  id: NavItemId
   label: string
-  icon: React.ReactNode
+  icon: ReactNode
 }
 
 const navItems: NavItem[] = [
@@ -31,7 +32,8 @@ const navItems: NavItem[] = [
 ]
 
 export function SidebarRail() {
-  const [activeItem, setActiveItem] = useState('home')
+  const activeItem = useAppUiStore((state) => state.activeNavItem)
+  const setActiveItem = useAppUiStore((state) => state.setActiveNavItem)
 
   return (
     <nav className="flex w-16 flex-col items-center border-r border-line-soft bg-paper-muted py-4">

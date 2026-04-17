@@ -10,9 +10,9 @@ export interface Document {
   title: string
   filePath: string
   fileType: 'pdf' | 'md' | 'txt' | 'docx'
-  fileSize: number
-  pageCount: number
-  contentHash: string
+  fileSize: number | null
+  pageCount: number | null
+  contentHash: string | null
   status: 'uploading' | 'parsed' | 'indexing' | 'generating' | 'ready' | 'error'
   createdAt: Date
   updatedAt: Date
@@ -50,8 +50,12 @@ export interface DocumentChunk {
 
 export interface CardCandidate {
   id: string
+  workflowRunId: string | null
   documentId: string
   anchorId: string | null
+  sourcePage: number | null
+  sourceParagraph: number | null
+  sourceQuote: string | null
   front: string
   back: string
   tags: string[]
@@ -59,6 +63,13 @@ export interface CardCandidate {
   dedupeKey: string
   status: 'pending' | 'accepted' | 'rejected'
   createdAt: Date
+}
+
+export interface FinalizeCardGenerationResult {
+  createdCount: number
+  skippedDuplicates: number
+  rejectedCount: number
+  run: WorkflowRun
 }
 
 export interface Card {
@@ -137,16 +148,31 @@ export interface DailyStats {
 
 // ==================== API配置相关 ====================
 
-export interface ModelProfile {
+export interface AppSettings {
+  theme: 'default' | 'dark' | 'light'
+  language: 'zh-CN' | 'en-US'
+  dailyNewCardLimit: number
+  reviewTimeLimit: number
+}
+
+export interface ApiConfig {
   id: string
   provider: 'openai' | 'anthropic' | 'custom'
   name: string
-  model: string
+  model: string | null
   baseUrl: string | null
   budgetLimit: number | null
   isDefault: boolean
   isEnabled: boolean
   createdAt: Date
+}
+
+// `ModelProfile` is kept as a compatibility alias for existing code and docs.
+export type ModelProfile = ApiConfig
+
+export interface ApiConnectionTestResult {
+  success: boolean
+  message: string
 }
 
 export interface KnowledgeScope {
@@ -189,9 +215,79 @@ export interface AgentRun {
 
 export interface WorkflowRun {
   id: string
-  type: 'card_generation'
+  workflowType: 'card_generation' | 'knowledge_qa' | 'podcast_generation'
+  presetId: string | null
   status: 'queued' | 'running' | 'waiting_confirmation' | 'completed' | 'failed' | 'cancelled'
-  checkpointRef?: string
-  startedAt?: Date
-  finishedAt?: Date
+  threadId: string
+  checkpointRef: string | null
+  approvalPayload: Record<string, unknown> | null
+  costUsd: number | null
+  errorMessage: string | null
+  startedAt: Date | null
+  finishedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface WorkflowCheckpoint {
+  id: string
+  runId: string
+  checkpointRef: string
+  stepKey: string | null
+  payload: Record<string, unknown>
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface WorkflowEvent {
+  runId: string
+  eventType: 'queued' | 'started' | 'progress' | 'waiting_confirmation' | 'completed' | 'failed'
+  message: string | null
+  progress: number | null
+  payload: Record<string, unknown> | null
+  createdAt: Date
+}
+
+export interface ServiceHealthStatus {
+  status: 'starting' | 'healthy' | 'degraded' | 'stopped'
+  endpoint: string | null
+  protocolVersion: string | null
+  serviceVersion: string | null
+  pid: number | null
+  startedAt: Date | null
+  checkedAt: Date
+  protocolCompatible: boolean
+  errorMessage: string | null
+}
+
+export interface HostGatewayManifest {
+  protocolVersion: string
+  modelGatewayCommands: string[]
+  toolGatewayCommands: string[]
+}
+
+// ==================== 结构化 AI 输出相关 ====================
+
+export interface CardGenerationCandidate {
+  front: string
+  back: string
+  tags: string[]
+  confidence: number
+  sourcePage: number | null
+  sourceParagraph: number | null
+  sourceQuote: string
+}
+
+export interface Citation {
+  documentId: string
+  anchorId: string | null
+  page: number | null
+  quote: string
+  relevanceScore: number | null
+}
+
+export interface RagAnswer {
+  answer: string
+  retrievalMode: 'fts5' | 'hybrid'
+  citations: Citation[]
 }

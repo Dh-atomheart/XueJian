@@ -140,12 +140,14 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures",
+ "iota_stronghold",
  "log",
  "refinery",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -4045,6 +4047,7 @@ dependencies = [
  "fallible-streaming-iterator",
  "hashlink",
  "libsqlite3-sys",
+ "serde_json",
  "smallvec",
 ]
 

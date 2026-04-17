@@ -1,16 +1,17 @@
-use rusqlite::{Connection, Result as SqliteResult};
+use refinery::embed_migrations;
+use rusqlite::Connection;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
-use refinery::config::Config;
-use refinery::embed_migrations;
 
-mod document_repo;
-mod card_repo;
-mod settings_repo;
+pub mod card_repo;
+pub mod document_repo;
+pub mod settings_repo;
+pub mod workflow_repo;
 
-pub use document_repo::*;
 pub use card_repo::*;
+pub use document_repo::*;
 pub use settings_repo::*;
+pub use workflow_repo::*;
 
 embed_migrations!("src/migrations");
 
@@ -52,9 +53,8 @@ impl Database {
         Ok(Self { conn })
     }
 
-    pub fn run_migrations(&self) -> Result<()> {
-        migrations::runner()
-            .run(&mut self.conn)?;
+    pub fn run_migrations(&mut self) -> Result<()> {
+        migrations::runner().run(&mut self.conn)?;
         Ok(())
     }
 
@@ -73,7 +73,7 @@ fn get_db_path(app_handle: &AppHandle) -> Result<PathBuf> {
 }
 
 pub fn init_db(app_handle: &AppHandle) -> Result<Database> {
-    let db = Database::new(app_handle)?;
+    let mut db = Database::new(app_handle)?;
     db.run_migrations()?;
     log::info!("Database initialized successfully");
     Ok(db)

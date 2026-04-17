@@ -1,0 +1,49 @@
+name: Doc Garden
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 1 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  garden:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: xuejian/package-lock.json
+
+      - name: Install app dependencies
+        working-directory: xuejian
+        run: npm ci
+
+      - name: Run doc garden
+        run: python scripts/docs/garden.py
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/doc-garden
+          delete-branch: true
+          commit-message: "docs: run weekly doc garden"
+          title: "docs: weekly doc garden"
+          body-path: docs/generated/doc-garden-pr.md
+          labels: |
+            docs
+            automation

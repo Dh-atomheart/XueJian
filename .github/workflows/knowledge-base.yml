@@ -1,0 +1,46 @@
+name: Knowledge Base Validation
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: xuejian/package-lock.json
+
+      - name: Install app dependencies
+        working-directory: xuejian
+        run: npm ci
+
+      - name: Validate docs
+        run: python scripts/docs/validate.py
+
+      - name: Validate architecture boundaries
+        run: python scripts/docs/check_architecture.py
+
+      - name: Check generated DB schema
+        run: python scripts/docs/generate_db_schema.py --check
+
+      - name: Lint app
+        working-directory: xuejian
+        run: npm run lint
+
+      - name: Test app
+        working-directory: xuejian
+        run: npm run test
