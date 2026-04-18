@@ -4,14 +4,14 @@ status: active
 owner: platform
 last_reviewed: 2026-04-18
 canonical: false
-source_hash: 70db60a158c8dcbb
+source_hash: bc6eba580c152ad5
 ---
 
 # Database Schema
 
 This file is generated from `xuejian/src-tauri/src/migrations/*.sql`.
 
-- Source hash: `70db60a158c8dcbb`
+- Source hash: `bc6eba580c152ad5`
 
 ## Migrations
 - `V1__initial_schema.sql`
@@ -19,6 +19,7 @@ This file is generated from `xuejian/src-tauri/src/migrations/*.sql`.
 - `V3__card_generation_workflow.sql`
 - `V4__points_ledger.sql`
 - `V5__card_animations.sql`
+- `V6__podcast_episodes.sql`
 
 ## Tables
 
@@ -345,6 +346,27 @@ CREATE TABLE IF NOT EXISTS card_animations (
 );
 ```
 
+### V6__podcast_episodes.sql
+
+#### `podcast_episodes`
+
+```sql
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+    id              TEXT PRIMARY KEY,
+    document_id     TEXT REFERENCES documents(id) ON DELETE SET NULL,
+    run_id          TEXT REFERENCES workflow_runs(id) ON DELETE SET NULL,
+    title           TEXT NOT NULL DEFAULT '',
+    scope_description TEXT NOT NULL DEFAULT '',
+    script_json     TEXT NOT NULL DEFAULT '{}',
+    audio_path      TEXT,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'queued',
+    error_message   TEXT,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
 ## Indexes
 
 ### V1__initial_schema.sql
@@ -508,4 +530,24 @@ ON card_animations(status);
 ```sql
 CREATE INDEX IF NOT EXISTS idx_card_animations_run_id
 ON card_animations(run_id);
+```
+
+### V6__podcast_episodes.sql
+
+#### `idx_podcast_episodes_status`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_podcast_episodes_status ON podcast_episodes(status);
+```
+
+#### `idx_podcast_episodes_document_id`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_podcast_episodes_document_id ON podcast_episodes(document_id);
+```
+
+#### `idx_podcast_episodes_run_id`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_podcast_episodes_run_id ON podcast_episodes(run_id);
 ```
