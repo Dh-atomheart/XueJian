@@ -57,7 +57,7 @@ V3 完成后 → V4 阶段可启动
 - ~~m2-document-import-and-anchors.md~~ → [已完成](../completed/m2-document-import-and-anchors.md)
 - ~~m3-card-production-line.md~~ → [已完成](../completed/m3-card-production-line.md)
 - ~~m4-reading-and-sticky-notes.md~~ → [已完成](../completed/m4-reading-and-sticky-notes.md)
-- [m5-study-scheduling.md](./m5-study-scheduling.md) — `draft`
+- [m5-study-scheduling.md](./m5-study-scheduling.md) — `active`
 - [m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md) — `draft`
 
 ### V2（Backlog — MVP 完成后启动）

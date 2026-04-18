@@ -10,10 +10,10 @@ use crate::{
     db::{
         AppendWorkflowEventRequest, Card, CardCandidate, CardCandidateCounts, CardFilters,
         CardRepository, CreateCardCandidateRequest, CreateCardRequest, CreateHighlightRequest,
-        CreateWorkflowRunRequest, Document, DocumentAnchor, DocumentAnchorRect, DocumentChunk,
-        DocumentRepository, Highlight, HighlightFilters, UpdateCardCandidateRequest,
-        UpdateHighlightRequest, UpdateWorkflowRunRequest, UpsertWorkflowCheckpointRequest,
-        WorkflowRepository, WorkflowRun,
+        CreateReviewLogRequest, CreateWorkflowRunRequest, Document, DocumentAnchor,
+        DocumentAnchorRect, DocumentChunk, DocumentRepository, Highlight, HighlightFilters,
+        ReviewLog, UpdateCardCandidateRequest, UpdateHighlightRequest, UpdateWorkflowRunRequest,
+        UpsertWorkflowCheckpointRequest, WorkflowRepository, WorkflowRun,
     },
 };
 
@@ -397,6 +397,110 @@ pub fn update_card_review(
         &data.next_review,
     )?;
     Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewLogDto {
+    pub id: String,
+    pub card_id: String,
+    pub rating: String,
+    pub reviewed_at: String,
+    pub state: String,
+    pub difficulty: f64,
+    pub stability: f64,
+    pub retrievability: Option<f64>,
+    pub next_review: Option<String>,
+    pub interval_days: Option<i32>,
+}
+
+impl From<ReviewLog> for ReviewLogDto {
+    fn from(log: ReviewLog) -> Self {
+        Self {
+            id: log.id,
+            card_id: log.card_id,
+            rating: log.rating,
+            reviewed_at: log.reviewed_at,
+            state: log.state,
+            difficulty: log.difficulty,
+            stability: log.stability,
+            retrievability: log.retrievability,
+            next_review: log.next_review,
+            interval_days: log.interval_days,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateReviewLogDto {
+    pub card_id: String,
+    pub rating: String,
+    pub state: String,
+    pub difficulty: f64,
+    pub stability: f64,
+    pub retrievability: Option<f64>,
+    pub next_review: Option<String>,
+    pub interval_days: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyStatsDto {
+    pub new_cards: i64,
+    pub review_cards: i64,
+}
+
+#[tauri::command]
+pub fn create_review_log(
+    state: State<'_, AppState>,
+    data: CreateReviewLogDto,
+) -> CommandResult<ReviewLogDto> {
+    let valid_ratings = ["again", "hard", "good", "easy"];
+    if !valid_ratings.contains(&data.rating.as_str()) {
+        return Err(CommandError::InvalidInput(format!(
+            "Invalid rating: {}. Expected one of: again, hard, good, easy",
+            data.rating
+        )));
+    }
+
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let log = repo.create_review_log(CreateReviewLogRequest {
+        card_id: data.card_id,
+        rating: data.rating,
+        state: data.state,
+        difficulty: data.difficulty,
+        stability: data.stability,
+        retrievability: data.retrievability,
+        next_review: data.next_review,
+        interval_days: data.interval_days,
+    })?;
+    Ok(log.into())
+}
+
+#[tauri::command]
+pub fn list_review_logs(
+    state: State<'_, AppState>,
+    card_id: Option<String>,
+    limit: Option<i64>,
+) -> CommandResult<Vec<ReviewLogDto>> {
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let logs = repo.list_review_logs(card_id.as_deref(), limit)?;
+    Ok(logs.into_iter().map(Into::into).collect())
+}
+
+#[tauri::command]
+pub fn get_daily_stats(state: State<'_, AppState>) -> CommandResult<DailyStatsDto> {
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let (new_cards, review_cards) = repo.get_daily_stats(&today)?;
+    Ok(DailyStatsDto {
+        new_cards,
+        review_cards,
+    })
 }
 
 #[tauri::command]

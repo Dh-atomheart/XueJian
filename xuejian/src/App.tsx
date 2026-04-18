@@ -1,8 +1,8 @@
 import { AppShell } from '@/components/shell'
 import { DocumentStatusBadge, ImportDocumentButton, StickyNotesPanel } from '@/components/documents'
 import { Button, Divider, Panel } from '@/components/ui'
-import { CardStudioPage } from '@/features/cards'
 import { LibraryPage, ReaderPage } from '@/features/documents'
+import { ReviewPage } from '@/features/review'
 import {
   useHostGatewayManifestQuery,
   useOrchestrationServiceHealthQuery,
@@ -54,7 +54,7 @@ function App() {
   if (activeNavItem === 'learning') {
     return (
       <AppShell>
-        <CardStudioPage />
+        <ReviewPage />
       </AppShell>
     )
   }

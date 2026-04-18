@@ -287,7 +287,25 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       limit
     ),
     list_api_configs: [],
-    get_daily_stats: { newCards: 0, reviewCards: 0, learningTime: 0 },
+    get_daily_stats: { newCards: 2, reviewCards: 0 },
+    list_due_cards: limitItems(
+      mockCards.map(serializeCard),
+      limit
+    ),
+    create_review_log: {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      cardId: MOCK_CARD_IDS[0],
+      rating: 'good',
+      reviewedAt: new Date(MOCK_NOW).toISOString(),
+      state: 'review',
+      difficulty: 0.28,
+      stability: 4.2,
+      retrievability: 0.9,
+      nextReview: new Date(Date.now() + 4 * 86400000).toISOString(),
+      intervalDays: 4,
+    },
+    list_review_logs: [],
+    update_card_review: undefined,
   }
 
   return mockResponses[cmd] as T

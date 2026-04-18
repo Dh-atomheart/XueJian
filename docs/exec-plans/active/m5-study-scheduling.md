@@ -1,8 +1,8 @@
 ---
 title: M5 Study Scheduling
-status: draft
+status: active
 owner: app
-last_reviewed: 2026-04-17
+last_reviewed: 2026-04-18
 canonical: true
 ---
 
@@ -37,10 +37,10 @@ canonical: true
 
 | ID | 验收点 | 状态 |
 |----|--------|------|
-| m5-a1 | 今日待复习和新卡数计算正确 | ⏳ |
-| m5-a2 | 完整评分流程写入 ReviewLog | ⏳ |
-| m5-a3 | 评分后同步更新卡片状态和下次复习时间 | ⏳ |
-| m5-a4 | 学习页保持视觉聚焦 | ⏳ |
+| m5-a1 | 今日待复习和新卡数计算正确 | ✅ |
+| m5-a2 | 完整评分流程写入 ReviewLog | ✅ |
+| m5-a3 | 评分后同步更新卡片状态和下次复习时间 | ✅ |
+| m5-a4 | 学习页保持视觉聚焦 | ✅ |
 
 ## Relevant Files
 

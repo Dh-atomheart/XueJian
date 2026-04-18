@@ -14,6 +14,7 @@ import type {
   Highlight,
   HostGatewayManifest,
   RagAnswer,
+  ReviewLog,
   ServiceHealthStatus,
   WorkflowCheckpoint,
   WorkflowRun,
@@ -173,6 +174,19 @@ export const highlightSchema = z.object({
   color: z.string().min(4),
   createdAt: dateValueSchema,
 }) as z.ZodType<Highlight>
+
+export const reviewLogSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  rating: z.enum(['again', 'hard', 'good', 'easy']),
+  reviewedAt: dateValueSchema,
+  state: z.enum(['new', 'learning', 'review', 'relearning']),
+  difficulty: z.number(),
+  stability: z.number(),
+  retrievability: z.number().nullable(),
+  nextReview: nullableDateValueSchema,
+  intervalDays: z.number().int().nullable(),
+}) as z.ZodType<ReviewLog>
 
 export const workflowEventSchema = z.object({
   runId: z.string().uuid(),

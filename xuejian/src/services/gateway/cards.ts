@@ -4,6 +4,7 @@ import {
   cardCandidateSchema,
   finalizeCardGenerationResultSchema,
   highlightSchema,
+  reviewLogSchema,
   workflowRunSchema,
 } from '@/types'
 import type {
@@ -11,6 +12,7 @@ import type {
   CardCandidate,
   FinalizeCardGenerationResult,
   Highlight,
+  ReviewLog,
   WorkflowRun,
 } from '@/types'
 import { invoke, invokeWithSchema } from './index'
@@ -144,5 +146,48 @@ export const cardsGateway = {
 
   async deleteHighlight(id: string): Promise<void> {
     return invoke<void>('delete_highlight', { id })
+  },
+
+  async listDueCards(limit?: number): Promise<Card[]> {
+    return invokeWithSchema('list_due_cards', z.array(cardSchema), {
+      limit: limit ?? null,
+    })
+  },
+
+  async updateCardReview(
+    id: string,
+    data: {
+      difficulty: number
+      stability: number
+      retrievability: number
+      state: string
+      nextReview: string
+    }
+  ): Promise<void> {
+    return invoke<void>('update_card_review', { id, data })
+  },
+
+  async createReviewLog(data: {
+    cardId: string
+    rating: string
+    state: string
+    difficulty: number
+    stability: number
+    retrievability: number | null
+    nextReview: string | null
+    intervalDays: number | null
+  }): Promise<ReviewLog> {
+    return invokeWithSchema('create_review_log', reviewLogSchema, { data })
+  },
+
+  async listReviewLogs(cardId?: string, limit?: number): Promise<ReviewLog[]> {
+    return invokeWithSchema('list_review_logs', z.array(reviewLogSchema), {
+      cardId: cardId ?? null,
+      limit: limit ?? null,
+    })
+  },
+
+  async getDailyStats(): Promise<{ newCards: number; reviewCards: number }> {
+    return invoke<{ newCards: number; reviewCards: number }>('get_daily_stats')
   },
 }

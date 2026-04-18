@@ -1,5 +1,6 @@
 export * from './cards'
 export * from './documents'
+export * from './learning'
 export * from './orchestration'
 export * from './queryClient'
 export * from './settings'

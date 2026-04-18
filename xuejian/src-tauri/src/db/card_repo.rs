@@ -150,6 +150,33 @@ pub struct HighlightFilters<'a> {
     pub limit: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewLog {
+    pub id: String,
+    pub card_id: String,
+    pub rating: String,
+    pub reviewed_at: String,
+    pub state: String,
+    pub difficulty: f64,
+    pub stability: f64,
+    pub retrievability: Option<f64>,
+    pub next_review: Option<String>,
+    pub interval_days: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateReviewLogRequest {
+    pub card_id: String,
+    pub rating: String,
+    pub state: String,
+    pub difficulty: f64,
+    pub stability: f64,
+    pub retrievability: Option<f64>,
+    pub next_review: Option<String>,
+    pub interval_days: Option<i32>,
+}
+
 pub struct CardRepository<'a> {
     db: &'a Database,
 }
@@ -157,6 +184,82 @@ pub struct CardRepository<'a> {
 impl<'a> CardRepository<'a> {
     pub fn new(db: &'a Database) -> Self {
         Self { db }
+    }
+
+    pub fn create_review_log(&self, req: CreateReviewLogRequest) -> Result<ReviewLog> {
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        self.db.connection().execute(
+            "INSERT INTO review_logs (
+                id, card_id, rating, reviewed_at, state, difficulty, stability,
+                retrievability, next_review, interval_days
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                &id, &req.card_id, &req.rating, &now, &req.state,
+                req.difficulty, req.stability, req.retrievability,
+                req.next_review, req.interval_days,
+            ],
+        )?;
+
+        Ok(ReviewLog {
+            id,
+            card_id: req.card_id,
+            rating: req.rating,
+            reviewed_at: now,
+            state: req.state,
+            difficulty: req.difficulty,
+            stability: req.stability,
+            retrievability: req.retrievability,
+            next_review: req.next_review,
+            interval_days: req.interval_days,
+        })
+    }
+
+    pub fn list_review_logs(&self, card_id: Option<&str>, limit: Option<i64>) -> Result<Vec<ReviewLog>> {
+        let limit = limit.unwrap_or(100);
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, card_id, rating, reviewed_at, state, difficulty, stability,
+                    retrievability, next_review, interval_days
+             FROM review_logs
+             WHERE (?1 IS NULL OR card_id = ?1)
+             ORDER BY reviewed_at DESC
+             LIMIT ?2",
+        )?;
+
+        let logs = stmt.query_map(params![card_id, limit], |row| {
+            Ok(ReviewLog {
+                id: row.get(0)?,
+                card_id: row.get(1)?,
+                rating: row.get(2)?,
+                reviewed_at: row.get(3)?,
+                state: row.get(4)?,
+                difficulty: row.get(5)?,
+                stability: row.get(6)?,
+                retrievability: row.get(7)?,
+                next_review: row.get(8)?,
+                interval_days: row.get(9)?,
+            })
+        })?;
+
+        logs.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn get_daily_stats(&self, date: &str) -> Result<(i64, i64)> {
+        let new_count: i64 = self.db.connection().query_row(
+            "SELECT COUNT(*) FROM cards WHERE state = 'new' AND (next_review IS NULL OR next_review <= ?1)",
+            params![date],
+            |row| row.get(0),
+        )?;
+
+        let review_count: i64 = self.db.connection().query_row(
+            "SELECT COUNT(*) FROM cards WHERE state IN ('learning', 'review', 'relearning') AND next_review <= ?1",
+            params![date],
+            |row| row.get(0),
+        )?;
+
+        Ok((new_count, review_count))
     }
 
     pub fn create(&self, req: CreateCardRequest) -> Result<Card> {
