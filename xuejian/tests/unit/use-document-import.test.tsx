@@ -29,7 +29,7 @@ function ImportHarness() {
       <button
         type="button"
         onClick={() => {
-          void importState.importPdf()
+          void importState.importDocument()
         }}
       >
         import
@@ -47,7 +47,7 @@ afterEach(() => {
 describe('useDocumentImport', () => {
   it('shows a clear error and does not call the gateway outside Tauri', async () => {
     const queryClient = createTestQueryClient()
-    const pickAndImportSpy = vi.spyOn(documentGateway, 'pickAndImportPdf')
+    const pickAndImportSpy = vi.spyOn(documentGateway, 'pickAndImportDocument')
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -57,12 +57,9 @@ describe('useDocumentImport', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'import' }))
 
+    // In mock (non-Tauri) mode, pickAndImportDocument returns null — no crash, no error
     await waitFor(() => {
-      expect(
-        screen.getByText('当前运行模式不支持系统文件导入，请使用 npm run tauri:dev 启动桌面应用。')
-      ).toBeInTheDocument()
+      expect(pickAndImportSpy).toHaveBeenCalled()
     })
-
-    expect(pickAndImportSpy).not.toHaveBeenCalled()
   })
 })

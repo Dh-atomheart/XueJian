@@ -64,7 +64,7 @@ V3 完成后 → V4 阶段可启动
 
 - ~~v2-1-rag.md~~ → [已完成](../completed/v2-1-rag.md)
 - ~~v2-2-points-system.md~~ → [已完成](../completed/v2-2-points-system.md)
-- [v2-3-multi-format-import.md](./v2-3-multi-format-import.md)
+- ~~v2-3-multi-format-import.md~~ → [已完成](../completed/v2-3-multi-format-import.md)
 
 ### V3（Backlog — V2 完成后启动）
 

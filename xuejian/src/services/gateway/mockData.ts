@@ -292,6 +292,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       },
     },
     pick_and_import_pdf_document: null,
+    pick_and_import_document: null,
     import_document_from_path: serializeDocument(mockDocument),
     save_document_analysis: serializeDocument(mockDocument),
     update_document_status: undefined,

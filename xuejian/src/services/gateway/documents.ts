@@ -60,6 +60,10 @@ export const documentGateway = {
     return invokeWithSchema('pick_and_import_pdf_document', documentSchema.nullable())
   },
 
+  async pickAndImportDocument(): Promise<Document | null> {
+    return invokeWithSchema('pick_and_import_document', documentSchema.nullable())
+  },
+
   async importFromPath(filePath: string): Promise<Document> {
     return invokeWithSchema('import_document_from_path', documentSchema, { filePath })
   },

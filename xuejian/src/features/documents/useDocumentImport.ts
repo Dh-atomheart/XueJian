@@ -4,6 +4,8 @@ import type { Document } from '@/types'
 import { documentsQueryKeys } from '@/queries'
 import { documentGateway } from '@/services/gateway/documents'
 import { parsePdfDocument } from '@/services/renderer/pdf'
+import { parseTextDocument } from '@/services/renderer/text'
+import { parseDocxDocument } from '@/services/renderer/docx'
 
 type ImportStage = 'idle' | 'picking' | 'parsing' | 'saving' | 'done' | 'error'
 
@@ -21,15 +23,15 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
   const [warnings, setWarnings] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
 
-  async function importPdf() {
+  async function importDocument() {
     let importedDocument: Document | null = null
     setStage('picking')
-    setMessage('正在选择并复制 PDF...')
+    setMessage('正在选择并复制文档...')
     setWarnings([])
     setError(null)
 
     try {
-      importedDocument = await documentGateway.pickAndImportPdf()
+      importedDocument = await documentGateway.pickAndImportDocument()
 
       if (!importedDocument) {
         setStage('idle')
@@ -39,8 +41,8 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
 
       setStage('parsing')
       setMessage(`正在解析 ${importedDocument.title}`)
-      const bytes = await documentGateway.readBinary(importedDocument.id)
-      const analysis = await parsePdfDocument(importedDocument.id, bytes)
+
+      const analysis = await parseDocumentByType(importedDocument)
 
       await documentGateway.updateStatus(importedDocument.id, 'parsed')
 
@@ -79,12 +81,39 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
     }
   }
 
+  /** @deprecated Use importDocument instead */
+  const importPdf = importDocument
+
   return {
+    importDocument,
     importPdf,
     stage,
     message,
     warnings,
     error,
     isRunning: stage === 'picking' || stage === 'parsing' || stage === 'saving',
+  }
+}
+
+async function parseDocumentByType(document: Document) {
+  const { id, fileType } = document
+
+  switch (fileType) {
+    case 'pdf': {
+      const bytes = await documentGateway.readBinary(id)
+      return parsePdfDocument(id, bytes)
+    }
+    case 'md':
+    case 'txt': {
+      const bytes = await documentGateway.readBinary(id)
+      const text = new TextDecoder('utf-8').decode(bytes)
+      return parseTextDocument(id, text)
+    }
+    case 'docx': {
+      const bytes = await documentGateway.readBinary(id)
+      return parseDocxDocument(id, bytes)
+    }
+    default:
+      throw new Error(`不支持的文档格式: ${fileType}`)
   }
 }

@@ -237,7 +237,30 @@ pub async fn pick_and_import_pdf_document(
         .into_path()
         .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
 
-    let document = import_pdf_document_from_source(&app, &state, &source_path)?;
+    let document = import_document_from_source(&app, &state, &source_path)?;
+    Ok(Some(document))
+}
+
+#[tauri::command]
+pub async fn pick_and_import_document(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<DocumentDto>> {
+    let Some(file_path) = app
+        .dialog()
+        .file()
+        .add_filter("Supported documents", &["pdf", "md", "txt", "docx"])
+        .set_title("Select a document")
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+
+    let source_path = file_path
+        .into_path()
+        .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
+
+    let document = import_document_from_source(&app, &state, &source_path)?;
     Ok(Some(document))
 }
 
@@ -247,7 +270,7 @@ pub fn import_document_from_path(
     state: State<'_, AppState>,
     file_path: String,
 ) -> CommandResult<DocumentDto> {
-    import_pdf_document_from_source(&app, &state, Path::new(&file_path))
+    import_document_from_source(&app, &state, Path::new(&file_path))
 }
 
 #[tauri::command]
@@ -354,23 +377,31 @@ pub fn delete_document(state: State<'_, AppState>, id: String) -> CommandResult<
     Ok(())
 }
 
-fn import_pdf_document_from_source(
+const SUPPORTED_EXTENSIONS: &[&str] = &["pdf", "md", "txt", "docx"];
+
+fn import_document_from_source(
     app: &AppHandle,
     state: &State<'_, AppState>,
     source_path: &Path,
 ) -> CommandResult<DocumentDto> {
-    validate_pdf_source(source_path)?;
+    validate_document_source(source_path)?;
+
+    let extension = source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
 
     let metadata = std::fs::metadata(source_path)
-        .map_err(|error| CommandError::Internal(format!("Failed to read PDF metadata: {error}")))?;
+        .map_err(|error| CommandError::Internal(format!("Failed to read file metadata: {error}")))?;
     let file_size = metadata.len() as i64;
     let content_hash = compute_file_hash(source_path)?;
-    let target_path = prepare_document_target_path(app, source_path, &content_hash)?;
+    let target_path = prepare_document_target_path(app, source_path, &content_hash, &extension)?;
 
     if target_path != source_path && !target_path.exists() {
         std::fs::copy(source_path, &target_path).map_err(|error| {
             CommandError::Internal(format!(
-                "Failed to copy PDF into application storage: {error}"
+                "Failed to copy document into application storage: {error}"
             ))
         })?;
     }
@@ -379,7 +410,7 @@ fn import_pdf_document_from_source(
         .file_name()
         .and_then(|value| value.to_str())
         .map(str::to_string)
-        .ok_or_else(|| CommandError::InvalidInput("Invalid PDF file name".to_string()))?;
+        .ok_or_else(|| CommandError::InvalidInput("Invalid file name".to_string()))?;
 
     let db = state.lock_db()?;
     let repo = DocumentRepository::new(&db);
@@ -387,7 +418,7 @@ fn import_pdf_document_from_source(
     let document = match repo.create(CreateDocumentRequest {
         title,
         file_path: target_path.to_string_lossy().to_string(),
-        file_type: "pdf".to_string(),
+        file_type: extension.clone(),
         file_size: Some(file_size),
         page_count: None,
         content_hash: Some(content_hash),
@@ -404,10 +435,10 @@ fn import_pdf_document_from_source(
     Ok(document.into())
 }
 
-fn validate_pdf_source(source_path: &Path) -> CommandResult<()> {
+fn validate_document_source(source_path: &Path) -> CommandResult<()> {
     if !source_path.exists() {
         return Err(CommandError::InvalidInput(format!(
-            "PDF file does not exist: {}",
+            "File does not exist: {}",
             source_path.display()
         )));
     }
@@ -425,10 +456,11 @@ fn validate_pdf_source(source_path: &Path) -> CommandResult<()> {
         .unwrap_or_default()
         .to_ascii_lowercase();
 
-    if extension != "pdf" {
-        return Err(CommandError::InvalidInput(
-            "Only PDF files are supported in MVP".to_string(),
-        ));
+    if !SUPPORTED_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(CommandError::InvalidInput(format!(
+            "Unsupported file format: .{extension}. Supported: {}",
+            SUPPORTED_EXTENSIONS.join(", ")
+        )));
     }
 
     Ok(())
@@ -438,6 +470,7 @@ fn prepare_document_target_path(
     app: &AppHandle,
     source_path: &Path,
     content_hash: &str,
+    extension: &str,
 ) -> CommandResult<PathBuf> {
     let documents_dir = app
         .path()
@@ -457,7 +490,7 @@ fn prepare_document_target_path(
         .unwrap_or("document");
     let sanitized_stem = sanitize_file_stem(stem);
     let hash_prefix: String = content_hash.chars().take(12).collect();
-    let file_name = format!("{hash_prefix}-{sanitized_stem}.pdf");
+    let file_name = format!("{hash_prefix}-{sanitized_stem}.{extension}");
 
     Ok(documents_dir.join(file_name))
 }
@@ -485,7 +518,7 @@ fn sanitize_file_stem(file_stem: &str) -> String {
 
 fn compute_file_hash(source_path: &Path) -> CommandResult<String> {
     let mut file = File::open(source_path).map_err(|error| {
-        CommandError::Internal(format!("Failed to open PDF for hashing: {error}"))
+        CommandError::Internal(format!("Failed to open file for hashing: {error}"))
     })?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 16 * 1024];
@@ -493,7 +526,7 @@ fn compute_file_hash(source_path: &Path) -> CommandResult<String> {
     loop {
         let bytes_read = file
             .read(&mut buffer)
-            .map_err(|error| CommandError::Internal(format!("Failed to hash PDF file: {error}")))?;
+            .map_err(|error| CommandError::Internal(format!("Failed to hash file: {error}")))?;
 
         if bytes_read == 0 {
             break;

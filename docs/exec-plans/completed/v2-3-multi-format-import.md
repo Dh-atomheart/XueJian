@@ -1,6 +1,6 @@
 ---
 title: V2-3 Multi Format Import
-status: draft
+status: archived
 owner: app
 last_reviewed: 2026-04-17
 canonical: true
@@ -34,17 +34,20 @@ canonical: true
 
 | ID | 验收点 | 状态 |
 |----|--------|------|
-| v2-3-a1 | 新格式走统一文档主链路 | ⏳ |
-| v2-3-a2 | 降级锚点支撑卡片生成和引用 | ⏳ |
-| v2-3-a3 | 错误文件保留明确状态 | ⏳ |
+| v2-3-a1 | 新格式走统一文档主链路 | ✅ |
+| v2-3-a2 | 降级锚点支撑卡片生成和引用 | ✅ |
+| v2-3-a3 | 错误文件保留明确状态 | ✅ |
 
 ## Relevant Files
 
-- `xuejian/src/features/documents/`
-- `xuejian/src/components/documents/`
-- `xuejian/src/services/renderer/`
-- `xuejian/src-tauri/src/commands/documents.rs`
-- `xuejian/src-tauri/src/db/document_repo.rs`
+- `xuejian/src-tauri/src/commands/documents.rs` — generalized import + pick_and_import_document
+- `xuejian/src/services/renderer/text.ts` — MD/TXT parser with degraded anchors
+- `xuejian/src/services/renderer/docx.ts` — DOCX parser (ZIP + XML text extraction)
+- `xuejian/src/features/documents/useDocumentImport.ts` — format-routed importDocument hook
+- `xuejian/src/components/documents/ImportDocumentButton.tsx` — multi-format button
+- `xuejian/src/services/gateway/documents.ts` — pickAndImportDocument gateway
+- `xuejian/src/services/gateway/mockData.ts` — mock for pick_and_import_document
+- `xuejian/tests/services/multi-format-import.test.ts` — acceptance tests
 
 ## Checks
 

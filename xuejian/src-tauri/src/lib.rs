@@ -108,6 +108,7 @@ pub fn run() {
             commands::documents::get_document,
             commands::documents::create_document,
             commands::documents::pick_and_import_pdf_document,
+            commands::documents::pick_and_import_document,
             commands::documents::import_document_from_path,
             commands::documents::update_document_status,
             commands::documents::save_document_analysis,

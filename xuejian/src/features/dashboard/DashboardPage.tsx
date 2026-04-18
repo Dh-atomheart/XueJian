@@ -155,7 +155,7 @@ export function DashboardPage() {
               <ImportDocumentButton
                 onImported={() => setActiveNavItem('library')}
                 showFeedback
-                idleLabel="导入 PDF"
+                idleLabel="导入文档"
                 buttonProps={{
                   variant: 'outline',
                   className: 'w-full justify-start',

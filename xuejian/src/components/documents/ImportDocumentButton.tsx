@@ -14,7 +14,7 @@ export function ImportDocumentButton({
   onImported,
   showFeedback = false,
   buttonProps,
-  idleLabel = '上传 PDF 文档',
+  idleLabel = '导入文档',
 }: ImportDocumentButtonProps) {
   const importState = useDocumentImport({ onImported })
 
@@ -24,7 +24,7 @@ export function ImportDocumentButton({
         {...buttonProps}
         disabled={importState.isRunning || buttonProps?.disabled}
         onClick={() => {
-          void importState.importPdf()
+          void importState.importDocument()
         }}
       >
         {importState.isRunning ? (importState.message ?? '处理中...') : idleLabel}
