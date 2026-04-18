@@ -12,14 +12,14 @@ Last garden run: `2026-04-18`
 
 | Metric | Score | Notes |
 | --- | --- | --- |
-| Documentation topology | 5 | Layout, frontmatter, links, and truth-source boundaries |
+| Documentation topology | 2 | Layout, frontmatter, links, and truth-source boundaries |
 | Command/source drift | 5 | Shared command surface matches xuejian/package.json |
 | Architecture drift | 5 | Path-level TypeScript and Rust boundaries |
 | Generated artifact freshness | 5 | Generated DB schema matches migrations |
 | Test-and-check clarity | 5 | Workflows and short agent entrypoints remain usable |
 
 ## Signals
-- All current documentation and architecture checks passed.
+- `local_links`: docs\exec-plans\active\m6-byok-and-minimal-analytics.md -> ./m5-study-scheduling.md does not resolve; docs\exec-plans\active\v2-2-points-system.md -> ./m5-study-scheduling.md does not resolve; docs\exec-plans\active\v4-3-android-capability-assessment.md -> ./m5-study-scheduling.md does not resolve
 
 ## Update Policy
 

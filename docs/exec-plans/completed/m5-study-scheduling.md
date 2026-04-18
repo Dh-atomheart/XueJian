@@ -1,6 +1,6 @@
 ---
 title: M5 Study Scheduling
-status: active
+status: archived
 owner: app
 last_reviewed: 2026-04-18
 canonical: true

@@ -47,7 +47,7 @@ V2 完成后 → V3 阶段可启动
 V3 完成后 → V4 阶段可启动
 ```
 
-当前焦点：**M5 Study Scheduling**（推荐下一项）。`M6 BYOK & Minimal Analytics` 也已解除阻塞。M1、M2、M3、M4 已归档至 `completed/`。
+当前焦点：**M6 BYOK & Minimal Analytics**（推荐下一项）。M1–M5 已归档至 `completed/`。
 
 ## 模块计划
 
@@ -57,7 +57,7 @@ V3 完成后 → V4 阶段可启动
 - ~~m2-document-import-and-anchors.md~~ → [已完成](../completed/m2-document-import-and-anchors.md)
 - ~~m3-card-production-line.md~~ → [已完成](../completed/m3-card-production-line.md)
 - ~~m4-reading-and-sticky-notes.md~~ → [已完成](../completed/m4-reading-and-sticky-notes.md)
-- [m5-study-scheduling.md](./m5-study-scheduling.md) — `active`
+- ~~m5-study-scheduling.md~~ → [已完成](../completed/m5-study-scheduling.md)
 - [m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md) — `draft`
 
 ### V2（Backlog — MVP 完成后启动）
