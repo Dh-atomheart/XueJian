@@ -3,8 +3,8 @@ import { apiConfigSchema, apiConnectionTestResultSchema } from '@/types'
 import type { ApiConfig, ApiConnectionTestResult, ModelProfile } from '@/types'
 import { invoke, invokeWithSchema } from './index'
 
-type ApiConfigDraft = Omit<ApiConfig, 'id' | 'createdAt'>
-type ApiConfigUpdate = Partial<Omit<ApiConfig, 'id' | 'createdAt'>>
+type ApiConfigDraft = Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredKey'>
+type ApiConfigUpdate = Partial<Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredKey'>>
 
 /**
  * API 配置相关命令。

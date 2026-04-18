@@ -6,37 +6,9 @@ use crate::{
     db::{CreatePointsEntryRequest, PointsEntry, PointsRepository},
 };
 
-// ───── Points calculation rules ─────
-
-const POINTS_AGAIN: i64 = 1;
-const POINTS_HARD: i64 = 5;
-const POINTS_GOOD: i64 = 10;
-const POINTS_EASY: i64 = 15;
-const BONUS_NEW_CARD: i64 = 5;
-
-fn calculate_points(rating: &str, card_state: &str) -> (i64, String) {
-    let base = match rating {
-        "again" => POINTS_AGAIN,
-        "hard" => POINTS_HARD,
-        "good" => POINTS_GOOD,
-        "easy" => POINTS_EASY,
-        _ => 0,
-    };
-
-    let bonus = if card_state == "new" { BONUS_NEW_CARD } else { 0 };
-
-    let tx_type = if card_state == "new" {
-        "review_new"
-    } else {
-        match rating {
-            "easy" => "review_easy",
-            "good" => "review_correct",
-            _ => "review_learning",
-        }
-    };
-
-    (base + bonus, tx_type.to_string())
-}
+const DAILY_FIRST_REVIEW_POINTS: i64 = 10;
+const DAILY_FIRST_REVIEW_TX_TYPE: &str = "daily_first_review";
+const DAILY_FIRST_REVIEW_SCOPE_PREFIX: &str = "daily-first-review";
 
 // ───── DTOs ─────
 
@@ -98,17 +70,22 @@ pub fn record_points(
         )));
     }
 
-    let (points, transaction_type) = calculate_points(&data.rating, &data.card_state);
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let grant_scope = format!("{DAILY_FIRST_REVIEW_SCOPE_PREFIX}:{today}");
 
     let db = state.lock_db()?;
     let repo = PointsRepository::new(&db);
     let entry = repo.create_entry(CreatePointsEntryRequest {
         review_log_id: data.review_log_id,
         card_id: data.card_id,
-        points,
-        transaction_type,
+        points: DAILY_FIRST_REVIEW_POINTS,
+        transaction_type: DAILY_FIRST_REVIEW_TX_TYPE.to_string(),
         rating: data.rating,
-        reason: None,
+        reason: Some(format!(
+            "Daily first review bonus for {today} after a {} card review",
+            data.card_state
+        )),
+        grant_scope: Some(grant_scope),
     })?;
 
     Ok(entry.map(Into::into))

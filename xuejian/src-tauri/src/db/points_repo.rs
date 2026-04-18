@@ -24,6 +24,7 @@ pub struct CreatePointsEntryRequest {
     pub transaction_type: String,
     pub rating: String,
     pub reason: Option<String>,
+    pub grant_scope: Option<String>,
 }
 
 pub struct PointsRepository<'a> {
@@ -42,8 +43,8 @@ impl<'a> PointsRepository<'a> {
 
         let result = self.db.connection().execute(
             "INSERT OR IGNORE INTO points_ledger (
-                id, review_log_id, card_id, points, transaction_type, rating, reason, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                id, review_log_id, card_id, points, transaction_type, rating, reason, grant_scope, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 &id,
                 &req.review_log_id,
@@ -52,6 +53,7 @@ impl<'a> PointsRepository<'a> {
                 &req.transaction_type,
                 &req.rating,
                 &req.reason,
+                &req.grant_scope,
                 &now,
             ],
         )?;

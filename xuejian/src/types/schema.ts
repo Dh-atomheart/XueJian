@@ -70,6 +70,7 @@ export const apiConfigSchema = z.object({
   budgetLimit: z.number().nullable(),
   isDefault: z.boolean(),
   isEnabled: z.boolean(),
+  hasStoredKey: z.boolean(),
   createdAt: dateValueSchema,
 }) as z.ZodType<ApiConfig>
 

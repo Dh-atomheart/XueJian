@@ -45,6 +45,22 @@ describe('model config and connection test', () => {
 
 // @acceptance:m6-a2
 describe('API Key only enters Stronghold', () => {
+  // @acceptance:v4-4-a2
+  it('API config responses expose hasStoredKey without leaking plaintext secrets', async () => {
+    const config = await apiConfigGateway.create({
+      provider: 'openai',
+      name: 'Gate Config',
+      model: 'gpt-4o',
+      baseUrl: null,
+      budgetLimit: null,
+      isDefault: true,
+      isEnabled: true,
+    })
+
+    expect(config.hasStoredKey).toBe(false)
+    expect(config).not.toHaveProperty('apiKey')
+  })
+
   it('storeApiKey sends key via gateway without returning it', async () => {
     const result = await apiConfigGateway.storeApiKey('config-1', 'sk-secret-key')
     // storeApiKey returns void — key is sent to Stronghold only

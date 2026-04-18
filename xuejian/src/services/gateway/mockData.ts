@@ -16,6 +16,13 @@ const MOCK_HIGHLIGHT_IDS = [
   '88888888-8888-4888-8888-888888888888',
 ] as const
 
+const normalizedRect = (x: number, y: number, width: number, height: number) => ({
+  x: x / 612,
+  y: y / 792,
+  width: width / 612,
+  height: height / 792,
+})
+
 const mockDocument: Document = {
   id: MOCK_DOCUMENT_ID,
   title: 'M4 Reader Mock Notes.pdf',
@@ -36,7 +43,7 @@ const mockAnchors: DocumentAnchor[] = [
     page: 1,
     paragraph: 1,
     textQuote: "Chunking keeps the page readable while stable anchors hold the user's place.",
-    rects: [{ x: 72, y: 118, width: 356, height: 18 }],
+    rects: [normalizedRect(72, 118, 356, 18)],
     hash: 'anchor-chunk-reading-flow',
     createdAt: new Date(MOCK_NOW),
   },
@@ -46,7 +53,7 @@ const mockAnchors: DocumentAnchor[] = [
     page: 1,
     paragraph: 2,
     textQuote: 'Sticky notes should sit beside the paper instead of covering the text itself.',
-    rects: [{ x: 72, y: 186, width: 372, height: 18 }],
+    rects: [normalizedRect(72, 186, 372, 18)],
     hash: 'anchor-sticky-rail-layout',
     createdAt: new Date(MOCK_NOW),
   },
@@ -77,7 +84,7 @@ const mockCards: Card[] = [
     back: '因为卡片与原文的双向跳转必须建立在稳定位置之上，否则定位会漂移。',
     sourcePage: 1,
     sourceParagraph: 1,
-    sourceCoordinates: { x: 72, y: 118, width: 356, height: 18 },
+    sourceCoordinates: normalizedRect(72, 118, 356, 18),
     tags: ['m4', 'reader'],
     difficulty: 0.28,
     stability: 2.1,
@@ -96,7 +103,7 @@ const mockCards: Card[] = [
     back: '右侧贴笺栏可以保持上下文可见，同时避免遮挡正文与文本选择。',
     sourcePage: 1,
     sourceParagraph: 2,
-    sourceCoordinates: { x: 72, y: 186, width: 372, height: 18 },
+    sourceCoordinates: normalizedRect(72, 186, 372, 18),
     tags: ['m4', 'layout'],
     difficulty: 0.32,
     stability: 2.4,
@@ -115,7 +122,7 @@ const mockHighlights: Highlight[] = [
     documentId: MOCK_DOCUMENT_ID,
     anchorId: MOCK_ANCHOR_IDS[0],
     pageNumber: 1,
-    rectangles: [{ x: 72, y: 118, width: 356, height: 18 }],
+    rectangles: [normalizedRect(72, 118, 356, 18)],
     textContent: mockAnchors[0].textQuote,
     color: '#F8E16C',
     createdAt: new Date(MOCK_NOW),
@@ -126,7 +133,7 @@ const mockHighlights: Highlight[] = [
     documentId: MOCK_DOCUMENT_ID,
     anchorId: MOCK_ANCHOR_IDS[1],
     pageNumber: 1,
-    rectangles: [{ x: 72, y: 186, width: 372, height: 18 }],
+    rectangles: [normalizedRect(72, 186, 372, 18)],
     textContent: mockAnchors[1].textQuote,
     color: '#C8E6C9',
     createdAt: new Date(MOCK_NOW),
@@ -156,6 +163,8 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   const pageNumber = getNumber(filters?.pageNumber)
   const anchorId = getString(filters?.anchorId)
   const cardId = getString(filters?.cardId)
+  const pointsData = getRecord(args?.data)
+  const reviewLogId = getString(pointsData?.reviewLogId)
 
   if (cmd === 'update_settings') {
     const data = getRecord(args?.data)
@@ -173,6 +182,23 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     }
 
     return mockAppSettings as T
+  }
+
+  if (cmd === 'record_points') {
+    if (reviewLogId === 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') {
+      return {
+        id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        reviewLogId,
+        cardId: MOCK_CARD_IDS[0],
+        points: 10,
+        transactionType: 'daily_first_review',
+        rating: 'good',
+        reason: 'Daily first review bonus for 2026-04-17',
+        createdAt: new Date(MOCK_NOW).toISOString(),
+      } as T
+    }
+
+    return null as T
   }
 
   const mockResponses: Record<string, unknown> = {
@@ -326,6 +352,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       budgetLimit: null,
       isDefault: true,
       isEnabled: true,
+      hasStoredKey: false,
       createdAt: MOCK_NOW,
     },
     update_api_config: {
@@ -337,6 +364,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       budgetLimit: null,
       isDefault: true,
       isEnabled: true,
+      hasStoredKey: false,
       createdAt: MOCK_NOW,
     },
     set_default_api_config: undefined,
@@ -386,25 +414,15 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
-    record_points: {
-      id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
-      reviewLogId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      cardId: MOCK_CARD_IDS[0],
-      points: 10,
-      transactionType: 'review_correct',
-      rating: 'good',
-      reason: null,
-      createdAt: new Date(MOCK_NOW).toISOString(),
-    },
     list_points_ledger: [
       {
         id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
         reviewLogId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         cardId: MOCK_CARD_IDS[0],
         points: 10,
-        transactionType: 'review_correct',
+        transactionType: 'daily_first_review',
         rating: 'good',
-        reason: null,
+        reason: 'Daily first review bonus for 2026-04-17',
         createdAt: new Date(MOCK_NOW).toISOString(),
       },
     ],

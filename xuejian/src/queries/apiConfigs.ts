@@ -14,10 +14,15 @@ export function useApiConfigsQuery() {
   })
 }
 
+export function hasUsableApiConfig(configs: ApiConfig[]): boolean {
+  return configs.some((config) => config.isEnabled && config.hasStoredKey)
+}
+
 export function useCreateApiConfigMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: Omit<ApiConfig, 'id' | 'createdAt'>) => apiConfigGateway.create(data),
+    mutationFn: (data: Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredKey'>) =>
+      apiConfigGateway.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: apiConfigQueryKeys.all })
     },
@@ -32,7 +37,7 @@ export function useUpdateApiConfigMutation() {
       data,
     }: {
       id: string
-      data: Partial<Omit<ApiConfig, 'id' | 'createdAt'>>
+      data: Partial<Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredKey'>>
     }) => apiConfigGateway.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: apiConfigQueryKeys.all })
@@ -61,9 +66,14 @@ export function useSetDefaultApiConfigMutation() {
 }
 
 export function useStoreApiKeyMutation() {
+  const queryClient = useQueryClient()
+
   return useMutation({
     mutationFn: ({ configId, apiKey }: { configId: string; apiKey: string }) =>
       apiConfigGateway.storeApiKey(configId, apiKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: apiConfigQueryKeys.all })
+    },
   })
 }
 

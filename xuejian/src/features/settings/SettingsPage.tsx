@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { appThemeOptions, resolveAppThemeId } from '@/design-system/themes'
 import { Button, Input, Panel } from '@/components/ui'
 import { StudyStatsCard } from '@/components/stats'
 import { cn } from '@/lib/utils'
 import {
+  hasUsableApiConfig,
   useApiConfigsQuery,
   useCreateApiConfigMutation,
   useDeleteApiConfigMutation,
@@ -41,7 +42,11 @@ const THEME_SWATCH_CLASSES: Record<AppThemeId, { paper: string; ink: string; acc
   },
 }
 
-export function SettingsPage() {
+interface SettingsPageProps {
+  forcedOnboarding?: boolean
+}
+
+export function SettingsPage({ forcedOnboarding = false }: SettingsPageProps) {
   const { data: configs = [], isLoading } = useApiConfigsQuery()
   const { data: appSettings } = useAppSettingsQuery()
   const createConfig = useCreateApiConfigMutation()
@@ -51,9 +56,30 @@ export function SettingsPage() {
   const testConn = useTestApiConnectionMutation()
   const updateSettings = useUpdateAppSettingsMutation()
 
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(forcedOnboarding)
+  const [editingKeyConfigId, setEditingKeyConfigId] = useState<string | null>(null)
 
   const currentThemeId = resolveAppThemeId(appSettings?.theme)
+  const hasConfiguredModel = hasUsableApiConfig(configs)
+  const editingKeyConfig = configs.find((config) => config.id === editingKeyConfigId) ?? null
+  const shouldShowCreateForm = forcedOnboarding ? !editingKeyConfig : showForm && !editingKeyConfig
+
+  useEffect(() => {
+    if (forcedOnboarding) {
+      setShowForm(true)
+    }
+  }, [forcedOnboarding])
+
+  useEffect(() => {
+    if (!editingKeyConfigId) {
+      return
+    }
+
+    const matchingConfig = configs.find((config) => config.id === editingKeyConfigId)
+    if (!matchingConfig || matchingConfig.hasStoredKey) {
+      setEditingKeyConfigId(null)
+    }
+  }, [configs, editingKeyConfigId])
 
   const handleThemeChange = useCallback(
     (theme: AppThemeId) => {
@@ -77,17 +103,56 @@ export function SettingsPage() {
         </p>
       </div>
 
+      {forcedOnboarding ? (
+        <Panel variant="paperCard" className="rounded-[24px] border border-highlight-yellow/40 bg-highlight-yellow/10 p-5">
+          <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">First Run Setup</p>
+          <h2 className="mt-2 font-ui text-lg text-ink">先完成模型密钥配置，再进入其他功能</h2>
+          <p className="mt-2 text-sm leading-6 text-ink-muted">
+            学笺依赖本地保存的模型密钥来驱动卡片生成、知识问答和后续 AI 流程。完成至少一个可用配置后，主界面会自动解锁。
+          </p>
+        </Panel>
+      ) : null}
+
       {/* Model configs */}
       <Panel variant="paperCard" className="space-y-4 rounded-[24px] p-6">
         <div className="flex items-center justify-between">
           <h2 className="font-ui text-lg text-ink">模型配置</h2>
-          <Button variant="sketch" size="sm" onClick={() => setShowForm(!showForm)}>
+          <Button
+            variant="sketch"
+            size="sm"
+            data-testid="settings-toggle-add-config"
+            disabled={forcedOnboarding}
+            onClick={() => {
+              setEditingKeyConfigId(null)
+              setShowForm(!showForm)
+            }}
+          >
             {showForm ? '取消' : '添加配置'}
           </Button>
         </div>
 
-        {showForm && (
+        {forcedOnboarding && !hasConfiguredModel ? (
+          <p className="text-xs leading-5 text-ink-soft">
+            Finish one usable model setup before leaving this page. If a config already exists but its key is missing, repair that key here.
+          </p>
+        ) : null}
+
+        {editingKeyConfig ? (
+          <UpdateApiKeyForm
+            config={editingKeyConfig}
+            storeKey={storeKey}
+            testConn={testConn}
+            onSaved={() => {
+              setEditingKeyConfigId(null)
+              setShowForm(false)
+            }}
+            onCancel={() => setEditingKeyConfigId(null)}
+          />
+        ) : null}
+
+        {shouldShowCreateForm && (
           <AddConfigForm
+            forcedOnboarding={forcedOnboarding}
             onCreated={() => setShowForm(false)}
             createConfig={createConfig}
             storeKey={storeKey}
@@ -109,6 +174,11 @@ export function SettingsPage() {
               <ConfigRow
                 key={config.id}
                 config={config}
+                isManagingKey={editingKeyConfigId === config.id}
+                onManageKey={() => {
+                  setEditingKeyConfigId(config.id)
+                  setShowForm(false)
+                }}
                 onSetDefault={() => setDefault.mutate(config.id)}
                 onDelete={() => deleteConfig.mutate(config.id)}
               />
@@ -235,10 +305,14 @@ export function SettingsPage() {
 
 function ConfigRow({
   config,
+  isManagingKey,
+  onManageKey,
   onSetDefault,
   onDelete,
 }: {
   config: ApiConfig
+  isManagingKey: boolean
+  onManageKey: () => void
   onSetDefault: () => void
   onDelete: () => void
 }) {
@@ -250,6 +324,16 @@ function ConfigRow({
           <span className="rounded-full border border-ink/10 bg-paper-muted px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink-soft">
             {config.provider}
           </span>
+          <span
+            className={cn(
+              'rounded-full border px-2 py-0.5 text-[10px]',
+              config.hasStoredKey
+                ? 'border-highlight-green/40 bg-highlight-green/10 text-ink-muted'
+                : 'border-highlight-pink/40 bg-highlight-pink/10 text-ink-muted'
+            )}
+          >
+            {config.hasStoredKey ? '已存密钥' : '缺少密钥'}
+          </span>
           {config.isDefault && (
             <span className="rounded-full border border-highlight-green/40 bg-highlight-green/10 px-2 py-0.5 text-[10px] text-ink-muted">
               默认
@@ -259,6 +343,14 @@ function ConfigRow({
         {config.model && <p className="mt-0.5 text-xs text-ink-soft">{config.model}</p>}
       </div>
       <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          data-testid={`settings-manage-key-${config.id}`}
+          onClick={onManageKey}
+        >
+          {isManagingKey ? 'Editing Key' : config.hasStoredKey ? 'Update Key' : 'Add Key'}
+        </Button>
         {!config.isDefault && (
           <Button variant="ghost" size="sm" onClick={onSetDefault}>
             设为默认
@@ -275,11 +367,13 @@ function ConfigRow({
 /* ------------------------------------------------------------------ */
 
 function AddConfigForm({
+  forcedOnboarding,
   onCreated,
   createConfig,
   storeKey,
   testConn,
 }: {
+  forcedOnboarding: boolean
   onCreated: () => void
   createConfig: ReturnType<typeof useCreateApiConfigMutation>
   storeKey: ReturnType<typeof useStoreApiKeyMutation>
@@ -332,7 +426,16 @@ function AddConfigForm({
   }, [name, apiKey, provider, model, baseUrl, createConfig, storeKey, onCreated])
 
   return (
-    <div className="space-y-3 rounded-xl border border-dashed border-line-soft bg-paper-muted/40 p-4">
+    <div
+      className="space-y-3 rounded-xl border border-dashed border-line-soft bg-paper-muted/40 p-4"
+      data-testid="settings-add-config-form"
+    >
+      {forcedOnboarding ? (
+        <p className="text-xs leading-5 text-ink-soft">
+          Add one working model config first. The app will unlock as soon as the key is stored locally.
+        </p>
+      ) : null}
+
       {/* Provider */}
       <div className="flex gap-2">
         {PROVIDERS.map((p) => (
@@ -356,6 +459,7 @@ function AddConfigForm({
         <div>
           <label className="mb-1 block font-ui text-xs text-ink-soft">配置名称</label>
           <Input
+            data-testid="settings-add-config-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="如: My OpenAI"
@@ -364,6 +468,7 @@ function AddConfigForm({
         <div>
           <label className="mb-1 block font-ui text-xs text-ink-soft">模型</label>
           <Input
+            data-testid="settings-add-config-model"
             value={model}
             onChange={(e) => setModel(e.target.value)}
             placeholder="如: gpt-4o"
@@ -375,6 +480,7 @@ function AddConfigForm({
         <div>
           <label className="mb-1 block font-ui text-xs text-ink-soft">Base URL</label>
           <Input
+            data-testid="settings-add-config-base-url"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="https://api.example.com/v1"
@@ -385,6 +491,7 @@ function AddConfigForm({
       <div>
         <label className="mb-1 block font-ui text-xs text-ink-soft">API Key</label>
         <Input
+          data-testid="settings-add-config-key"
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
@@ -414,6 +521,7 @@ function AddConfigForm({
         <Button
           variant="outline"
           size="sm"
+          data-testid="settings-test-connection"
           onClick={handleTestConnection}
           disabled={!apiKey || isTesting}
         >
@@ -422,10 +530,125 @@ function AddConfigForm({
         <Button
           variant="default"
           size="sm"
+          data-testid="settings-save-config"
           onClick={handleSubmit}
           disabled={!name || !apiKey || createConfig.isPending}
         >
           {createConfig.isPending ? '保存中…' : '保存配置'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function UpdateApiKeyForm({
+  config,
+  storeKey,
+  testConn,
+  onSaved,
+  onCancel,
+}: {
+  config: ApiConfig
+  storeKey: ReturnType<typeof useStoreApiKeyMutation>
+  testConn: ReturnType<typeof useTestApiConnectionMutation>
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [apiKey, setApiKey] = useState('')
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [isTesting, setIsTesting] = useState(false)
+
+  const handleTestConnection = useCallback(async () => {
+    if (!apiKey) return
+
+    setIsTesting(true)
+    setTestResult(null)
+
+    try {
+      const result = await testConn.mutateAsync({
+        provider: config.provider,
+        apiKey,
+        baseUrl: config.baseUrl,
+      })
+      setTestResult(result)
+    } catch {
+      setTestResult({ success: false, message: 'Connection test failed' })
+    } finally {
+      setIsTesting(false)
+    }
+  }, [apiKey, config.baseUrl, config.provider, testConn])
+
+  const handleSubmit = useCallback(async () => {
+    if (!apiKey) return
+
+    try {
+      await storeKey.mutateAsync({ configId: config.id, apiKey })
+      setApiKey('')
+      onSaved()
+    } catch {
+      // mutation error handled by TanStack Query
+    }
+  }, [apiKey, config.id, onSaved, storeKey])
+
+  return (
+    <div
+      className="space-y-3 rounded-xl border border-dashed border-line-soft bg-paper-muted/40 p-4"
+      data-testid="settings-update-key-form"
+    >
+      <div className="space-y-1">
+        <p className="font-ui text-sm text-ink">{config.name}</p>
+        <p className="text-xs text-ink-soft">
+          Update the locally stored API key for {config.provider}
+          {config.model ? ` / ${config.model}` : ''}.
+        </p>
+      </div>
+
+      <div>
+        <label className="mb-1 block font-ui text-xs text-ink-soft">API Key</label>
+        <Input
+          data-testid="settings-update-config-key"
+          type="password"
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+          placeholder="sk-..."
+          autoComplete="off"
+        />
+      </div>
+
+      {testResult ? (
+        <div
+          className={cn(
+            'rounded-lg border px-3 py-2 text-xs',
+            testResult.success
+              ? 'border-highlight-green/40 bg-highlight-green/10 text-ink-muted'
+              : 'border-highlight-pink/40 bg-highlight-pink/10 text-ink-muted'
+          )}
+        >
+          {testResult.message}
+        </div>
+      ) : null}
+
+      <div className="flex items-center gap-3 pt-1">
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="settings-update-test-connection"
+          onClick={handleTestConnection}
+          disabled={!apiKey || isTesting}
+        >
+          {isTesting ? 'Testing...' : 'Test Connection'}
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          data-testid="settings-update-save-key"
+          onClick={handleSubmit}
+          disabled={!apiKey || storeKey.isPending}
+        >
+          {storeKey.isPending ? 'Saving...' : 'Save Key'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
         </Button>
       </div>
     </div>

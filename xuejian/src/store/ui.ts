@@ -39,7 +39,11 @@ export const useAppUiStore = create<AppUiState>((set) => ({
   activeNavItem: 'home',
   isContextRailOpen: true,
   reader: initialReaderState,
-  setActiveNavItem: (activeNavItem) => set({ activeNavItem }),
+  setActiveNavItem: (activeNavItem) =>
+    set((state) => ({
+      activeNavItem,
+      reader: state.reader.documentId ? initialReaderState : state.reader,
+    })),
   setContextRailOpen: (isContextRailOpen) => set({ isContextRailOpen }),
   openReader: (documentId, totalPages) =>
     set({

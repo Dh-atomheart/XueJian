@@ -166,6 +166,7 @@ export interface ApiConfig {
   budgetLimit: number | null
   isDefault: boolean
   isEnabled: boolean
+  hasStoredKey: boolean
   createdAt: Date
 }
 

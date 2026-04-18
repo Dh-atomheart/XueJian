@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { HighlightLayer, PdfPageCanvas, PdfToolbar } from '@/components/documents'
 import { Button, Panel } from '@/components/ui'
+import { resolveReaderRect, type ReaderRect, type ReaderViewport } from '@/lib/readerGeometry'
 import { cn } from '@/lib/utils'
 import {
   useCardsQuery,
@@ -50,6 +51,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
   const [selectionText, setSelectionText] = useState('')
   const [readerNotice, setReaderNotice] = useState<string | null>(null)
   const [showSelectionSaved, setShowSelectionSaved] = useState(false)
+  const [pageViewport, setPageViewport] = useState<ReaderViewport | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -94,9 +96,32 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
     setShowSelectionSaved(false)
   }, [reader.currentPage])
 
+  useEffect(() => {
+    setPageViewport(null)
+  }, [documentId, reader.currentPage, reader.scale])
+
   const currentPageAnchors = useMemo(
     () => anchors.filter((anchor) => anchor.page === reader.currentPage),
     [anchors, reader.currentPage]
+  )
+  const anchorRectsById = useMemo<Record<string, ReaderRect[]>>(
+    () =>
+      Object.fromEntries(
+        currentPageAnchors
+          .filter((anchor) => anchor.rects.length > 0)
+          .map((anchor) => [anchor.id, anchor.rects])
+      ),
+    [currentPageAnchors]
+  )
+  const highlightRectOverrides = useMemo<Record<string, ReaderRect[]>>(
+    () =>
+      Object.fromEntries(
+        highlights.flatMap((highlight) => {
+          const anchorRects = highlight.anchorId ? anchorRectsById[highlight.anchorId] : undefined
+          return anchorRects?.length ? [[highlight.id, anchorRects]] : []
+        })
+      ),
+    [anchorRectsById, highlights]
   )
 
   const selectedCard = useMemo(
@@ -105,22 +130,34 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
   )
 
   const focusRect = useMemo<FocusRect | null>(() => {
-    if (selectedCard?.sourceCoordinates) {
-      return selectedCard.sourceCoordinates
+    if (!pageViewport) {
+      return null
+    }
+
+    const selectedCardRect =
+      (selectedCard?.anchorId ? anchorRectsById[selectedCard.anchorId]?.[0] : undefined) ??
+      selectedCard?.sourceCoordinates
+
+    if (selectedCardRect) {
+      return resolveReaderRect(selectedCardRect, pageViewport)
     }
 
     const activeHighlight = highlights.find((item) => item.id === activeHighlightId)
-    return activeHighlight?.rectangles[0] ?? null
-  }, [activeHighlightId, highlights, selectedCard])
+    const activeHighlightRect =
+      (activeHighlight ? highlightRectOverrides[activeHighlight.id]?.[0] : undefined) ??
+      activeHighlight?.rectangles[0]
+
+    return activeHighlightRect ? resolveReaderRect(activeHighlightRect, pageViewport) : null
+  }, [activeHighlightId, anchorRectsById, highlightRectOverrides, highlights, pageViewport, selectedCard])
 
   useEffect(() => {
     if (!focusRect || !scrollContainerRef.current) {
       return
     }
 
-    const top = Math.max(0, focusRect.y * reader.scale - 120)
+    const top = Math.max(0, focusRect.y - 120)
     scrollContainerRef.current.scrollTo({ top, behavior: 'smooth' })
-  }, [focusRect, reader.scale])
+  }, [focusRect])
 
   useEffect(() => {
     if (selectedCard || activeHighlightId) {
@@ -236,31 +273,33 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                   正在铺开 PDF 纸面...
                 </div>
               ) : (
-                <div className="relative inline-block min-h-[640px] min-w-[560px] rounded-[12px] bg-paper-card shadow-paper">
+                <div className="relative inline-block rounded-[12px] bg-paper-card shadow-paper">
                   <PdfPageCanvas
                     pdfBytes={pdfBytes}
                     pageNumber={reader.currentPage}
                     scale={reader.scale}
                     className="block"
+                    onViewportReady={setPageViewport}
                   />
 
                   <HighlightLayer
                     highlights={highlights}
-                    scale={reader.scale}
+                    highlightRectOverrides={highlightRectOverrides}
+                    viewport={pageViewport}
                     selectedHighlightId={activeHighlightId}
                     onHighlightClick={handleHighlightClick}
                   />
 
                   {focusRect ? (
                     <svg
-                      className="pointer-events-none absolute inset-0 h-full w-full"
+                      className="pointer-events-none absolute inset-0 z-20 h-full w-full"
                       data-testid="reader-focus-target"
                     >
                       <rect
-                        x={focusRect.x * reader.scale}
-                        y={focusRect.y * reader.scale}
-                        width={focusRect.width * reader.scale}
-                        height={focusRect.height * reader.scale}
+                        x={focusRect.x}
+                        y={focusRect.y}
+                        width={focusRect.width}
+                        height={focusRect.height}
                         rx={6}
                         ry={6}
                         fill="rgba(248,225,108,0.14)"

@@ -6,6 +6,14 @@ describe('useAppUiStore', () => {
     useAppUiStore.setState({
       activeNavItem: 'home',
       isContextRailOpen: true,
+      reader: {
+        documentId: null,
+        currentPage: 1,
+        totalPages: 0,
+        scale: 1.25,
+        selectedHighlightId: null,
+        selectedCardId: null,
+      },
     })
   })
 
@@ -19,5 +27,15 @@ describe('useAppUiStore', () => {
     useAppUiStore.getState().setContextRailOpen(false)
 
     expect(useAppUiStore.getState().isContextRailOpen).toBe(false)
+  })
+
+  // @acceptance:v4-4-a3
+  it('clears the active reader session when global navigation changes', () => {
+    useAppUiStore.getState().openReader('doc-1', 12)
+
+    useAppUiStore.getState().setActiveNavItem('knowledge')
+
+    expect(useAppUiStore.getState().activeNavItem).toBe('knowledge')
+    expect(useAppUiStore.getState().reader.documentId).toBeNull()
   })
 })

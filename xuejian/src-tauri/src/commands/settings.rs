@@ -6,6 +6,7 @@ use crate::{
     db::{
         ApiConfig, AppSettings, CreateApiConfigRequest, SettingsRepository, UpdateApiConfigRequest,
     },
+    secrets::SecretStore,
 };
 
 #[derive(Debug, Serialize)]
@@ -19,11 +20,27 @@ pub struct ApiConfigDto {
     pub budget_limit: Option<f64>,
     pub is_enabled: bool,
     pub is_default: bool,
+    pub has_stored_key: bool,
     pub created_at: String,
 }
 
-impl From<ApiConfig> for ApiConfigDto {
-    fn from(config: ApiConfig) -> Self {
+fn api_config_to_dto(config: ApiConfig, secrets: &SecretStore) -> CommandResult<ApiConfigDto> {
+    Ok(ApiConfigDto {
+        has_stored_key: secrets.has_api_key(&config.id)?,
+        id: config.id,
+        provider: config.provider,
+        name: config.name,
+        base_url: config.base_url,
+        model: config.model,
+        budget_limit: config.budget_limit,
+        is_enabled: config.is_enabled,
+        is_default: config.is_default,
+        created_at: config.created_at,
+    })
+}
+
+impl ApiConfigDto {
+    fn from_config_without_key(config: ApiConfig) -> Self {
         Self {
             id: config.id,
             provider: config.provider,
@@ -33,6 +50,7 @@ impl From<ApiConfig> for ApiConfigDto {
             budget_limit: config.budget_limit,
             is_enabled: config.is_enabled,
             is_default: config.is_default,
+            has_stored_key: false,
             created_at: config.created_at,
         }
     }
@@ -138,10 +156,17 @@ pub fn update_settings(
 
 #[tauri::command]
 pub fn list_api_configs(state: State<'_, AppState>) -> CommandResult<Vec<ApiConfigDto>> {
-    let db = state.lock_db()?;
-    let repo = SettingsRepository::new(&db);
-    let configs = repo.list_api_configs()?;
-    Ok(configs.into_iter().map(Into::into).collect())
+    let configs = {
+        let db = state.lock_db()?;
+        let repo = SettingsRepository::new(&db);
+        repo.list_api_configs()?
+    };
+    let secrets = state.lock_secrets()?;
+
+    configs
+        .into_iter()
+        .map(|config| api_config_to_dto(config, &secrets))
+        .collect()
 }
 
 #[tauri::command]
@@ -149,10 +174,18 @@ pub fn get_api_config(
     state: State<'_, AppState>,
     id: String,
 ) -> CommandResult<Option<ApiConfigDto>> {
-    let db = state.lock_db()?;
-    let repo = SettingsRepository::new(&db);
-    let config = repo.get_api_config(&id)?;
-    Ok(config.map(Into::into))
+    let config = {
+        let db = state.lock_db()?;
+        let repo = SettingsRepository::new(&db);
+        repo.get_api_config(&id)?
+    };
+
+    let Some(config) = config else {
+        return Ok(None);
+    };
+
+    let secrets = state.lock_secrets()?;
+    Ok(Some(api_config_to_dto(config, &secrets)?))
 }
 
 #[tauri::command]
@@ -160,20 +193,23 @@ pub fn create_api_config(
     state: State<'_, AppState>,
     data: CreateApiConfigDto,
 ) -> CommandResult<ApiConfigDto> {
-    let db = state.lock_db()?;
-    let repo = SettingsRepository::new(&db);
+    let config = {
+        let db = state.lock_db()?;
+        let repo = SettingsRepository::new(&db);
 
-    let req = CreateApiConfigRequest {
-        provider: data.provider,
-        name: data.name,
-        base_url: data.base_url,
-        model: data.model,
-        budget_limit: data.budget_limit,
-        is_default: data.is_default,
+        let req = CreateApiConfigRequest {
+            provider: data.provider,
+            name: data.name,
+            base_url: data.base_url,
+            model: data.model,
+            budget_limit: data.budget_limit,
+            is_default: data.is_default,
+        };
+
+        repo.create_api_config(req)?
     };
 
-    let config = repo.create_api_config(req)?;
-    Ok(config.into())
+    Ok(ApiConfigDto::from_config_without_key(config))
 }
 
 #[tauri::command]
@@ -182,23 +218,25 @@ pub fn update_api_config(
     id: String,
     data: UpdateApiConfigDto,
 ) -> CommandResult<ApiConfigDto> {
-    let db = state.lock_db()?;
-    let repo = SettingsRepository::new(&db);
+    let config = {
+        let db = state.lock_db()?;
+        let repo = SettingsRepository::new(&db);
 
-    let req = UpdateApiConfigRequest {
-        provider: data.provider,
-        name: data.name,
-        base_url: data.base_url,
-        model: data.model,
-        budget_limit: data.budget_limit,
-        is_enabled: data.is_enabled,
-        is_default: data.is_default,
+        let req = UpdateApiConfigRequest {
+            provider: data.provider,
+            name: data.name,
+            base_url: data.base_url,
+            model: data.model,
+            budget_limit: data.budget_limit,
+            is_enabled: data.is_enabled,
+            is_default: data.is_default,
+        };
+
+        repo.update_api_config(&id, req)?
+            .ok_or(CommandError::NotFound)?
     };
-
-    let config = repo
-        .update_api_config(&id, req)?
-        .ok_or(CommandError::NotFound)?;
-    Ok(config.into())
+    let secrets = state.lock_secrets()?;
+    api_config_to_dto(config, &secrets)
 }
 
 #[tauri::command]
