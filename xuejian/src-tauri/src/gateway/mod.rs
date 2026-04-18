@@ -47,6 +47,8 @@ pub fn host_gateway_manifest() -> GatewayManifest {
             "start_card_generation_workflow",
             "resume_card_generation_workflow",
             "finalize_card_generation_workflow",
+            "search_knowledge",
+            "start_knowledge_qa_workflow",
         ],
     }
 }

@@ -279,6 +279,16 @@ export const ragAnswerSchema = z.object({
   citations: z.array(citationSchema),
 }) as z.ZodType<RagAnswer>
 
+export const chunkSearchResultSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  chunkIndex: z.number().int(),
+  pageStart: z.number().int().nullable(),
+  pageEnd: z.number().int().nullable(),
+  content: z.string(),
+  snippet: z.string(),
+}) as z.ZodType<import('./document').ChunkSearchResult>
+
 export const agentRunSchema = z.object({
   id: z.string().uuid(),
   presetId: z.string().uuid(),

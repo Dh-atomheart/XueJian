@@ -293,3 +293,13 @@ export interface RagAnswer {
   retrievalMode: 'fts5' | 'hybrid'
   citations: Citation[]
 }
+
+export interface ChunkSearchResult {
+  id: string
+  documentId: string
+  chunkIndex: number
+  pageStart: number | null
+  pageEnd: number | null
+  content: string
+  snippet: string
+}

@@ -1,5 +1,6 @@
 pub mod cards;
 pub mod documents;
+pub mod knowledge;
 pub mod orchestration;
 pub mod settings;
 

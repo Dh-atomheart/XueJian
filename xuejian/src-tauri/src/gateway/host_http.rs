@@ -263,6 +263,18 @@ fn route_request(
             }
         }
 
+        // ── ToolGateway: knowledge search ─────────────────
+        ("POST", "/tool-gateway/search-chunks") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match search_chunks_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
         _ => GatewayResponse::NotFound(json!({"error": "not_found", "path": path}).to_string()),
     }
 }
@@ -402,4 +414,37 @@ fn count_candidates_json(state: &AppState, run_id: &str) -> Result<Value> {
         "accepted": counts.accepted,
         "rejected": counts.rejected,
     }))
+}
+
+fn search_chunks_json(state: &AppState, request: Value) -> Result<Value> {
+    let query = request["query"].as_str().unwrap_or("").to_string();
+    if query.is_empty() {
+        return Ok(json!([]));
+    }
+    let limit = request["limit"].as_i64().unwrap_or(10);
+    let document_ids: Vec<String> = request["documentIds"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let db = state.lock_db()?;
+    let repo = crate::db::DocumentRepository::new(&db);
+
+    let results = if document_ids.is_empty() {
+        repo.search_chunks(&query, Some(limit))?
+    } else {
+        repo.search_chunks_scoped(&query, &document_ids, Some(limit))?
+    };
+
+    Ok(results.into_iter().map(|r| {
+        json!({
+            "id": r.id,
+            "documentId": r.document_id,
+            "chunkIndex": r.chunk_index,
+            "pageStart": r.page_start,
+            "pageEnd": r.page_end,
+            "content": r.content,
+            "snippet": r.snippet,
+        })
+    }).collect::<Vec<_>>().into())
 }

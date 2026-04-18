@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type NavItemId = 'home' | 'library' | 'learning' | 'settings'
+export type NavItemId = 'home' | 'library' | 'learning' | 'knowledge' | 'settings'
 
 interface ReaderState {
   documentId: string | null
@@ -53,7 +53,10 @@ export const useAppUiStore = create<AppUiState>((set) => ({
       reader: {
         ...state.reader,
         totalPages: Math.max(0, totalPages),
-        currentPage: Math.max(1, Math.min(state.reader.currentPage, totalPages || state.reader.currentPage)),
+        currentPage: Math.max(
+          1,
+          Math.min(state.reader.currentPage, totalPages || state.reader.currentPage)
+        ),
       },
     })),
   setReaderPage: (page) =>

@@ -6,6 +6,7 @@ const PAGE_TITLES: Record<NavItemId, string> = {
   home: '首页',
   library: '文档库',
   learning: '学习',
+  knowledge: '知识问答',
   settings: '设置',
 }
 

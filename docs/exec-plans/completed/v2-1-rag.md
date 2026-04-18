@@ -1,8 +1,8 @@
 ---
 title: V2-1 RAG
-status: draft
+status: completed
 owner: platform
-last_reviewed: 2026-04-17
+last_reviewed: 2026-04-18
 canonical: true
 ---
 
@@ -38,20 +38,29 @@ canonical: true
 
 | ID      | 验收点                           | 状态 |
 | ------- | -------------------------------- | ---- |
-| v2-1-a1 | 指定范围内提问获得带引用回答     | ⏳   |
-| v2-1-a2 | 无 embedding 降级为纯 FTS5       | ⏳   |
-| v2-1-a3 | 问答结果不进入通用 agent runtime | ⏳   |
-| v2-1-a4 | 引用可回查文档来源               | ⏳   |
+| v2-1-a1 | 指定范围内提问获得带引用回答     | ✅   |
+| v2-1-a2 | 无 embedding 降级为纯 FTS5       | ✅   |
+| v2-1-a3 | 问答结果不进入通用 agent runtime | ✅   |
+| v2-1-a4 | 引用可回查文档来源               | ✅   |
 
 ## Relevant Files
 
-- `xuejian/src/features/agents/`
-- `xuejian/src/features/documents/`
-- `xuejian/src/services/gateway/orchestration.ts`
-- `xuejian/src/services/gateway/documents.ts`
-- `xuejian/src-tauri/src/db/`
-- `xuejian/src-tauri/src/tasks/`
-- `xuejian/orchestration_service/`
+- `xuejian/src-tauri/src/db/document_repo.rs` — search_chunks_scoped()
+- `xuejian/src-tauri/src/commands/knowledge.rs` — search_knowledge, start_knowledge_qa_workflow
+- `xuejian/src-tauri/src/gateway/host_http.rs` — /tool-gateway/search-chunks endpoint
+- `xuejian/src-tauri/src/gateway/mod.rs` — manifest update
+- `xuejian/orchestration_service/main.py` — knowledge-qa workflow + search_chunks client
+- `xuejian/src/services/gateway/knowledge.ts` — TS gateway service
+- `xuejian/src/queries/knowledge.ts` — TanStack Query hooks
+- `xuejian/src/features/knowledge/KnowledgeQaPage.tsx` — Q&A page
+- `xuejian/src/store/ui.ts` — NavItemId extended
+- `xuejian/src/types/document.ts` — ChunkSearchResult type
+- `xuejian/src/types/schema.ts` — chunkSearchResultSchema
+- `xuejian/src/App.tsx` — knowledge route
+- `xuejian/src/components/shell/SidebarRail.tsx` — knowledge nav item
+- `xuejian/src/components/shell/TopBar.tsx` — page title
+- `xuejian/src/services/gateway/mockData.ts` — mock responses
+- `xuejian/tests/services/gateway/knowledge.test.ts` — acceptance tests
 
 ## Checks
 

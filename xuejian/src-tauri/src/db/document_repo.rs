@@ -369,6 +369,60 @@ impl<'a> DocumentRepository<'a> {
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }
+
+    /// Search chunks via FTS5, scoped to a set of document IDs.
+    pub fn search_chunks_scoped(
+        &self,
+        query: &str,
+        document_ids: &[String],
+        limit: Option<i64>,
+    ) -> Result<Vec<DocumentChunkSearchResult>> {
+        if document_ids.is_empty() {
+            return self.search_chunks(query, limit);
+        }
+
+        let limit = limit.unwrap_or(10);
+        let placeholders: Vec<String> = document_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 3)).collect();
+        let in_clause = placeholders.join(", ");
+
+        let sql = format!(
+            "SELECT c.id, c.document_id, c.chunk_index, c.page_start, c.page_end, c.content,
+                    snippet(document_chunks_fts, 0, '[', ']', '...', 12) AS snippet
+             FROM document_chunks_fts
+             JOIN document_chunks c ON c.rowid = document_chunks_fts.rowid
+             WHERE document_chunks_fts MATCH ?1
+               AND c.document_id IN ({in_clause})
+             ORDER BY bm25(document_chunks_fts)
+             LIMIT ?2"
+        );
+
+        let mut stmt = self.db.connection().prepare(&sql)?;
+
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(query.to_string()));
+        param_values.push(Box::new(limit));
+        for doc_id in document_ids {
+            param_values.push(Box::new(doc_id.clone()));
+        }
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+
+        let chunks = stmt.query_map(&*params_ref, |row| {
+            Ok(DocumentChunkSearchResult {
+                id: row.get(0)?,
+                document_id: row.get(1)?,
+                chunk_index: row.get(2)?,
+                page_start: row.get(3)?,
+                page_end: row.get(4)?,
+                content: row.get(5)?,
+                snippet: row.get(6)?,
+            })
+        })?;
+
+        chunks
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
 }
 
 fn map_document_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {

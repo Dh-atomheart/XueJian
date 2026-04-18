@@ -109,6 +109,13 @@ class HostGatewayClient:
     def count_candidates(self, run_id: str) -> dict:
         return self._get(f"/tool-gateway/candidates/count?runId={run_id}")
 
+    def search_chunks(self, query: str, document_ids: list[str] | None = None, limit: int = 10) -> list[dict]:
+        return self._post("/tool-gateway/search-chunks", {
+            "query": query,
+            "documentIds": document_ids or [],
+            "limit": limit,
+        })
+
 
 # ── Card Generation Workflow ───────────────────────────────
 
@@ -390,6 +397,143 @@ def run_card_generation_workflow(
     }
 
 
+# ── Knowledge Q&A Workflow ─────────────────────────────────
+
+KNOWLEDGE_QA_SYSTEM_PROMPT = """\
+You are a knowledge Q&A assistant for a learning app. Given a user's question and
+retrieved text passages from their documents, provide a concise, accurate answer.
+
+Rules:
+- Base your answer ONLY on the provided passages. If the passages don't contain
+  enough information, say so clearly.
+- After your answer, list the citations used: for each one, output a JSON object
+  with keys "chunkId" (string), "documentId" (string), and "snippet" (string,
+  the relevant excerpt from that passage, max 120 chars).
+- Output your response in this JSON format:
+  {"answer": "...", "citations": [{"chunkId": "...", "documentId": "...", "snippet": "..."}]}
+"""
+
+KNOWLEDGE_QA_USER_TEMPLATE = """\
+Question: {question}
+
+Retrieved passages:
+{passages}
+
+Provide an answer based on these passages, with citations. Output JSON only.
+"""
+
+
+def run_knowledge_qa_workflow(
+    run_id: str, question: str, document_ids: list[str],
+    host: HostGatewayClient,
+) -> dict:
+    """Execute the knowledge_qa preset workflow using FTS5 search + LLM."""
+    # Step 1: Retrieve relevant chunks via FTS5
+    chunks = host.search_chunks(question, document_ids if document_ids else None, limit=8)
+    if not chunks:
+        return {
+            "status": "completed",
+            "answer": {
+                "answer": "No relevant content found for your question in the selected documents.",
+                "retrievalMode": "fts5",
+                "citations": [],
+            },
+        }
+
+    # Step 2: Build context from chunks
+    passages = []
+    for i, chunk in enumerate(chunks):
+        snippet = (chunk.get("snippet") or chunk.get("content", ""))[:500]
+        passages.append(
+            f"[Passage {i + 1}] (doc={chunk.get('documentId', '?')[:8]}, "
+            f"chunk={chunk.get('id', '?')[:8]}, "
+            f"pages={chunk.get('pageStart', '?')}-{chunk.get('pageEnd', '?')})\n{snippet}"
+        )
+    passages_text = "\n\n".join(passages)
+
+    # Step 3: Try LLM-based Q&A
+    config_with_key = host.get_default_config_with_key()
+    if config_with_key:
+        config, api_key = config_with_key
+        try:
+            answer_data = _try_langchain_qa(config, api_key, question, passages_text, chunks)
+            return {
+                "status": "completed",
+                "answer": {
+                    "answer": answer_data.get("answer", ""),
+                    "retrievalMode": "fts5",
+                    "citations": answer_data.get("citations", []),
+                },
+            }
+        except Exception as exc:
+            logger.error("LLM Q&A failed, falling back to excerpt-based answer: %s", exc)
+
+    # Step 4: Fallback — return top chunks as the answer
+    top_chunk = chunks[0]
+    excerpt = (top_chunk.get("snippet") or top_chunk.get("content", ""))[:300]
+    return {
+        "status": "completed",
+        "answer": {
+            "answer": f"Based on your documents, here is the most relevant excerpt:\n\n{excerpt}",
+            "retrievalMode": "fts5",
+            "citations": [{
+                "chunkId": top_chunk.get("id", ""),
+                "documentId": top_chunk.get("documentId", ""),
+                "snippet": excerpt[:120],
+            }],
+        },
+    }
+
+
+def _try_langchain_qa(
+    config: dict, api_key: str, question: str, passages_text: str, chunks: list[dict],
+) -> dict:
+    """Attempt LangChain-based Q&A. Returns dict with answer + citations."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_openai import ChatOpenAI
+
+    provider = config.get("provider", "openai")
+    model_name = config.get("model") or ("gpt-4o-mini" if provider == "openai" else "claude-3-5-haiku-20241022")
+    base_url = config.get("baseUrl")
+
+    llm_kwargs: dict[str, Any] = {"model": model_name, "api_key": api_key, "temperature": 0.3}
+    if base_url:
+        llm_kwargs["base_url"] = base_url
+
+    if provider == "anthropic":
+        try:
+            from langchain_anthropic import ChatAnthropic
+            llm = ChatAnthropic(model=model_name, api_key=api_key, temperature=0.3, base_url=base_url)
+        except ImportError:
+            llm = ChatOpenAI(**llm_kwargs)
+    else:
+        llm = ChatOpenAI(**llm_kwargs)
+
+    prompt = KNOWLEDGE_QA_USER_TEMPLATE.format(question=question, passages=passages_text)
+    response = llm.invoke([
+        SystemMessage(content=KNOWLEDGE_QA_SYSTEM_PROMPT),
+        HumanMessage(content=prompt),
+    ])
+    raw = response.content
+
+    # Parse JSON response
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if match:
+        result = json.loads(match.group())
+        # Validate citations reference real chunks
+        valid_chunk_ids = {c.get("id") for c in chunks}
+        citations = []
+        for cit in result.get("citations", []):
+            chunk_id = cit.get("chunkId", "")
+            if chunk_id in valid_chunk_ids:
+                citations.append(cit)
+        result["citations"] = citations
+        return result
+
+    # If LLM didn't return valid JSON, use the raw text as the answer
+    return {"answer": raw.strip(), "citations": []}
+
+
 # ── HTTP Server ────────────────────────────────────────────
 
 _host_gateway: HostGatewayClient | None = None
@@ -436,7 +580,7 @@ def build_handler(start_time: float):
                         "protocolVersion": PROTOCOL_VERSION,
                         "serviceVersion": SERVICE_VERSION,
                         "service": "python-orchestration",
-                        "capabilities": ["health-check", "preset-workflows", "card-generation"],
+                        "capabilities": ["health-check", "preset-workflows", "card-generation", "knowledge-qa"],
                     },
                 )
                 return
@@ -446,6 +590,10 @@ def build_handler(start_time: float):
         def do_POST(self) -> None:  # noqa: N802
             if self.path == "/workflows/card-generation":
                 self._handle_card_generation()
+                return
+
+            if self.path == "/workflows/knowledge-qa":
+                self._handle_knowledge_qa()
                 return
 
             self._write_json(404, {"error": "not_found"})
@@ -480,6 +628,38 @@ def build_handler(start_time: float):
                 self._write_json(200, result)
             except Exception as exc:
                 logger.error("Card generation workflow failed: %s", exc, exc_info=True)
+                self._write_json(500, {"error": str(exc)})
+
+        def _handle_knowledge_qa(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"error": "host_gateway_unavailable"})
+                return
+
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"error": "invalid_json"})
+                return
+
+            run_id = body.get("runId")
+            question = body.get("question", "").strip()
+            document_ids = body.get("documentIds") or []
+
+            if not run_id or not question:
+                self._write_json(400, {"error": "missing runId or question"})
+                return
+
+            logger.info(
+                "Starting knowledge QA: run=%s question=%s docs=%d",
+                run_id[:8], question[:40], len(document_ids),
+            )
+            try:
+                result = run_knowledge_qa_workflow(
+                    run_id, question, document_ids, _host_gateway,
+                )
+                self._write_json(200, result)
+            except Exception as exc:
+                logger.error("Knowledge QA workflow failed: %s", exc, exc_info=True)
                 self._write_json(500, {"error": str(exc)})
 
     return Handler

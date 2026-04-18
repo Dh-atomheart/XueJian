@@ -2,6 +2,7 @@ import { AppShell } from '@/components/shell'
 import { StickyNotesPanel } from '@/components/documents'
 import { DashboardPage } from '@/features/dashboard'
 import { LibraryPage, ReaderPage } from '@/features/documents'
+import { KnowledgeQaPage } from '@/features/knowledge'
 import { ReviewPage } from '@/features/review'
 import { SettingsPage } from '@/features/settings'
 import { useAppUiStore } from '@/store'
@@ -35,6 +36,14 @@ function App() {
     return (
       <AppShell>
         <ReviewPage />
+      </AppShell>
+    )
+  }
+
+  if (activeNavItem === 'knowledge') {
+    return (
+      <AppShell>
+        <KnowledgeQaPage />
       </AppShell>
     )
   }

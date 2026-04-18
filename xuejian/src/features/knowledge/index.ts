@@ -1,0 +1,1 @@
+export { KnowledgeQaPage } from './KnowledgeQaPage'

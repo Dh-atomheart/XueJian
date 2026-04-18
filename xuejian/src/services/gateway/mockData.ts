@@ -359,6 +359,32 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     },
     list_review_logs: [],
     update_card_review: undefined,
+    search_knowledge: [
+      {
+        id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        documentId: MOCK_DOCUMENT_ID,
+        chunkIndex: 0,
+        pageStart: 1,
+        pageEnd: 1,
+        content: "Chunking keeps the page readable while stable anchors hold the user's place.",
+        snippet: 'Chunking keeps the page readable…',
+      },
+    ],
+    start_knowledge_qa_workflow: {
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      workflowType: 'knowledge_qa',
+      presetId: 'v2-1-knowledge-qa',
+      status: 'queued',
+      threadId: 'knowledge-qa:mock',
+      checkpointRef: 'queued',
+      approvalPayload: null,
+      costUsd: null,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
   }
 
   return mockResponses[cmd] as T
