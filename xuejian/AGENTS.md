@@ -28,10 +28,14 @@ Use this file before changing application code in `xuejian/`.
 - `src/design-system`: visual tokens and surface variants
 - `src/lib`: generic helpers and client-side caches
 - `src/services`: runtime adapters and gateway wrappers
+- `src/services/document-processing`: parsing and `DocumentIR` builders
 - `src/queries`: TanStack Query hooks around services
 - `src/store`: UI state only
 - `src/components`: reusable shell and UI components
+- `src/components/reader`: reader-specific composition and annotation UI
 - `src/features`: feature-owned screens and workflows
+- `src/features/reader`: reader page orchestration
+- `src/features/library`: document library flows
 - `src-tauri/src/db`: SQLite repositories
 - `src-tauri/src/gateway`: host runtime adapters and orchestration protocol constants
 - `src-tauri/src/tasks`: orchestration service lifecycle
@@ -53,6 +57,7 @@ Use this file before changing application code in `xuejian/`.
 - Product scope: [../docs/product-specs/index.md](../docs/product-specs/index.md)
 - Design system: [../docs/design-docs/README.md](../docs/design-docs/README.md)
 - AI orchestration detail: [../docs/references/ai-orchestration.md](../docs/references/ai-orchestration.md)
+- V4-5 architecture guide: [../docs/references/technical-architecture-selection-guide.md](../docs/references/technical-architecture-selection-guide.md)
 
 ## Change Checklist
 

@@ -28,7 +28,7 @@ XueJian is a local-first desktop learning application:
 
 - React + TypeScript renders the desktop UI.
 - Rust + Tauri owns SQLite, Stronghold, file access, and task boundaries.
-- A local Python orchestration service runs preset AI workflows through host-owned gateways.
+- A local Python orchestration service runs LangChain + LangGraph workflows through host-owned gateways.
 
 ## Layer Map
 
@@ -39,7 +39,7 @@ XueJian is a local-first desktop learning application:
 | Types | `xuejian/src/types` | Shared schemas and foundational types |
 | Design tokens | `xuejian/src/design-system` | Static visual tokens and surface variants |
 | Lib | `xuejian/src/lib` | Reusable utilities and client-side caches |
-| Services | `xuejian/src/services` | Runtime adapters, gateway wrappers, PDF helpers |
+| Services | `xuejian/src/services` | Runtime adapters, gateway wrappers, and document-processing helpers |
 | Queries | `xuejian/src/queries` | TanStack Query wrappers around services |
 | Store | `xuejian/src/store` | Local UI state only |
 | Components | `xuejian/src/components` | Reusable shell and UI building blocks |
@@ -51,7 +51,7 @@ XueJian is a local-first desktop learning application:
 | Layer | Path | Responsibility |
 | --- | --- | --- |
 | DB | `xuejian/src-tauri/src/db` | SQLite access and repository functions |
-| Gateway | `xuejian/src-tauri/src/gateway` | Host-owned protocol constants and runtime adapters |
+| Gateway | `xuejian/src-tauri/src/gateway` | Host-owned protocol constants plus model/tool gateway adapters |
 | Secrets | `xuejian/src-tauri/src/secrets` | Stronghold-backed secret handling |
 | Tasks | `xuejian/src-tauri/src/tasks` | Long-running orchestration service lifecycle |
 | Commands | `xuejian/src-tauri/src/commands` | Tauri IPC boundary and outer adapter layer |

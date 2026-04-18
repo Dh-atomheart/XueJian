@@ -155,6 +155,45 @@ body {
   box-shadow: none;
 }
 
+/* Hand-drawn comic-sketch theme enhancements. Only decorative
+   surfaces receive the treatment; body copy and inputs stay clean. */
+[data-theme='comic-sketch'] .sticky-note-card {
+  box-shadow:
+    0 1px 0 rgb(var(--ink) / 0.06),
+    0 8px 18px rgb(var(--ink) / 0.08);
+}
+
+[data-theme='comic-sketch'] .sticky-note-card[data-selected='true'] {
+  box-shadow:
+    inset 0 -2px 0 rgb(var(--ink) / 0.08),
+    0 10px 24px rgb(var(--theme-wash) / 0.22);
+}
+
+[data-theme='comic-sketch'] .heatmap-cell[data-level]:not([data-level='-1']):not([data-level='0']) {
+  outline: 0.5px solid rgb(var(--ink) / 0.28);
+  outline-offset: -0.5px;
+}
+
+/* Hand-drawn underline utility (scoped to comic-sketch). */
+[data-theme='comic-sketch'] .sketch-underline {
+  background-image: linear-gradient(
+    to right,
+    rgb(var(--ink) / 0.45) 0%,
+    rgb(var(--ink) / 0) 100%
+  );
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 100% 1.5px;
+  padding-bottom: 2px;
+}
+
+/* Pinned paper frame used for sketch-mode card surfaces. */
+[data-theme='comic-sketch'] .sketch-frame {
+  box-shadow:
+    inset 0 0 0 0.5px rgb(var(--ink) / 0.35),
+    2px 3px 0 rgb(var(--ink) / 0.08);
+}
+
 .theme-swatch-paper-default {
   background-color: #fbfbf9;
 }

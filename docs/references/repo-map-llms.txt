@@ -14,15 +14,20 @@ Canonical docs
 - ./docs/product-specs/v4.md
 - ./docs/design-docs/README.md
 - ./docs/references/ai-orchestration.md
+- ./docs/references/technical-architecture-selection-guide.md
 - ./docs/QUALITY_SCORE.md
 - ./docs/RELIABILITY.md
 - ./docs/SECURITY.md
 
 Application code map
 - ./xuejian/src/types
+- ./xuejian/src/components/reader
+- ./xuejian/src/features/reader
+- ./xuejian/src/features/library
 - ./xuejian/src/design-system
 - ./xuejian/src/lib
 - ./xuejian/src/services
+- ./xuejian/src/services/document-processing
 - ./xuejian/src/queries
 - ./xuejian/src/store
 - ./xuejian/src/components

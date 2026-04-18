@@ -1,9 +1,16 @@
-import { Button, Panel } from '@/components/ui'
-import { StudyStatsCard } from '@/components/stats'
+import { useMemo } from 'react'
+import { Button, Panel, SketchEmptyState } from '@/components/ui'
+import { HeatmapCalendar, StudyTotalsCard, type HeatmapEntry } from '@/components/stats'
 import { DocumentStatusBadge, ImportDocumentButton } from '@/components/documents'
-import { useDailyStatsQuery, useRecentDocumentsQuery, useApiConfigsQuery } from '@/queries'
+import {
+  useDailyStatsQuery,
+  useRecentDocumentsQuery,
+  useApiConfigsQuery,
+  useReviewLogsQuery,
+} from '@/queries'
 import { usePointsSummaryQuery } from '@/queries/points'
 import { useAppUiStore } from '@/store'
+import type { ReviewLog } from '@/types'
 
 export function DashboardPage() {
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
@@ -12,10 +19,14 @@ export function DashboardPage() {
   const { data: dailyStats } = useDailyStatsQuery()
   const { data: apiConfigs = [] } = useApiConfigsQuery()
   const { data: pointsSummary } = usePointsSummaryQuery()
+  const { data: reviewLogs = [] } = useReviewLogsQuery({ limit: 500 })
 
   const totalDue = (dailyStats?.newCards ?? 0) + (dailyStats?.reviewCards ?? 0)
   const hasApiConfig = apiConfigs.length > 0
   const hasDocuments = recentDocuments.length > 0
+
+  const heatmapEntries = useMemo(() => buildHeatmapEntries(reviewLogs), [reviewLogs])
+  const studyTotals = useMemo(() => computeStudyTotals(reviewLogs), [reviewLogs])
 
   // First-use: no API config yet
   if (!hasApiConfig && !hasDocuments) {
@@ -166,12 +177,99 @@ export function DashboardPage() {
 
           <Panel variant="paperCard" className="rounded-[24px] p-5">
             <h3 className="mb-3 font-ui text-sm text-ink">学习概览</h3>
-            <StudyStatsCard />
+            <StudyTotalsCard
+              todayMinutes={studyTotals.todayMinutes}
+              weekMinutes={studyTotals.weekMinutes}
+              totalMinutes={studyTotals.totalMinutes}
+              streakDays={studyTotals.streakDays}
+              className="grid-cols-2 sm:grid-cols-2 lg:grid-cols-2"
+            />
           </Panel>
         </div>
       </div>
+
+      {/* 学习热力图 */}
+      <Panel variant="paperCard" className="rounded-[24px] p-6">
+        <HeatmapCalendar entries={heatmapEntries} weeks={16} />
+      </Panel>
     </div>
   )
+}
+
+/* ------------------------------------------------------------------ */
+/* Heatmap + totals derivation                                        */
+/* ------------------------------------------------------------------ */
+
+const MINUTES_PER_REVIEW = 0.5
+
+function buildHeatmapEntries(logs: ReviewLog[]): HeatmapEntry[] {
+  const counts = new Map<string, number>()
+  for (const log of logs) {
+    const iso = toIsoLocalDate(log.reviewedAt)
+    counts.set(iso, (counts.get(iso) ?? 0) + 1)
+  }
+  return Array.from(counts.entries()).map(([date, count]) => ({ date, count }))
+}
+
+interface StudyTotals {
+  todayMinutes: number | null
+  weekMinutes: number | null
+  totalMinutes: number | null
+  streakDays: number | null
+}
+
+function computeStudyTotals(logs: ReviewLog[]): StudyTotals {
+  if (logs.length === 0) {
+    return { todayMinutes: null, weekMinutes: null, totalMinutes: null, streakDays: null }
+  }
+
+  const today = startOfLocalDay(new Date())
+  const todayIso = toIsoLocalDate(today)
+  const weekStart = new Date(today)
+  weekStart.setDate(today.getDate() - 6)
+
+  let todayCount = 0
+  let weekCount = 0
+  const activeDays = new Set<string>()
+
+  for (const log of logs) {
+    const iso = toIsoLocalDate(log.reviewedAt)
+    activeDays.add(iso)
+    if (iso === todayIso) todayCount += 1
+    const logDay = startOfLocalDay(log.reviewedAt)
+    if (logDay >= weekStart && logDay <= today) weekCount += 1
+  }
+
+  return {
+    todayMinutes: Math.round(todayCount * MINUTES_PER_REVIEW),
+    weekMinutes: Math.round(weekCount * MINUTES_PER_REVIEW),
+    totalMinutes: Math.round(logs.length * MINUTES_PER_REVIEW),
+    streakDays: computeStreak(activeDays, today),
+  }
+}
+
+function computeStreak(activeDays: Set<string>, today: Date): number {
+  let streak = 0
+  const cursor = new Date(today)
+  while (activeDays.has(toIsoLocalDate(cursor))) {
+    streak += 1
+    cursor.setDate(cursor.getDate() - 1)
+  }
+  return streak
+}
+
+function startOfLocalDay(input: Date): Date {
+  const d = new Date(input)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function toIsoLocalDate(input: Date): string {
+  const d = startOfLocalDay(input)
+  const y = d.getFullYear()
+  const m = `${d.getMonth() + 1}`.padStart(2, '0')
+  const day = `${d.getDate()}`.padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 /* ------------------------------------------------------------------ */
@@ -180,20 +278,24 @@ export function DashboardPage() {
 
 function FirstUseView({ onGoSettings }: { onGoSettings: () => void }) {
   return (
-    <div className="flex h-full items-center justify-center">
-      <Panel variant="paperCard" className="max-w-md rounded-[24px] p-8 text-center">
-        <div className="mb-4 font-display text-3xl text-ink">学笺</div>
-        <p className="mb-2 font-body text-base text-ink">欢迎使用学笺，你的本地学习助手</p>
-        <p className="mb-6 text-sm leading-relaxed text-ink-muted">
-          开始之前，请先配置一个 AI 模型。所有 API Key 仅存储在本地密钥库中，不会离开你的设备。
-        </p>
-        <div className="flex flex-col gap-3">
+    <div className="flex h-full items-center justify-center px-4">
+      <SketchEmptyState
+        illustration="book"
+        title="欢迎使用学笺"
+        description="这是你的本地学习工作台。开始之前请先配置一个 AI 模型，所有 API Key 只会保存在本地密钥库里，不会上云。"
+        className="max-w-md"
+        size="lg"
+        action={
           <Button variant="default" onClick={onGoSettings}>
             前往设置，配置模型
           </Button>
-          <p className="text-xs text-ink-soft">配置完成后，就可以上传 PDF 并开始学习了</p>
-        </div>
-      </Panel>
+        }
+        secondaryAction={
+          <span className="font-ui text-xs text-ink-soft">
+            配置完成后即可导入 PDF 开始学习
+          </span>
+        }
+      />
     </div>
   )
 }
@@ -210,23 +312,26 @@ function EmptyWorkspaceView({
   onImported: () => void
 }) {
   return (
-    <div className="flex h-full items-center justify-center">
-      <Panel variant="paperCard" className="max-w-md rounded-[24px] p-8 text-center">
-        <div className="mb-4 font-display text-2xl text-ink">准备开始</div>
-        <p className="mb-6 text-sm leading-relaxed text-ink-muted">
-          模型已配置好。现在上传你的第一份 PDF，系统会自动解析文档并生成学习卡片。
-        </p>
-        <div className="flex flex-col items-center gap-3">
+    <div className="flex h-full items-center justify-center px-4">
+      <SketchEmptyState
+        illustration="note"
+        title="准备开始"
+        description="模型已配置好。导入第一份文档，系统会自动解析并生成学习卡片。"
+        className="max-w-md"
+        size="lg"
+        action={
           <ImportDocumentButton
             onImported={onImported}
             showFeedback
             buttonProps={{ variant: 'default' }}
           />
+        }
+        secondaryAction={
           <Button variant="ghost" size="sm" onClick={onGoLibrary}>
             前往文档库
           </Button>
-        </div>
-      </Panel>
+        }
+      />
     </div>
   )
 }

@@ -6,74 +6,56 @@ last_reviewed: 2026-04-18
 canonical: true
 ---
 
-# 当前执行计划索引
+# Active Exec Plans
 
-本目录存放“准备执行”或“正在执行”的任务计划。这里的文档不是长期产品规范，而是面向一次实现周期的实施底稿。
+This directory tracks work that is being prepared or actively implemented. These files are not long-lived product specs. They are execution plans tied to a concrete implementation cycle.
 
-## 使用方式
+## Usage
 
-- 新功能、新模块、新一轮重构，先在这里创建或更新计划。
-- 默认先写成 `status: draft`，真正开做后改成 `status: active`。
-- 做完后移动到 `../completed/`，不要长期堆在这里。
+- Create or update a plan here before starting large or cross-cutting work.
+- Start with `status: draft` if the plan is still being shaped.
+- Move the file to `../completed/` after the work is done.
 
-## Tests 章节约定
+## Tests Section Contract
 
-每个计划在 `Acceptance` 后必须有 `## Tests` 表格，用 ID 标记验收点：
+Each plan should include a `## Tests` table after `Acceptance`.
 
-| 列     | 说明                                                  |
-| ------ | ----------------------------------------------------- |
-| ID     | `{plan}-a{n}` 格式的唯一标识（如 `m4-a1`、`v2-1-a3`） |
-| 验收点 | 对应 Acceptance 中的一条标准                          |
-| 状态   | ⏳ 待实现 / ✅ 已通过                                 |
+| Field | Meaning |
+| --- | --- |
+| ID | Stable identifier in the form `{plan}-a{n}` |
+| Acceptance Point | The acceptance line it covers |
+| Status | `Pending`, `In Progress`, or `Passed` |
 
-测试代码中用 `// @acceptance:{id}` 标记关联验收点。Agent 自由决定测试文件位置和类型。
+Use `// @acceptance:{id}` in code where useful. Advisory coverage check:
 
-验收覆盖率检查（advisory）：`python scripts/docs/validate_acceptance.py`
+- `python scripts/docs/validate_acceptance.py`
 
-## 依赖关键路径
+## Plan Index
 
-MVP 模块的执行顺序由依赖关系决定：
+### MVP
 
-```
-M1 Platform Foundation          ← 所有模块的根依赖
-├── M2 Document Import & Anchors
-│   └── M3 Card Production Line
-│       └── M4 Reading & Sticky Notes
-├── M5 Study Scheduling
-└── M6 BYOK & Minimal Analytics
+- ~~m1-platform-foundation.md~~ -> [completed](../completed/m1-platform-foundation.md)
+- ~~m2-document-import-and-anchors.md~~ -> [completed](../completed/m2-document-import-and-anchors.md)
+- ~~m3-card-production-line.md~~ -> [completed](../completed/m3-card-production-line.md)
+- ~~m4-reading-and-sticky-notes.md~~ -> [completed](../completed/m4-reading-and-sticky-notes.md)
+- ~~m5-study-scheduling.md~~ -> [completed](../completed/m5-study-scheduling.md)
+- ~~m6-byok-and-minimal-analytics.md~~ -> [completed](../completed/m6-byok-and-minimal-analytics.md)
 
-M2 + M6 完成后 → V2 阶段可启动
-V2 完成后 → V3 阶段可启动
-V3 完成后 → V4 阶段可启动
-```
+### V2
 
-当前焦点：**V4 阶段**（MVP、V2、V3 已全部完成）。M1–M6、V2、V3 已归档至 `completed/`。
+- ~~v2-1-rag.md~~ -> [completed](../completed/v2-1-rag.md)
+- ~~v2-2-points-system.md~~ -> [completed](../completed/v2-2-points-system.md)
+- ~~v2-3-multi-format-import.md~~ -> [completed](../completed/v2-3-multi-format-import.md)
 
-## 模块计划
+### V3
 
-### MVP（当前阶段）
+- ~~v3-1-card-animation.md~~ -> [completed](../completed/v3-1-card-animation.md)
+- ~~v3-2-ai-podcast.md~~ -> [completed](../completed/v3-2-ai-podcast.md)
 
-- ~~m1-platform-foundation.md~~ → [已完成](../completed/m1-platform-foundation.md)
-- ~~m2-document-import-and-anchors.md~~ → [已完成](../completed/m2-document-import-and-anchors.md)
-- ~~m3-card-production-line.md~~ → [已完成](../completed/m3-card-production-line.md)
-- ~~m4-reading-and-sticky-notes.md~~ → [已完成](../completed/m4-reading-and-sticky-notes.md)
-- ~~m5-study-scheduling.md~~ → [已完成](../completed/m5-study-scheduling.md)
-- ~~m6-byok-and-minimal-analytics.md~~ → [已完成](../completed/m6-byok-and-minimal-analytics.md)
+### V4
 
-### V2（Backlog — MVP 完成后启动）
-
-- ~~v2-1-rag.md~~ → [已完成](../completed/v2-1-rag.md)
-- ~~v2-2-points-system.md~~ → [已完成](../completed/v2-2-points-system.md)
-- ~~v2-3-multi-format-import.md~~ → [已完成](../completed/v2-3-multi-format-import.md)
-
-### V3（Backlog — V2 完成后启动）
-
-- ~~v3-1-card-animation.md~~ → [已完成](../completed/v3-1-card-animation.md)
-- ~~v3-2-ai-podcast.md~~ → [已完成](../completed/v3-2-ai-podcast.md)
-
-### V4（Backlog — V3 完成后启动）
-
-- ~~v4-1-knowledge-graph.md~~ → [已完成](../completed/v4-1-knowledge-graph.md)
-- ~~v4-2-theme-switching-and-theme-packs.md~~ → [已完成](../completed/v4-2-theme-switching-and-theme-packs.md)
+- ~~v4-1-knowledge-graph.md~~ -> [completed](../completed/v4-1-knowledge-graph.md)
+- ~~v4-2-theme-switching-and-theme-packs.md~~ -> [completed](../completed/v4-2-theme-switching-and-theme-packs.md)
 - [v4-3-android-capability-assessment.md](./v4-3-android-capability-assessment.md)
 - [v4-4-app-usability-fixes.md](./v4-4-app-usability-fixes.md)
+- [v4-5-ai-stack-and-reader-rearchitecture.md](./v4-5-ai-stack-and-reader-rearchitecture.md)

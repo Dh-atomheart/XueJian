@@ -1,6 +1,5 @@
-import { createContext, useEffect, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { useAppSettingsQuery } from '@/queries'
-import { type AppThemeId } from '@/types'
 import {
   appThemeOptions,
   defaultAppThemeId,
@@ -8,13 +7,7 @@ import {
   resolveAppThemeId,
   themeVariableNames,
 } from './themes'
-
-interface ThemeContextValue {
-  themeId: AppThemeId
-  availableThemes: typeof appThemeOptions
-}
-
-const ThemeContext = createContext<ThemeContextValue | null>(null)
+import { ThemeContext } from './ThemeContext'
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const { data: settings } = useAppSettingsQuery()

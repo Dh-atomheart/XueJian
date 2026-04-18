@@ -65,24 +65,38 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
 
       <div className="flex-1 overflow-auto px-4 py-4">
         {cardEntries.length === 0 ? (
-          <div className="rounded-[24px] border border-dashed border-line-soft bg-white/70 px-4 py-6 text-center">
-            <p className="font-ui text-sm text-ink">当前页还没有贴笺</p>
-            <p className="mt-2 text-sm leading-6 text-ink-soft">
-              先在正文摘录里圈出关键句，或回到文档库切换到更有卡片的页面。
-            </p>
-            <div className="mt-4 flex justify-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setReaderPage(Math.max(1, reader.currentPage - 1))}>
-                上一页
-              </Button>
-              <Button variant="ghost" size="sm" onClick={closeReader}>
-                返回文档库
-              </Button>
+          <div className="relative">
+            {/* Tape strip decoration */}
+            <span
+              aria-hidden
+              className="absolute left-1/2 top-0 h-4 w-16 -translate-x-1/2 -translate-y-1/2 rotate-[-4deg] rounded-sm bg-highlight-yellow/40 ring-1 ring-ink/5"
+            />
+            <div className="rounded-[24px] border border-dashed border-line-soft bg-white/80 px-4 py-7 text-center">
+              <p className="font-ui text-sm text-ink">当前页还没有贴笺</p>
+              <p className="mt-2 text-sm leading-6 text-ink-soft">
+                在正文里圈出关键句，这里会长出便签。
+              </p>
+              <div className="mt-4 flex justify-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReaderPage(Math.max(1, reader.currentPage - 1))}
+                >
+                  上一页
+                </Button>
+                <Button variant="ghost" size="sm" onClick={closeReader}>
+                  返回文档库
+                </Button>
+              </div>
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {cardEntries.map(({ card, highlight }, index) => {
               const isSelected = reader.selectedCardId === card.id
+              // Alternate very small rotation to feel hand-pasted.
+              const skewClass =
+                index % 2 === 0 ? 'sm:-rotate-[0.3deg]' : 'sm:rotate-[0.3deg]'
 
               return (
                 <button
@@ -96,29 +110,55 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
                     selectCard(card.id)
                   }}
                   className={cn(
-                    'w-full rounded-[24px] border px-4 py-4 text-left transition-all',
+                    'sticky-note-card group relative block w-full rounded-[22px] border px-4 py-4 text-left transition-all duration-200',
+                    skewClass,
                     isSelected
-                      ? 'border-ink/25 bg-highlight-yellow/25 shadow-sticky'
-                      : 'border-line-soft bg-white/80 hover:border-ink/15 hover:bg-white'
+                      ? 'border-ink/30 bg-highlight-yellow/30 shadow-sticky -translate-y-0.5'
+                      : 'border-line-soft bg-white/85 hover:-translate-y-0.5 hover:border-ink/20 hover:bg-white hover:shadow-sticky'
                   )}
                 >
+                  {/* Paper tape */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'absolute left-5 top-0 h-2.5 w-10 -translate-y-1/2 rounded-sm ring-1 ring-ink/5 transition-opacity',
+                      isSelected
+                        ? 'bg-highlight-pink/50 opacity-100'
+                        : 'bg-highlight-yellow/45 opacity-80 group-hover:opacity-100'
+                    )}
+                  />
+
                   <div className="mb-3 flex items-start justify-between gap-3">
-                    <div>
-                      <span className="inline-flex rounded-full border border-ink/10 bg-white/70 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-ink-soft">
-                        Note {index + 1}
+                    <div className="min-w-0">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-ink/10 bg-white/70 px-2 py-0.5 font-latin text-[10px] uppercase tracking-[0.2em] text-ink-soft">
+                        <span>便签</span>
+                        <span className="tabular-nums">{String(index + 1).padStart(2, '0')}</span>
                       </span>
                       <p className="mt-3 font-ui text-sm leading-6 text-ink">{card.front}</p>
                     </div>
-                    <span className="shrink-0 text-[11px] text-ink-soft">页 {card.sourcePage ?? reader.currentPage}</span>
+                    <span className="shrink-0 font-latin text-[11px] text-ink-soft">
+                      P.{card.sourcePage ?? reader.currentPage}
+                    </span>
                   </div>
 
-                  <p className="rounded-[18px] bg-paper-base/90 px-3 py-3 text-sm leading-6 text-ink-muted">
+                  <p className="rounded-[16px] bg-paper-base/90 px-3 py-3 text-sm leading-6 text-ink-muted">
                     {highlight?.textContent ?? card.back}
                   </p>
 
                   <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-ink-soft">
-                    <span>{card.tags.join(' · ') || '未分组贴笺'}</span>
-                    <span>{highlight ? '含原文高亮' : '仅卡片定位'}</span>
+                    <span className="truncate">
+                      {card.tags.length > 0 ? card.tags.join(' · ') : '未分组贴笺'}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span
+                        aria-hidden
+                        className={cn(
+                          'inline-block h-1.5 w-1.5 rounded-full',
+                          highlight ? 'bg-highlight-green' : 'bg-ink-soft/50'
+                        )}
+                      />
+                      {highlight ? '含原文高亮' : '仅卡片定位'}
+                    </span>
                   </div>
                 </button>
               )

@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Panel } from '@/components/ui'
+import { Button, SketchEmptyState } from '@/components/ui'
 import { FlipCard, RatingBar, SessionProgress } from '@/components/learning'
 import { AnimationPreviewModal } from '@/components/cards/AnimationPreviewModal'
 import { useDailyStatsQuery, useDueCardsQuery, useSubmitReviewMutation } from '@/queries'
 import { useLearningSessionStore } from '@/store/learning'
 import { useAppUiStore } from '@/store'
 import { previewScheduling, type ReviewRating } from '@/services/learning'
+import { useAppThemeId } from '@/design-system/useAppThemeId'
 
 export function ReviewPage() {
   const { data: dueCards = [], isLoading } = useDueCardsQuery()
   const { data: dailyStats } = useDailyStatsQuery()
   const submitReview = useSubmitReviewMutation()
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const themeId = useAppThemeId()
+  const flipVariant = themeId === 'comic-sketch' ? 'sketch' : 'default'
 
   const queue = useLearningSessionStore((state) => state.queue)
   const currentIndex = useLearningSessionStore((state) => state.currentIndex)
@@ -61,17 +64,23 @@ export function ReviewPage() {
   // Empty state - no cards due today
   if (dueCards.length === 0 && queue.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Panel variant="paperCard" className="max-w-sm rounded-[24px] p-8 text-center">
-          <div className="mb-4 text-4xl">🎉</div>
-          <h2 className="mb-2 font-display text-xl text-ink">今日无待复习卡片</h2>
-          <p className="mb-6 font-body text-sm leading-relaxed text-ink-muted">
-            所有卡片已复习完毕，或者还没有生成过卡片。可以去文档库上传 PDF 并生成卡片。
-          </p>
-          <Button variant="outline" onClick={() => setActiveNavItem('library')}>
-            前往文档库
-          </Button>
-        </Panel>
+      <div className="flex h-full items-center justify-center px-4">
+        <SketchEmptyState
+          illustration="cards"
+          title="今日没有待复习的卡片"
+          description="所有卡片都温习过了，或者还没有生成过卡片。先去文档库导入资料，生成卡片再来这里复习。"
+          className="max-w-md"
+          action={
+            <Button variant="default" onClick={() => setActiveNavItem('library')}>
+              前往文档库
+            </Button>
+          }
+          secondaryAction={
+            <Button variant="ghost" onClick={() => setActiveNavItem('home')}>
+              返回首页
+            </Button>
+          }
+        />
       </div>
     )
   }
@@ -79,12 +88,23 @@ export function ReviewPage() {
   // Session complete state
   if (isSessionComplete) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Panel variant="paperCard" className="max-w-sm rounded-[24px] p-8 text-center">
-          <div className="mb-4 text-4xl">✅</div>
-          <h2 className="mb-2 font-display text-xl text-ink">今日学习完成</h2>
-          <p className="mb-2 font-body text-sm text-ink-muted">本次复习 {reviewedCount} 张卡片</p>
-          <div className="mt-6 flex justify-center gap-3">
+      <div className="flex h-full items-center justify-center px-4">
+        <SketchEmptyState
+          illustration="note"
+          title="今日学习完成"
+          description={`本次复习 ${reviewedCount} 张卡片，明天再回来巩固。`}
+          className="max-w-md"
+          action={
+            <Button
+              variant="default"
+              onClick={() => {
+                resetSession()
+              }}
+            >
+              再来一轮
+            </Button>
+          }
+          secondaryAction={
             <Button
               variant="outline"
               onClick={() => {
@@ -94,16 +114,8 @@ export function ReviewPage() {
             >
               返回首页
             </Button>
-            <Button
-              variant="default"
-              onClick={() => {
-                resetSession()
-              }}
-            >
-              再来一轮
-            </Button>
-          </div>
-        </Panel>
+          }
+        />
       </div>
     )
   }
@@ -125,7 +137,14 @@ export function ReviewPage() {
       </div>
 
       {/* Center: card stage */}
-      {currentCard && <FlipCard card={currentCard} isFlipped={isFlipped} onFlip={flipCard} />}
+      {currentCard && (
+        <FlipCard
+          card={currentCard}
+          isFlipped={isFlipped}
+          onFlip={flipCard}
+          variant={flipVariant}
+        />
+      )}
 
       {/* Animation preview shortcut */}
       {currentCard && (

@@ -2,76 +2,187 @@
 title: AI Orchestration Reference
 status: active
 owner: platform
-last_reviewed: 2026-04-17
+last_reviewed: 2026-04-18
 canonical: true
 ---
 
-# AI 编排参考
+# AI Orchestration Reference
 
-## 决策结论
+This file describes the target runtime shape for the local AI stack.
 
-当前正式方案固定为：
+## Runtime Summary
 
-- `Python Orchestration Service` 负责 AI 应用编排。
-- `LangChain` 作为当前唯一正式编排框架。
-- `LangGraph` 不作为现行运行时前提，只保留为未来升级路径。
+The orchestration stack is a three-part system:
 
-## 分层职责
+- React UI gathers intent and renders outputs
+- Rust host owns secrets, storage, provider adapters, and tool boundaries
+- Python orchestration runs `LangChain + LangGraph` workflows through host gateways
 
-### UI / React
+The Python service is not the system of record and must not own plaintext secrets.
 
-- 负责页面交互、进度展示、流式结果渲染和人工确认入口。
-- 不直接持有主数据库真相。
-- 不直接持有明文密钥。
+## Responsibilities By Layer
 
-### Rust / Tauri Host
+### UI
 
-- 持有 `SQLite`、`Stronghold`、文件系统、任务登记与预算执行边界。
-- 暴露 `ModelGateway` 与 `ToolGateway`。
-- 负责 provider 接入、错误归一化、token/成本统计和连接测试。
-- 负责 `WorkflowRun`、`WorkflowCheckpoint`、`WorkflowEvent` 的持久化与分发。
+- capture user intent
+- submit workflow requests
+- display structured outputs, citations, and review states
 
-### Python Orchestration Service
+### Rust Host
 
-- 负责预设工作流编排、Prompt 组装和工作流状态推进。
-- 通过 `Orchestration Protocol` 调用 Host 暴露的受控能力。
-- 当前以 `LangChain` 实现 `PresetWorkflow`。
+- store credentials in the secret store
+- expose model and tool gateways
+- redact logs
+- persist workflow events and artifacts when needed
+- enforce provider and auth capability boundaries
 
-## 安全与边界
+### Python Orchestration
 
-- Python 不持有明文密钥。
-- Python 不作为 `SQLite` 真相源。
-- 模型调用、预算统计、连接测试通过 Host 暴露的统一能力完成。
-- Host 保持对数据库写入、文件落盘和受控工具调用的最终边界。
+- choose workflow shape
+- call models and tools through the host
+- maintain graph state and checkpoints
+- return structured workflow artifacts
 
-## 结构化输出
+## Why LangChain Plus LangGraph
 
-- Python 侧工作流输出用 `Pydantic` 约束。
-- 前端与 Tauri IPC 边界用 `Zod` 做运行时校验。
-- `CardGenerationCandidate`、`Citation / RagAnswer`、`WorkflowEvent` 必须保持结构化。
-- 前端只消费校验后的 payload，不直接信任模型原始输出。
+Use both, with clear responsibilities.
 
-## 当前正式术语
+### LangChain
 
-- `Python Orchestration Service`
-- `Orchestration Protocol`
-- `PresetWorkflow`
-- `WorkflowRun`
-- `WorkflowCheckpoint`
-- `WorkflowEvent`
-- `ModelGateway`
-- `ToolGateway`
+Use for:
 
-## 跨端策略
+- model client abstraction
+- tool binding
+- structured output
+- middleware
+- provider-aware prompting helpers
 
-- 当前桌面端采用本地 `Python Orchestration Service`。
-- Android 复用的是协议、任务语义和数据契约，而不是桌面端进程拓扑。
-- 评估重点是协议复用、Host 能力抽象和替代运行形态。
+### LangGraph
 
-## 代码锚点
+Use for:
 
-- Rust Host 生命周期：`xuejian/src-tauri/src/lib.rs`
-- Orchestration service 进程管理：`xuejian/src-tauri/src/tasks/orchestration_service.rs`
-- Tauri orchestration commands：`xuejian/src-tauri/src/commands/orchestration.rs`
-- Protocol version：`xuejian/src-tauri/src/gateway/mod.rs`
-- Python service 入口：`xuejian/orchestration_service/main.py`
+- workflow state
+- routing
+- checkpoints
+- resumable execution
+- human-in-the-loop pauses
+
+Do not use LangChain alone as a replacement for workflow state management.
+
+## Workflow Catalog
+
+### `card_generation`
+
+Recommended node flow:
+
+1. `load_document_context`
+2. `retrieve_candidate_spans`
+3. `draft_cards`
+4. `evaluate_cards`
+5. `human_gate`
+6. `persist_cards`
+
+Outputs:
+
+- card drafts
+- citations
+- evaluator verdict
+- review metadata
+
+### `knowledge_qa`
+
+Recommended node flow:
+
+1. `classify_question`
+2. `retrieve_context`
+3. `answer_with_citations`
+4. `normalize_response`
+
+Outputs:
+
+- answer
+- citation list
+- confidence or answer mode
+
+### `content_pipeline`
+
+Recommended node flow:
+
+1. `gather_material`
+2. `build_outline`
+3. `draft_artifact`
+4. `review_artifact`
+5. `human_gate_optional`
+6. `persist_artifact`
+
+Typical artifacts:
+
+- interview blog
+- podcast script
+- study article
+- briefing note
+
+### `study_coach`
+
+Recommended node flow:
+
+1. `load_schedule_state`
+2. `inspect_recent_performance`
+3. `choose_intervention`
+4. `generate_coaching_payload`
+5. `persist_or_schedule_followup`
+
+Outputs:
+
+- coaching guidance
+- review recommendation
+- scheduling follow-up
+
+## Workflow State Model
+
+Workflow payloads should converge on structured schemas rather than free-form JSON blobs.
+
+Suggested common fields:
+
+- `input`
+- `retrieval`
+- `draft`
+- `evaluation`
+- `artifacts`
+- `checkpoint`
+- `human_gate`
+
+## Host Tool Surface
+
+The preferred host tool surface for V4-5:
+
+- `load_document_ir`
+- `search_chunks`
+- `list_reader_annotations`
+- `save_card_drafts`
+- `save_content_artifact`
+- `schedule_review`
+
+These tools give the Python runtime enough leverage without moving persistence ownership out of the host boundary.
+
+## Packaging Direction
+
+`xuejian/orchestration_service/` should move toward:
+
+- `server.py`
+- `clients/host_gateway.py`
+- `providers/`
+- `schemas/`
+- `graph/runtime.py`
+- `graph/checkpointing.py`
+- `workflows/card_generation.py`
+- `workflows/knowledge_qa.py`
+- `workflows/content_pipeline.py`
+- `workflows/study_coach.py`
+
+## Non-Goals
+
+- browser-owned secrets
+- direct database ownership from Python
+- unconstrained autonomous multi-agent behavior as the default interaction model
+- opaque string-only outputs with no schema or citations

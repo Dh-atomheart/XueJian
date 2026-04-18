@@ -26,6 +26,13 @@ export function useDailyStatsQuery() {
   })
 }
 
+export function useReviewLogsQuery(options?: { cardId?: string; limit?: number }) {
+  return useQuery({
+    queryKey: learningQueryKeys.reviewLogs(options?.cardId ?? undefined),
+    queryFn: () => cardsGateway.listReviewLogs(options?.cardId, options?.limit ?? 500),
+  })
+}
+
 export function useSubmitReviewMutation() {
   const queryClient = useQueryClient()
 
