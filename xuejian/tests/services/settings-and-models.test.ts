@@ -1,4 +1,9 @@
 import { apiConfigGateway } from '@/services/gateway/models'
+import { resetMockGatewayState } from '@/services/gateway/mockData'
+
+beforeEach(() => {
+  resetMockGatewayState()
+})
 
 // @acceptance:m6-a1
 describe('model config and connection test', () => {

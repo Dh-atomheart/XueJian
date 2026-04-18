@@ -1,6 +1,10 @@
 import type { ZodType } from 'zod'
 import { getMockGatewayResponse } from './mockData'
 
+const globalScope = globalThis as typeof globalThis & {
+  isTauri?: boolean
+}
+
 /**
  * Gateway 错误类型
  */
@@ -19,7 +23,23 @@ export class GatewayError extends Error {
  * 检查是否在 Tauri 环境中运行
  */
 export function isTauriEnvironment(): boolean {
-  return typeof window !== 'undefined' && '__TAURI__' in window
+  if (globalScope.isTauri === true) {
+    return true
+  }
+
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  const tauriWindow = window as Window & {
+    __TAURI__?: unknown
+    __TAURI_INTERNALS__?: unknown
+  }
+
+  return (
+    typeof tauriWindow.__TAURI_INTERNALS__ !== 'undefined' ||
+    typeof tauriWindow.__TAURI__ !== 'undefined'
+  )
 }
 
 /**

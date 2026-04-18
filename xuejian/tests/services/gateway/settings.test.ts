@@ -1,8 +1,10 @@
 import { apiConfigGateway } from '@/services/gateway/models'
+import { resetMockGatewayState } from '@/services/gateway/mockData'
 import { orchestrationGateway } from '@/services/gateway/orchestration'
 import { settingsGateway } from '@/services/gateway/settings'
 
 beforeEach(async () => {
+  resetMockGatewayState()
   await settingsGateway.update({
     theme: 'default',
     language: 'zh-CN',
@@ -34,6 +36,38 @@ describe('gateway mocks', () => {
     const configs = await apiConfigGateway.list()
 
     expect(configs).toEqual([])
+  })
+
+  it('persists a custom API config across mock create, store key, and list calls', async () => {
+    const created = await apiConfigGateway.create({
+      provider: 'custom',
+      name: 'Local OpenAI Compatible',
+      model: 'qwen2.5-14b-instruct',
+      baseUrl: 'http://localhost:11434/v1',
+      budgetLimit: null,
+      isDefault: true,
+      isEnabled: true,
+    })
+
+    expect(created.provider).toBe('custom')
+    expect(created.baseUrl).toBe('http://localhost:11434/v1')
+    expect(created.hasStoredKey).toBe(false)
+
+    await apiConfigGateway.storeApiKey(created.id, 'local-secret-key')
+
+    const configs = await apiConfigGateway.list()
+
+    expect(configs).toHaveLength(1)
+    expect(configs[0]).toMatchObject({
+      id: created.id,
+      provider: 'custom',
+      name: 'Local OpenAI Compatible',
+      model: 'qwen2.5-14b-instruct',
+      baseUrl: 'http://localhost:11434/v1',
+      hasStoredKey: true,
+      isDefault: true,
+      isEnabled: true,
+    })
   })
 
   it('returns orchestration health and manifest mocks outside Tauri', async () => {

@@ -1,4 +1,12 @@
-import type { AppSettings, Card, Document, DocumentAnchor, DocumentChunk, Highlight } from '@/types'
+import type {
+  ApiConfig,
+  AppSettings,
+  Card,
+  Document,
+  DocumentAnchor,
+  DocumentChunk,
+  Highlight,
+} from '@/types'
 
 const MOCK_NOW = '2026-04-17T09:00:00.000Z'
 
@@ -140,11 +148,21 @@ const mockHighlights: Highlight[] = [
   },
 ]
 
-let mockAppSettings: AppSettings = {
+const defaultMockAppSettings: AppSettings = {
   theme: 'default',
   language: 'zh-CN',
   dailyNewCardLimit: 20,
   reviewTimeLimit: 30,
+}
+
+let mockAppSettings: AppSettings = { ...defaultMockAppSettings }
+let mockApiConfigCounter = 1
+let mockApiConfigs: ApiConfig[] = []
+
+export function resetMockGatewayState() {
+  mockAppSettings = { ...defaultMockAppSettings }
+  mockApiConfigCounter = 1
+  mockApiConfigs = []
 }
 
 const mockPdfBinary = Array.from(
@@ -182,6 +200,130 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     }
 
     return mockAppSettings as T
+  }
+
+  if (cmd === 'list_api_configs') {
+    return mockApiConfigs.map(serializeApiConfig) as T
+  }
+
+  if (cmd === 'get_api_config') {
+    const configId = getString(args?.id)
+    const config = configId ? mockApiConfigs.find((item) => item.id === configId) : null
+    return (config ? serializeApiConfig(config) : null) as T
+  }
+
+  if (cmd === 'create_api_config') {
+    const data = getRecord(args?.data)
+
+    if (!isApiProvider(data?.provider) || !getString(data?.name)) {
+      throw new Error('Mock create_api_config requires a valid provider and name')
+    }
+
+    const nextConfig: ApiConfig = {
+      id: nextMockApiConfigId(),
+      provider: data.provider,
+      name: getString(data.name)!,
+      model: getNullableString(data.model),
+      baseUrl: getNullableString(data.baseUrl),
+      budgetLimit: getNullableNumber(data.budgetLimit),
+      isDefault: getBoolean(data.isDefault) ?? false,
+      isEnabled: getBoolean(data.isEnabled) ?? true,
+      hasStoredKey: false,
+      createdAt: new Date(),
+    }
+
+    if (nextConfig.isDefault) {
+      mockApiConfigs = mockApiConfigs.map((config) => ({
+        ...config,
+        isDefault: false,
+      }))
+    }
+
+    mockApiConfigs = [nextConfig, ...mockApiConfigs]
+    return serializeApiConfig(nextConfig) as T
+  }
+
+  if (cmd === 'update_api_config') {
+    const configId = getString(args?.id)
+    const data = getRecord(args?.data)
+
+    if (!configId || !data) {
+      return null as T
+    }
+
+    let updatedConfig: ApiConfig | null = null
+    const shouldSetDefault = getBoolean(data.isDefault) === true
+
+    mockApiConfigs = mockApiConfigs.map((config) => {
+      if (shouldSetDefault) {
+        config = {
+          ...config,
+          isDefault: false,
+        }
+      }
+
+      if (config.id !== configId) {
+        return config
+      }
+
+      const nextConfig: ApiConfig = {
+        ...config,
+        provider: isApiProvider(data.provider) ? data.provider : config.provider,
+        name: getString(data.name) ?? config.name,
+        model: data.model === undefined ? config.model : getNullableString(data.model),
+        baseUrl: data.baseUrl === undefined ? config.baseUrl : getNullableString(data.baseUrl),
+        budgetLimit:
+          data.budgetLimit === undefined ? config.budgetLimit : getNullableNumber(data.budgetLimit),
+        isDefault: getBoolean(data.isDefault) ?? config.isDefault,
+        isEnabled: getBoolean(data.isEnabled) ?? config.isEnabled,
+      }
+
+      updatedConfig = nextConfig
+      return nextConfig
+    })
+
+    return (updatedConfig ? serializeApiConfig(updatedConfig) : null) as T
+  }
+
+  if (cmd === 'set_default_api_config') {
+    const configId = getString(args?.id)
+
+    if (configId) {
+      mockApiConfigs = mockApiConfigs.map((config) => ({
+        ...config,
+        isDefault: config.id === configId,
+      }))
+    }
+
+    return undefined as T
+  }
+
+  if (cmd === 'delete_api_config') {
+    const configId = getString(args?.id)
+
+    if (configId) {
+      mockApiConfigs = mockApiConfigs.filter((config) => config.id !== configId)
+    }
+
+    return undefined as T
+  }
+
+  if (cmd === 'store_api_key') {
+    const data = getRecord(args?.data)
+    const configId = getString(data?.configId)
+
+    if (configId) {
+      mockApiConfigs = mockApiConfigs.map((config) =>
+        config.id === configId
+          ? {
+              ...config,
+              hasStoredKey: true,
+            }
+          : config
+      )
+    }
+
+    return undefined as T
   }
 
   if (cmd === 'record_points') {
@@ -341,35 +483,6 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         .map(serializeHighlight),
       limit
     ),
-    list_api_configs: [],
-    get_api_config: null,
-    create_api_config: {
-      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-      provider: 'openai',
-      name: 'Mock Config',
-      model: 'gpt-4o',
-      baseUrl: null,
-      budgetLimit: null,
-      isDefault: true,
-      isEnabled: true,
-      hasStoredKey: false,
-      createdAt: MOCK_NOW,
-    },
-    update_api_config: {
-      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-      provider: 'openai',
-      name: 'Mock Config',
-      model: 'gpt-4o',
-      baseUrl: null,
-      budgetLimit: null,
-      isDefault: true,
-      isEnabled: true,
-      hasStoredKey: false,
-      createdAt: MOCK_NOW,
-    },
-    set_default_api_config: undefined,
-    delete_api_config: undefined,
-    store_api_key: undefined,
     test_api_connection: { success: true, message: '连接测试通过 (mock)' },
     update_settings: mockAppSettings,
     get_daily_stats: { newCards: 2, reviewCards: 0 },
@@ -636,6 +749,13 @@ function serializeHighlight(highlight: Highlight) {
   }
 }
 
+function serializeApiConfig(config: ApiConfig) {
+  return {
+    ...config,
+    createdAt: config.createdAt.toISOString(),
+  }
+}
+
 function limitItems<T>(items: T[], limit?: number | null) {
   if (!limit || limit <= 0) {
     return items
@@ -652,8 +772,30 @@ function getString(value: unknown) {
   return typeof value === 'string' ? value : undefined
 }
 
+function getNullableString(value: unknown) {
+  return typeof value === 'string' ? value : null
+}
+
 function getNumber(value: unknown) {
   return typeof value === 'number' ? value : undefined
+}
+
+function getNullableNumber(value: unknown) {
+  return typeof value === 'number' ? value : null
+}
+
+function getBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function isApiProvider(value: unknown): value is ApiConfig['provider'] {
+  return value === 'openai' || value === 'anthropic' || value === 'custom'
+}
+
+function nextMockApiConfigId() {
+  const suffix = mockApiConfigCounter.toString(16).padStart(12, '0')
+  mockApiConfigCounter += 1
+  return `cccccccc-cccc-4ccc-8ccc-${suffix}`
 }
 
 function buildPdfBytes(lines: string[]) {
