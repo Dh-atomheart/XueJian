@@ -13,6 +13,8 @@ import type {
   FinalizeCardGenerationResult,
   Highlight,
   HostGatewayManifest,
+  PointsEntry,
+  PointsSummary,
   RagAnswer,
   ReviewLog,
   ServiceHealthStatus,
@@ -301,3 +303,18 @@ export const agentRunSchema = z.object({
   startedAt: nullableDateValueSchema,
   finishedAt: nullableDateValueSchema,
 })
+
+export const pointsEntrySchema = z.object({
+  id: z.string(),
+  reviewLogId: z.string(),
+  cardId: z.string(),
+  points: z.number().int(),
+  transactionType: z.string(),
+  rating: z.enum(['again', 'hard', 'good', 'easy']),
+  reason: z.string().nullable(),
+  createdAt: dateValueSchema,
+}) as z.ZodType<PointsEntry>
+
+export const pointsSummarySchema = z.object({
+  todayPoints: z.number().int(),
+}) as z.ZodType<PointsSummary>

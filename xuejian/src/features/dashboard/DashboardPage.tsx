@@ -2,6 +2,7 @@ import { Button, Panel } from '@/components/ui'
 import { StudyStatsCard } from '@/components/stats'
 import { DocumentStatusBadge, ImportDocumentButton } from '@/components/documents'
 import { useDailyStatsQuery, useRecentDocumentsQuery, useApiConfigsQuery } from '@/queries'
+import { usePointsSummaryQuery } from '@/queries/points'
 import { useAppUiStore } from '@/store'
 
 export function DashboardPage() {
@@ -10,6 +11,7 @@ export function DashboardPage() {
   const { data: recentDocuments = [], isLoading: isLoadingDocuments } = useRecentDocumentsQuery(5)
   const { data: dailyStats } = useDailyStatsQuery()
   const { data: apiConfigs = [] } = useApiConfigsQuery()
+  const { data: pointsSummary } = usePointsSummaryQuery()
 
   const totalDue = (dailyStats?.newCards ?? 0) + (dailyStats?.reviewCards ?? 0)
   const hasApiConfig = apiConfigs.length > 0
@@ -51,6 +53,12 @@ export function DashboardPage() {
                 <span>
                   复习 <span className="tabular-nums text-ink">{dailyStats.reviewCards}</span>
                 </span>
+                {(pointsSummary?.todayPoints ?? 0) > 0 && (
+                  <span>
+                    积分{' '}
+                    <span className="tabular-nums text-ink">+{pointsSummary!.todayPoints}</span>
+                  </span>
+                )}
               </div>
             )}
           </div>

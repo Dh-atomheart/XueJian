@@ -15,7 +15,7 @@ canonical: true
 ## Depends On
 
 - [../../product-specs/v3.md](../../product-specs/v3.md)
-- [./v2-1-rag.md](./v2-1-rag.md)
+- [../completed/v2-1-rag.md](../completed/v2-1-rag.md)
 - [../completed/m6-byok-and-minimal-analytics.md](../completed/m6-byok-and-minimal-analytics.md) ✅
 - [../../references/ai-orchestration.md](../../references/ai-orchestration.md)
 

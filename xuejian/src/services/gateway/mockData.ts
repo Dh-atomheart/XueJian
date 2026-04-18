@@ -385,6 +385,31 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
+    record_points: {
+      id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      reviewLogId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      cardId: MOCK_CARD_IDS[0],
+      points: 10,
+      transactionType: 'review_correct',
+      rating: 'good',
+      reason: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+    },
+    list_points_ledger: [
+      {
+        id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        reviewLogId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        cardId: MOCK_CARD_IDS[0],
+        points: 10,
+        transactionType: 'review_correct',
+        rating: 'good',
+        reason: null,
+        createdAt: new Date(MOCK_NOW).toISOString(),
+      },
+    ],
+    get_points_summary: {
+      todayPoints: 10,
+    },
   }
 
   return mockResponses[cmd] as T

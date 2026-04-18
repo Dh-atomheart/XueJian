@@ -15,7 +15,7 @@ canonical: true
 ## Depends On
 
 - [../../product-specs/v4.md](../../product-specs/v4.md)
-- [./v2-1-rag.md](./v2-1-rag.md)
+- [../completed/v2-1-rag.md](../completed/v2-1-rag.md)
 - [./v3-2-ai-podcast.md](./v3-2-ai-podcast.md)
 - [../../references/ai-orchestration.md](../../references/ai-orchestration.md)
 

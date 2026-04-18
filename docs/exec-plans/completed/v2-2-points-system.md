@@ -1,6 +1,6 @@
 ---
 title: V2-2 Points System
-status: draft
+status: archived
 owner: app
 last_reviewed: 2026-04-17
 canonical: true
@@ -42,10 +42,16 @@ canonical: true
 
 ## Relevant Files
 
-- `xuejian/src/features/review/`
-- `xuejian/src/components/stats/`
-- `xuejian/src/services/learning/`
-- `xuejian/src-tauri/src/db/`
+- `xuejian/src-tauri/src/migrations/V4__points_ledger.sql` — points_ledger table
+- `xuejian/src-tauri/src/db/points_repo.rs` — PointsRepository (create, list, dedup, daily total)
+- `xuejian/src-tauri/src/commands/points.rs` — record_points, list_points_ledger, get_points_summary
+- `xuejian/src/types/document.ts` — PointsEntry, PointsSummary interfaces
+- `xuejian/src/types/schema.ts` — Zod schemas
+- `xuejian/src/services/gateway/points.ts` — TS gateway service
+- `xuejian/src/queries/points.ts` — TanStack Query hooks
+- `xuejian/src/queries/learning.ts` — review mutation integration
+- `xuejian/src/features/dashboard/DashboardPage.tsx` — points display
+- `xuejian/src/services/gateway/mockData.ts` — mock responses
 
 ## Checks
 

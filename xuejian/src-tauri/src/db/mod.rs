@@ -5,11 +5,13 @@ use tauri::{AppHandle, Manager};
 
 pub mod card_repo;
 pub mod document_repo;
+pub mod points_repo;
 pub mod settings_repo;
 pub mod workflow_repo;
 
 pub use card_repo::*;
 pub use document_repo::*;
+pub use points_repo::*;
 pub use settings_repo::*;
 pub use workflow_repo::*;
 

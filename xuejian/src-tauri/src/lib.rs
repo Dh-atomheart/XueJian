@@ -154,6 +154,9 @@ pub fn run() {
             commands::orchestration::get_workflow_checkpoint,
             commands::knowledge::search_knowledge,
             commands::knowledge::start_knowledge_qa_workflow,
+            commands::points::record_points,
+            commands::points::list_points_ledger,
+            commands::points::get_points_summary,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -303,3 +303,20 @@ export interface ChunkSearchResult {
   content: string
   snippet: string
 }
+
+// ==================== 积分相关 ====================
+
+export interface PointsEntry {
+  id: string
+  reviewLogId: string
+  cardId: string
+  points: number
+  transactionType: string
+  rating: 'again' | 'hard' | 'good' | 'easy'
+  reason: string | null
+  createdAt: Date
+}
+
+export interface PointsSummary {
+  todayPoints: number
+}

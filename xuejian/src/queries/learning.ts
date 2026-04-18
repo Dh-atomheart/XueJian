@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { cardsGateway } from '@/services/gateway/cards'
+import { recordPoints } from '@/services/gateway/points'
 import { scheduleCard, type ReviewRating } from '@/services/learning'
 import type { Card } from '@/types'
+import { pointsQueryKeys } from './points'
 
 export const learningQueryKeys = {
   all: ['learning'] as const,
@@ -50,10 +52,19 @@ export function useSubmitReviewMutation() {
         intervalDays: result.intervalDays,
       })
 
+      // Record points for this review (fire-and-forget dedup via UNIQUE constraint)
+      await recordPoints({
+        reviewLogId: reviewLog.id,
+        cardId: card.id,
+        rating,
+        cardState: card.state,
+      })
+
       return { result, reviewLog }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: learningQueryKeys.all })
+      queryClient.invalidateQueries({ queryKey: pointsQueryKeys.all })
     },
   })
 }
