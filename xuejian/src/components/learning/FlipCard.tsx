@@ -17,7 +17,7 @@ export function FlipCard({ card, isFlipped, onFlip }: FlipCardProps) {
           'group relative w-full max-w-xl cursor-pointer select-none',
           'rounded-[24px] border border-line-soft bg-white shadow-card',
           'transition-all duration-300',
-          !isFlipped && 'hover:shadow-sticky hover:-translate-y-0.5',
+          !isFlipped && 'hover:shadow-sticky hover:-translate-y-0.5'
         )}
         aria-label={isFlipped ? '卡片答案面' : '点击翻面'}
       >
@@ -28,31 +28,23 @@ export function FlipCard({ card, isFlipped, onFlip }: FlipCardProps) {
               {isFlipped ? '答案' : '问题'}
             </span>
             {card.tags.length > 0 && (
-              <span className="text-[11px] text-ink-soft">
-                {card.tags[0]}
-              </span>
+              <span className="text-[11px] text-ink-soft">{card.tags[0]}</span>
             )}
           </div>
-          <p className="font-body text-lg leading-relaxed text-ink">
-            {card.front}
-          </p>
+          <p className="font-body text-lg leading-relaxed text-ink">{card.front}</p>
         </div>
 
         {/* 答案面 */}
         {isFlipped && (
           <div className="border-t border-dashed border-line-soft px-8 py-8">
-            <p className="font-body text-base leading-relaxed text-ink/80">
-              {card.back}
-            </p>
+            <p className="font-body text-base leading-relaxed text-ink/80">{card.back}</p>
           </div>
         )}
 
         {/* 点击翻面提示 */}
         {!isFlipped && (
           <div className="border-t border-line-soft/60 px-8 py-3 text-center">
-            <span className="font-ui text-xs text-ink-soft/60">
-              点击翻面
-            </span>
+            <span className="font-ui text-xs text-ink-soft/60">点击翻面</span>
           </div>
         )}
       </button>

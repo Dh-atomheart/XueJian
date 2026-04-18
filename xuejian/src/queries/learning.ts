@@ -5,11 +5,9 @@ import type { Card } from '@/types'
 
 export const learningQueryKeys = {
   all: ['learning'] as const,
-  dueCards: (limit?: number) =>
-    [...learningQueryKeys.all, 'due', limit ?? 'default'] as const,
+  dueCards: (limit?: number) => [...learningQueryKeys.all, 'due', limit ?? 'default'] as const,
   dailyStats: () => [...learningQueryKeys.all, 'daily-stats'] as const,
-  reviewLogs: (cardId?: string) =>
-    [...learningQueryKeys.all, 'logs', cardId ?? 'all'] as const,
+  reviewLogs: (cardId?: string) => [...learningQueryKeys.all, 'logs', cardId ?? 'all'] as const,
 }
 
 export function useDueCardsQuery(limit?: number) {

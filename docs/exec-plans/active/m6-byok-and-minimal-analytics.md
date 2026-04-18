@@ -1,8 +1,8 @@
 ---
 title: M6 BYOK And Minimal Analytics
-status: draft
+status: active
 owner: app
-last_reviewed: 2026-04-17
+last_reviewed: 2026-04-18
 canonical: true
 ---
 
@@ -15,7 +15,7 @@ canonical: true
 ## Depends On
 
 - [../completed/m1-platform-foundation.md](../completed/m1-platform-foundation.md) ✅
-- [./m5-study-scheduling.md](./m5-study-scheduling.md)
+- [../completed/m5-study-scheduling.md](../completed/m5-study-scheduling.md) ✅
 - [../../references/ai-orchestration.md](../../references/ai-orchestration.md)
 - [../../SECURITY.md](../../SECURITY.md)
 

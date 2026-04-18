@@ -1,9 +1,12 @@
 import { AppShell } from '@/components/shell'
 import { DocumentStatusBadge, ImportDocumentButton, StickyNotesPanel } from '@/components/documents'
 import { Button, Divider, Panel } from '@/components/ui'
+import { StudyStatsCard } from '@/components/stats'
 import { LibraryPage, ReaderPage } from '@/features/documents'
 import { ReviewPage } from '@/features/review'
+import { SettingsPage } from '@/features/settings'
 import {
+  useApiConfigsQuery,
   useHostGatewayManifestQuery,
   useOrchestrationServiceHealthQuery,
   useRecentDocumentsQuery,
@@ -34,10 +37,15 @@ function App() {
   const { data: serviceHealth } = useOrchestrationServiceHealthQuery()
   const { data: workflowRuns = [] } = useRecentWorkflowRunsQuery(5)
   const { data: gatewayManifest } = useHostGatewayManifestQuery()
+  const { data: apiConfigs = [] } = useApiConfigsQuery()
 
   if (reader.documentId) {
     return (
-      <AppShell contextPanel={isContextRailOpen ? <StickyNotesPanel documentId={reader.documentId} /> : undefined}>
+      <AppShell
+        contextPanel={
+          isContextRailOpen ? <StickyNotesPanel documentId={reader.documentId} /> : undefined
+        }
+      >
         <ReaderPage documentId={reader.documentId} />
       </AppShell>
     )
@@ -62,11 +70,7 @@ function App() {
   if (activeNavItem === 'settings') {
     return (
       <AppShell>
-        <PlaceholderPage
-          eyebrow="M6 Later"
-          title="Settings will expand once BYOK and analytics land."
-          description="The current milestone focuses on stable document intake and a recoverable card production line."
-        />
+        <SettingsPage />
       </AppShell>
     )
   }
@@ -122,10 +126,18 @@ function App() {
           <Panel variant="paperCard">
             <h2 className="mb-3 font-ui text-lg text-ink">Quick start</h2>
             <div className="flex flex-col gap-2">
-              <Button variant="sketch" className="w-full justify-start" onClick={() => setActiveNavItem('library')}>
+              <Button
+                variant="sketch"
+                className="w-full justify-start"
+                onClick={() => setActiveNavItem('library')}
+              >
                 Open library
               </Button>
-              <Button variant="outline" className="w-full justify-start" onClick={() => setActiveNavItem('learning')}>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => setActiveNavItem('learning')}
+              >
                 Open card foundry
               </Button>
             </div>
@@ -133,6 +145,7 @@ function App() {
 
           <Panel variant="paperCard">
             <h2 className="mb-3 font-ui text-lg text-ink">Today</h2>
+            <StudyStatsCard className="mb-3" />
             <div className="flex flex-col gap-2 text-sm text-ink-muted">
               <div className="flex justify-between">
                 <span>Ready documents</span>
@@ -141,6 +154,10 @@ function App() {
               <div className="flex justify-between">
                 <span>Workflow runs</span>
                 <span className="font-latin text-ink">{workflowRuns.length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Model configs</span>
+                <span className="font-latin text-ink">{apiConfigs.length}</span>
               </div>
               <div className="flex justify-between">
                 <span>Service status</span>
@@ -154,15 +171,21 @@ function App() {
             <div className="space-y-2 text-sm text-ink-muted">
               <div className="flex justify-between gap-3">
                 <span>Protocol version</span>
-                <span className="font-latin text-ink">{gatewayManifest?.protocolVersion ?? 'loading'}</span>
+                <span className="font-latin text-ink">
+                  {gatewayManifest?.protocolVersion ?? 'loading'}
+                </span>
               </div>
               <div className="flex justify-between gap-3">
                 <span>ModelGateway</span>
-                <span className="font-latin text-ink">{gatewayManifest?.modelGatewayCommands.length ?? 0}</span>
+                <span className="font-latin text-ink">
+                  {gatewayManifest?.modelGatewayCommands.length ?? 0}
+                </span>
               </div>
               <div className="flex justify-between gap-3">
                 <span>ToolGateway</span>
-                <span className="font-latin text-ink">{gatewayManifest?.toolGatewayCommands.length ?? 0}</span>
+                <span className="font-latin text-ink">
+                  {gatewayManifest?.toolGatewayCommands.length ?? 0}
+                </span>
               </div>
             </div>
           </Panel>
@@ -267,28 +290,6 @@ function App() {
         </div>
       </div>
     </AppShell>
-  )
-}
-
-function PlaceholderPage({
-  eyebrow,
-  title,
-  description,
-}: {
-  eyebrow: string
-  title: string
-  description: string
-}) {
-  return (
-    <Panel variant="panel" className="rounded-[30px]">
-      <div className="flex min-h-[70vh] items-center justify-center px-6 py-10 text-center">
-        <div className="max-w-2xl space-y-4">
-          <p className="text-xs uppercase tracking-[0.3em] text-ink-soft">{eyebrow}</p>
-          <h1 className="font-display text-4xl leading-tight text-ink">{title}</h1>
-          <p className="text-sm leading-6 text-ink-muted">{description}</p>
-        </div>
-      </div>
-    </Panel>
   )
 }
 

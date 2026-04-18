@@ -42,6 +42,10 @@ export const apiConfigGateway = {
   async setDefault(id: string): Promise<void> {
     return invoke<void>('set_default_api_config', { id })
   },
+
+  async storeApiKey(configId: string, apiKey: string): Promise<void> {
+    return invoke<void>('store_api_key', { data: { configId, apiKey } })
+  },
 }
 
 export const modelGateway: {
@@ -56,4 +60,5 @@ export const modelGateway: {
     baseUrl?: string | null
   }) => Promise<ApiConnectionTestResult>
   setDefault: (id: string) => Promise<void>
+  storeApiKey: (configId: string, apiKey: string) => Promise<void>
 } = apiConfigGateway

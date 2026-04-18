@@ -35,7 +35,7 @@ const mockAnchors: DocumentAnchor[] = [
     documentId: MOCK_DOCUMENT_ID,
     page: 1,
     paragraph: 1,
-    textQuote: 'Chunking keeps the page readable while stable anchors hold the user\'s place.',
+    textQuote: "Chunking keeps the page readable while stable anchors hold the user's place.",
     rects: [{ x: 72, y: 118, width: 356, height: 18 }],
     hash: 'anchor-chunk-reading-flow',
     createdAt: new Date(MOCK_NOW),
@@ -60,7 +60,7 @@ const mockChunks: DocumentChunk[] = [
     pageEnd: 1,
     chunkIndex: 0,
     content:
-      'Chunking keeps the page readable while stable anchors hold the user\'s place. Sticky notes should sit beside the paper instead of covering the text itself.',
+      "Chunking keeps the page readable while stable anchors hold the user's place. Sticky notes should sit beside the paper instead of covering the text itself.",
     tokenCount: 32,
     metadata: { source: 'mock-reader' },
     createdAt: new Date(MOCK_NOW),
@@ -136,7 +136,7 @@ const mockHighlights: Highlight[] = [
 const mockPdfBinary = Array.from(
   buildPdfBytes([
     'XueJian M4 Reader Mock',
-    'Chunking keeps the page readable while stable anchors hold the user\'s place.',
+    "Chunking keeps the page readable while stable anchors hold the user's place.",
     'Sticky notes should sit beside the paper instead of covering the text itself.',
   ])
 )
@@ -144,7 +144,8 @@ const mockPdfBinary = Array.from(
 export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unknown>): T {
   const filters = getRecord(args?.filters)
   const limit = getNumber(args?.limit) ?? getNumber(filters?.limit)
-  const documentId = getString(args?.documentId) ?? getString(filters?.documentId) ?? getString(args?.id)
+  const documentId =
+    getString(args?.documentId) ?? getString(filters?.documentId) ?? getString(args?.id)
   const pageNumber = getNumber(filters?.pageNumber)
   const anchorId = getString(filters?.anchorId)
   const cardId = getString(filters?.cardId)
@@ -208,7 +209,9 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     },
     list_documents: limitItems([serializeDocument(mockDocument)], limit),
     get_document:
-      documentId === MOCK_DOCUMENT_ID || documentId == null ? serializeDocument(mockDocument) : null,
+      documentId === MOCK_DOCUMENT_ID || documentId == null
+        ? serializeDocument(mockDocument)
+        : null,
     list_document_anchors:
       documentId === MOCK_DOCUMENT_ID || documentId == null
         ? limitItems(mockAnchors.map(serializeAnchor), limit)
@@ -269,7 +272,8 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       },
     },
     pick_and_import_pdf_document: null,
-    read_document_binary: documentId === MOCK_DOCUMENT_ID || documentId == null ? mockPdfBinary : [],
+    read_document_binary:
+      documentId === MOCK_DOCUMENT_ID || documentId == null ? mockPdfBinary : [],
     list_cards: limitItems(
       mockCards
         .filter((card) => (documentId ? card.documentId === documentId : true))
@@ -287,11 +291,41 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       limit
     ),
     list_api_configs: [],
+    get_api_config: null,
+    create_api_config: {
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      provider: 'openai',
+      name: 'Mock Config',
+      model: 'gpt-4o',
+      baseUrl: null,
+      budgetLimit: null,
+      isDefault: true,
+      isEnabled: true,
+      createdAt: MOCK_NOW,
+    },
+    update_api_config: {
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      provider: 'openai',
+      name: 'Mock Config',
+      model: 'gpt-4o',
+      baseUrl: null,
+      budgetLimit: null,
+      isDefault: true,
+      isEnabled: true,
+      createdAt: MOCK_NOW,
+    },
+    set_default_api_config: undefined,
+    delete_api_config: undefined,
+    store_api_key: undefined,
+    test_api_connection: { success: true, message: '连接测试通过 (mock)' },
+    update_settings: {
+      theme: 'default',
+      language: 'zh-CN',
+      dailyNewCardLimit: 20,
+      reviewTimeLimit: 30,
+    },
     get_daily_stats: { newCards: 2, reviewCards: 0 },
-    list_due_cards: limitItems(
-      mockCards.map(serializeCard),
-      limit
-    ),
+    list_due_cards: limitItems(mockCards.map(serializeCard), limit),
     create_review_log: {
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       cardId: MOCK_CARD_IDS[0],

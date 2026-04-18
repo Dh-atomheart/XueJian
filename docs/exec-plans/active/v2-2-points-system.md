@@ -15,7 +15,7 @@ canonical: true
 ## Depends On
 
 - [../../product-specs/v2.md](../../product-specs/v2.md)
-- [./m5-study-scheduling.md](./m5-study-scheduling.md)
+- [../completed/m5-study-scheduling.md](../completed/m5-study-scheduling.md) ✅
 
 ## Scope
 

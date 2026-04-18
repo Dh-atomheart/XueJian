@@ -20,11 +20,11 @@ canonical: true
 
 每个计划在 `Acceptance` 后必须有 `## Tests` 表格，用 ID 标记验收点：
 
-| 列 | 说明 |
-|----|------|
-| ID | `{plan}-a{n}` 格式的唯一标识（如 `m4-a1`、`v2-1-a3`） |
-| 验收点 | 对应 Acceptance 中的一条标准 |
-| 状态 | ⏳ 待实现 / ✅ 已通过 |
+| 列     | 说明                                                  |
+| ------ | ----------------------------------------------------- |
+| ID     | `{plan}-a{n}` 格式的唯一标识（如 `m4-a1`、`v2-1-a3`） |
+| 验收点 | 对应 Acceptance 中的一条标准                          |
+| 状态   | ⏳ 待实现 / ✅ 已通过                                 |
 
 测试代码中用 `// @acceptance:{id}` 标记关联验收点。Agent 自由决定测试文件位置和类型。
 
@@ -58,7 +58,7 @@ V3 完成后 → V4 阶段可启动
 - ~~m3-card-production-line.md~~ → [已完成](../completed/m3-card-production-line.md)
 - ~~m4-reading-and-sticky-notes.md~~ → [已完成](../completed/m4-reading-and-sticky-notes.md)
 - ~~m5-study-scheduling.md~~ → [已完成](../completed/m5-study-scheduling.md)
-- [m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md) — `draft`
+- [m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md) — `active`
 
 ### V2（Backlog — MVP 完成后启动）
 

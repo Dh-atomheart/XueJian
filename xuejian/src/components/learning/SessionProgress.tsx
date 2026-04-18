@@ -24,9 +24,7 @@ export function SessionProgress({ reviewed, total }: SessionProgressProps) {
         </div>
       </div>
 
-      <span className="font-ui text-xs text-ink-soft">
-        剩余 {remaining} 张
-      </span>
+      <span className="font-ui text-xs text-ink-soft">剩余 {remaining} 张</span>
     </div>
   )
 }

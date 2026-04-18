@@ -38,10 +38,7 @@ export function ReviewPage() {
   const handleRate = useCallback(
     (rating: ReviewRating) => {
       if (!currentCard || submitReview.isPending) return
-      submitReview.mutate(
-        { card: currentCard, rating },
-        { onSuccess: () => advanceCard() }
-      )
+      submitReview.mutate({ card: currentCard, rating }, { onSuccess: () => advanceCard() })
     },
     [currentCard, submitReview, advanceCard]
   )
@@ -68,10 +65,7 @@ export function ReviewPage() {
           <p className="mb-6 font-body text-sm leading-relaxed text-ink-muted">
             所有卡片已复习完毕，或者还没有生成过卡片。可以去文档库上传 PDF 并生成卡片。
           </p>
-          <Button
-            variant="outline"
-            onClick={() => setActiveNavItem('library')}
-          >
+          <Button variant="outline" onClick={() => setActiveNavItem('library')}>
             前往文档库
           </Button>
         </Panel>
@@ -86,9 +80,7 @@ export function ReviewPage() {
         <Panel variant="paperCard" className="max-w-sm rounded-[24px] p-8 text-center">
           <div className="mb-4 text-4xl">✅</div>
           <h2 className="mb-2 font-display text-xl text-ink">今日学习完成</h2>
-          <p className="mb-2 font-body text-sm text-ink-muted">
-            本次复习 {reviewedCount} 张卡片
-          </p>
+          <p className="mb-2 font-body text-sm text-ink-muted">本次复习 {reviewedCount} 张卡片</p>
           <div className="mt-6 flex justify-center gap-3">
             <Button
               variant="outline"
@@ -123,34 +115,20 @@ export function ReviewPage() {
         </div>
         {dailyStats && (
           <div className="mx-auto flex max-w-xl items-center gap-4 px-6 pb-2">
-            <span className="font-ui text-xs text-ink-soft">
-              新卡 {dailyStats.newCards}
-            </span>
-            <span className="font-ui text-xs text-ink-soft">
-              复习 {dailyStats.reviewCards}
-            </span>
+            <span className="font-ui text-xs text-ink-soft">新卡 {dailyStats.newCards}</span>
+            <span className="font-ui text-xs text-ink-soft">复习 {dailyStats.reviewCards}</span>
           </div>
         )}
       </div>
 
       {/* Center: card stage */}
-      {currentCard && (
-        <FlipCard
-          card={currentCard}
-          isFlipped={isFlipped}
-          onFlip={flipCard}
-        />
-      )}
+      {currentCard && <FlipCard card={currentCard} isFlipped={isFlipped} onFlip={flipCard} />}
 
       {/* Bottom: rating bar */}
       {isFlipped && currentCard && (
         <div className="border-t border-line-soft/60 bg-paper-base/80 backdrop-blur-sm">
           <div className="mx-auto max-w-xl">
-            <RatingBar
-              onRate={handleRate}
-              disabled={submitReview.isPending}
-              previews={previews}
-            />
+            <RatingBar onRate={handleRate} disabled={submitReview.isPending} previews={previews} />
           </div>
         </div>
       )}

@@ -120,9 +120,13 @@ export const cardsGateway = {
   },
 
   async finalizeGeneration(runId: string): Promise<FinalizeCardGenerationResult> {
-    return invokeWithSchema('finalize_card_generation_workflow', finalizeCardGenerationResultSchema, {
-      runId,
-    })
+    return invokeWithSchema(
+      'finalize_card_generation_workflow',
+      finalizeCardGenerationResultSchema,
+      {
+        runId,
+      }
+    )
   },
 
   async listHighlights(filters: HighlightFilters = {}): Promise<Highlight[]> {
