@@ -10,20 +10,11 @@ export interface RecordPointsInput {
   cardState: string
 }
 
-export async function recordPoints(
-  input: RecordPointsInput
-): Promise<PointsEntry | null> {
-  return invokeWithSchema(
-    'record_points',
-    pointsEntrySchema.nullable(),
-    { data: input }
-  )
+export async function recordPoints(input: RecordPointsInput): Promise<PointsEntry | null> {
+  return invokeWithSchema('record_points', pointsEntrySchema.nullable(), { data: input })
 }
 
-export async function listPointsLedger(
-  cardId?: string,
-  limit?: number
-): Promise<PointsEntry[]> {
+export async function listPointsLedger(cardId?: string, limit?: number): Promise<PointsEntry[]> {
   return invokeWithSchema('list_points_ledger', z.array(pointsEntrySchema), {
     cardId: cardId ?? null,
     limit: limit ?? null,

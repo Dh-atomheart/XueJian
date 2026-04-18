@@ -422,7 +422,13 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         palette: 'default',
         steps: [
           { id: 's1', type: 'text', content: '什么是光合作用?', emphasis: [], delay_ms: 0 },
-          { id: 's2', type: 'reveal', content: '植物利用光能将二氧化碳和水转化为葡萄糖和氧气的过程', emphasis: [], delay_ms: 600 },
+          {
+            id: 's2',
+            type: 'reveal',
+            content: '植物利用光能将二氧化碳和水转化为葡萄糖和氧气的过程',
+            emphasis: [],
+            delay_ms: 600,
+          },
         ],
       }),
       status: 'ready',
@@ -441,7 +447,13 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         palette: 'default',
         steps: [
           { id: 's1', type: 'text', content: '什么是光合作用?', emphasis: [], delay_ms: 0 },
-          { id: 's2', type: 'reveal', content: '植物利用光能将二氧化碳和水转化为葡萄糖和氧气的过程', emphasis: [], delay_ms: 600 },
+          {
+            id: 's2',
+            type: 'reveal',
+            content: '植物利用光能将二氧化碳和水转化为葡萄糖和氧气的过程',
+            emphasis: [],
+            delay_ms: 600,
+          },
         ],
       }),
       status: 'ready',
@@ -450,6 +462,55 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
     delete_card_animation: undefined,
+
+    // ─── Podcast ───
+    start_podcast_workflow: {
+      id: 'podcast-001',
+      documentId: null,
+      runId: 'run-podcast-001',
+      title: 'AI 学习播客',
+      scopeDescription: '测试播客',
+      scriptJson: JSON.stringify({
+        title: 'AI 学习播客',
+        description: '自动生成的学习播客',
+        speakers: ['主持人', '专家'],
+        segments: [
+          { id: 'seg1', speaker: '主持人', text: '欢迎收听今天的播客！', durationMs: 5000 },
+          { id: 'seg2', speaker: '专家', text: '今天我们来聊一聊学习方法。', durationMs: 6000 },
+        ],
+      }),
+      audioPath: null,
+      durationMs: 11000,
+      status: 'ready',
+      errorMessage: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    get_podcast_episode: {
+      id: 'podcast-001',
+      documentId: null,
+      runId: 'run-podcast-001',
+      title: 'AI 学习播客',
+      scopeDescription: '测试播客',
+      scriptJson: JSON.stringify({
+        title: 'AI 学习播客',
+        description: '自动生成的学习播客',
+        speakers: ['主持人', '专家'],
+        segments: [
+          { id: 'seg1', speaker: '主持人', text: '欢迎收听今天的播客！', durationMs: 5000 },
+          { id: 'seg2', speaker: '专家', text: '今天我们来聊一聊学习方法。', durationMs: 6000 },
+        ],
+      }),
+      audioPath: null,
+      durationMs: 11000,
+      status: 'ready',
+      errorMessage: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    list_podcast_episodes: [],
+    cancel_podcast_episode: undefined,
+    delete_podcast_episode: undefined,
   }
 
   return mockResponses[cmd] as T

@@ -3,11 +3,12 @@ import type { AnimationScript, AnimationStep, AnimPalette } from '@/types'
 
 // ───── Palette colours ─────
 
-const PALETTES: Record<AnimPalette, { bg: string; text: string; accent: string; reveal: string }> = {
-  default: { bg: '#fbfbf9', text: '#2c2c2c', accent: '#4a7c59', reveal: '#3b5f8a' },
-  warm:    { bg: '#fdf8f2', text: '#3d2b1f', accent: '#c0623d', reveal: '#b8860b' },
-  cool:    { bg: '#f2f5fb', text: '#1e2b3d', accent: '#3b5f8a', reveal: '#4a7c59' },
-}
+const PALETTES: Record<AnimPalette, { bg: string; text: string; accent: string; reveal: string }> =
+  {
+    default: { bg: '#fbfbf9', text: '#2c2c2c', accent: '#4a7c59', reveal: '#3b5f8a' },
+    warm: { bg: '#fdf8f2', text: '#3d2b1f', accent: '#c0623d', reveal: '#b8860b' },
+    cool: { bg: '#f2f5fb', text: '#1e2b3d', accent: '#3b5f8a', reveal: '#4a7c59' },
+  }
 
 // ───── Shared step variants ─────
 
@@ -27,7 +28,7 @@ function FlashcardRevealRenderer({
   palette,
 }: {
   script: AnimationScript
-  palette: ReturnType<typeof PALETTES[AnimPalette]>
+  palette: ReturnType<(typeof PALETTES)[AnimPalette]>
 }) {
   return (
     <div
@@ -80,7 +81,7 @@ function KeywordEmphasisRenderer({
   palette,
 }: {
   script: AnimationScript
-  palette: ReturnType<typeof PALETTES[AnimPalette]>
+  palette: ReturnType<(typeof PALETTES)[AnimPalette]>
 }) {
   return (
     <div
@@ -171,9 +172,7 @@ export function AnimationRenderer({ scriptJson, className }: AnimationRendererPr
   try {
     script = JSON.parse(scriptJson) as AnimationScript
   } catch {
-    return (
-      <div className="p-4 text-sm text-red-500">动画脚本解析失败</div>
-    )
+    return <div className="p-4 text-sm text-red-500">动画脚本解析失败</div>
   }
 
   const palette = PALETTES[script.palette ?? 'default']

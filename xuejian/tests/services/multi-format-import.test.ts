@@ -30,7 +30,10 @@ describe('multi-format import uses unified document pipeline', () => {
   })
 
   it('text parser produces chunks compatible with existing chunking format', () => {
-    const analysis = parseTextDocument('test-id', 'Paragraph one.\n\nParagraph two.\n\nParagraph three.')
+    const analysis = parseTextDocument(
+      'test-id',
+      'Paragraph one.\n\nParagraph two.\n\nParagraph three.'
+    )
     expect(analysis.chunks.length).toBeGreaterThan(0)
     for (const chunk of analysis.chunks) {
       expect(chunk.chunkIndex).toBeGreaterThanOrEqual(0)

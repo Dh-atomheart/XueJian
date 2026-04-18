@@ -10,7 +10,7 @@ import type { ParsedTextDocumentAnalysis } from './text'
  */
 export async function parseDocxDocument(
   documentId: string,
-  bytes: Uint8Array,
+  bytes: Uint8Array
 ): Promise<ParsedTextDocumentAnalysis> {
   const text = await extractDocxText(bytes)
   return parseTextDocument(documentId, text)
@@ -20,8 +20,7 @@ async function extractDocxText(bytes: Uint8Array): Promise<string> {
   // DOCX is a ZIP archive; document.xml contains the body text.
   // We use a minimal approach: find the document.xml entry and strip XML tags.
   const zip = await decompressDocxDocument(bytes)
-  const documentXml =
-    zip.get('word/document.xml') ?? zip.get('word\\document.xml')
+  const documentXml = zip.get('word/document.xml') ?? zip.get('word\\document.xml')
 
   if (!documentXml) {
     throw new Error('Invalid DOCX: word/document.xml not found')
@@ -34,9 +33,7 @@ async function extractDocxText(bytes: Uint8Array): Promise<string> {
  * Minimal ZIP reader for DOCX. Reads local file headers to extract entries.
  * DOCX files use Deflate (method 8) or Store (method 0).
  */
-async function decompressDocxDocument(
-  bytes: Uint8Array,
-): Promise<Map<string, string>> {
+async function decompressDocxDocument(bytes: Uint8Array): Promise<Map<string, string>> {
   const entries = new Map<string, string>()
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let offset = 0
@@ -64,9 +61,7 @@ async function decompressDocxDocument(
           entries.set(name, decoder.decode(compressedData))
         } else if (method === 8) {
           // Deflate
-          const decompressed = await decompressDeflate(
-            compressedData,
-          )
+          const decompressed = await decompressDeflate(compressedData)
           entries.set(name, decoder.decode(decompressed))
         }
       } catch {
@@ -80,9 +75,7 @@ async function decompressDocxDocument(
   return entries
 }
 
-async function decompressDeflate(
-  data: Uint8Array,
-): Promise<Uint8Array> {
+async function decompressDeflate(data: Uint8Array): Promise<Uint8Array> {
   const stream = new Blob([data]).stream()
   const decompressed = stream.pipeThrough(new DecompressionStream('raw'))
   const reader = decompressed.getReader()

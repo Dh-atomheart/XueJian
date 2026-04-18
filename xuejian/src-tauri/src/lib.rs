@@ -161,6 +161,11 @@ pub fn run() {
             commands::animation::start_card_animation_workflow,
             commands::animation::get_card_animation,
             commands::animation::delete_card_animation,
+            commands::podcast::start_podcast_workflow,
+            commands::podcast::get_podcast_episode,
+            commands::podcast::list_podcast_episodes,
+            commands::podcast::cancel_podcast_episode,
+            commands::podcast::delete_podcast_episode,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

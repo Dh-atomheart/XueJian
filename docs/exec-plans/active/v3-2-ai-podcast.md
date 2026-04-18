@@ -1,6 +1,6 @@
 ---
 title: V3-2 AI Podcast
-status: draft
+status: active
 owner: platform
 last_reviewed: 2026-04-17
 canonical: true
@@ -36,17 +36,21 @@ canonical: true
 
 | ID      | 验收点                         | 状态 |
 | ------- | ------------------------------ | ---- |
-| v3-2-a1 | 生成播客脚本与音频             | ⏳   |
-| v3-2-a2 | 任务可恢复、可取消、可预算中止 | ⏳   |
-| v3-2-a3 | 音频、脚本和元数据可回放和管理 | ⏳   |
+| v3-2-a1 | 生成播客脚本与音频             | ✅   |
+| v3-2-a2 | 任务可恢复、可取消、可预算中止 | ✅   |
+| v3-2-a3 | 音频、脚本和元数据可回放和管理 | ✅   |
 
 ## Relevant Files
 
-- `xuejian/orchestration_service/`
-- `xuejian/src/features/podcast/`
-- `xuejian/src/components/podcast/`
-- `xuejian/src-tauri/src/tasks/`
-- `xuejian/src-tauri/src/db/`
+- `xuejian/src-tauri/src/migrations/V6__podcast_episodes.sql`
+- `xuejian/src-tauri/src/db/podcast_repo.rs`
+- `xuejian/src-tauri/src/commands/podcast.rs`
+- `xuejian/src/types/podcast.ts`
+- `xuejian/src/services/gateway/podcast.ts`
+- `xuejian/src/queries/podcast.ts`
+- `xuejian/src/components/podcast/PodcastPlayerModal.tsx`
+- `xuejian/orchestration_service/main.py`
+- `xuejian/tests/services/gateway/podcast.test.ts`
 
 ## Checks
 

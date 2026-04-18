@@ -18,31 +18,26 @@ const MAX_CHUNK_CHARS = 900
  * empty rects, and paragraph-only positioning. This is the "degraded anchor"
  * strategy described in V2-3.
  */
-export function parseTextDocument(
-  _documentId: string,
-  text: string,
-): ParsedTextDocumentAnalysis {
+export function parseTextDocument(_documentId: string, text: string): ParsedTextDocumentAnalysis {
   const paragraphs = splitParagraphs(text)
 
-  const anchors: PersistedDocumentAnchorInput[] = paragraphs.map(
-    (paragraph, index) => {
-      const hash = createStableHash(
-        JSON.stringify({
-          page: 1,
-          paragraph: index + 1,
-          quote: paragraph,
-          rects: [],
-        }),
-      )
-      return {
+  const anchors: PersistedDocumentAnchorInput[] = paragraphs.map((paragraph, index) => {
+    const hash = createStableHash(
+      JSON.stringify({
         page: 1,
         paragraph: index + 1,
-        textQuote: paragraph,
+        quote: paragraph,
         rects: [],
-        hash,
-      }
-    },
-  )
+      })
+    )
+    return {
+      page: 1,
+      paragraph: index + 1,
+      textQuote: paragraph,
+      rects: [],
+      hash,
+    }
+  })
 
   const chunks = buildTextChunks(anchors, paragraphs)
 
@@ -68,7 +63,7 @@ function splitParagraphs(text: string): string[] {
 
 function buildTextChunks(
   anchors: PersistedDocumentAnchorInput[],
-  paragraphs: string[],
+  paragraphs: string[]
 ): PersistedDocumentChunkInput[] {
   const chunks: PersistedDocumentChunkInput[] = []
   let bucket: { text: string; hash: string; paragraph: number }[] = []

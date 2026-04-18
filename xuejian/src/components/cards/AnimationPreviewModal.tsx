@@ -17,10 +17,7 @@ interface AnimationPreviewModalProps {
 
 const LIVE_STATUSES = new Set(['queued', 'generating'])
 
-export function AnimationPreviewModal({
-  cardId,
-  onClose,
-}: AnimationPreviewModalProps) {
+export function AnimationPreviewModal({ cardId, onClose }: AnimationPreviewModalProps) {
   const startMutation = useStartCardAnimationMutation()
   const deleteMutation = useDeleteCardAnimationMutation()
 
@@ -100,10 +97,20 @@ export function AnimationPreviewModal({
         {/* Actions */}
         {animation?.status === 'ready' && (
           <div className="flex gap-2 mt-4 justify-end">
-            <Button variant="ghost" size="sm" onClick={handleRegenerate} disabled={startMutation.isPending}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRegenerate}
+              disabled={startMutation.isPending}
+            >
               重新生成
             </Button>
-            <Button variant="ghost" size="sm" onClick={handleDelete} disabled={deleteMutation.isPending}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+            >
               删除
             </Button>
           </div>
@@ -130,7 +137,9 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   return (
     <div className="flex flex-col items-center gap-3 text-center">
       <p className="text-sm text-red-500">{message}</p>
-      <Button variant="ghost" size="sm" onClick={onRetry}>重试</Button>
+      <Button variant="ghost" size="sm" onClick={onRetry}>
+        重试
+      </Button>
     </div>
   )
 }

@@ -43,9 +43,9 @@ describe('points traceability: ledger entries link to learning behavior', () => 
   it('each ledger entry has a transaction type tracing to the action', async () => {
     const entries = await listPointsLedger()
     for (const entry of entries) {
-      expect(
-        ['review_new', 'review_learning', 'review_correct', 'review_easy']
-      ).toContain(entry.transactionType)
+      expect(['review_new', 'review_learning', 'review_correct', 'review_easy']).toContain(
+        entry.transactionType
+      )
     }
   })
 
