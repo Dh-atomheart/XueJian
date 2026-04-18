@@ -2,7 +2,7 @@
 title: Active Exec Plans Index
 status: active
 owner: platform
-last_reviewed: 2026-04-17
+last_reviewed: 2026-04-18
 canonical: true
 ---
 
@@ -68,7 +68,7 @@ V3 完成后 → V4 阶段可启动
 
 ### V3（Backlog — V2 完成后启动）
 
-- [v3-1-card-animation.md](./v3-1-card-animation.md)
+- ~~v3-1-card-animation.md~~ → [已完成](../completed/v3-1-card-animation.md)
 - [v3-2-ai-podcast.md](./v3-2-ai-podcast.md)
 
 ### V4（Backlog — V3 完成后启动）

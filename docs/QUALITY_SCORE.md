@@ -12,15 +12,14 @@ Last garden run: `2026-04-18`
 
 | Metric | Score | Notes |
 | --- | --- | --- |
-| Documentation topology | 2 | Layout, frontmatter, links, and truth-source boundaries |
+| Documentation topology | 5 | Layout, frontmatter, links, and truth-source boundaries |
 | Command/source drift | 5 | Shared command surface matches xuejian/package.json |
 | Architecture drift | 5 | Path-level TypeScript and Rust boundaries |
 | Generated artifact freshness | 5 | Generated DB schema matches migrations |
 | Test-and-check clarity | 5 | Workflows and short agent entrypoints remain usable |
 
 ## Signals
-- `frontmatter`: docs\exec-plans\completed\m6-byok-and-minimal-analytics.md has invalid status `completed`
-- `local_links`: docs\exec-plans\active\v2-1-rag.md -> ./m6-byok-and-minimal-analytics.md does not resolve; docs\exec-plans\active\v3-2-ai-podcast.md -> ./m6-byok-and-minimal-analytics.md does not resolve; docs\exec-plans\active\v4-3-android-capability-assessment.md -> ./m6-byok-and-minimal-analytics.md does not resolve
+- All current documentation and architecture checks passed.
 
 ## Update Policy
 

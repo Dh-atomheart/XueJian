@@ -4,19 +4,21 @@ status: active
 owner: platform
 last_reviewed: 2026-04-18
 canonical: false
-source_hash: 7a5d87910cf764e1
+source_hash: 70db60a158c8dcbb
 ---
 
 # Database Schema
 
 This file is generated from `xuejian/src-tauri/src/migrations/*.sql`.
 
-- Source hash: `7a5d87910cf764e1`
+- Source hash: `70db60a158c8dcbb`
 
 ## Migrations
 - `V1__initial_schema.sql`
 - `V2__workflow_and_fts_foundation.sql`
 - `V3__card_generation_workflow.sql`
+- `V4__points_ledger.sql`
+- `V5__card_animations.sql`
 
 ## Tables
 
@@ -308,6 +310,41 @@ CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
 );
 ```
 
+### V4__points_ledger.sql
+
+#### `points_ledger`
+
+```sql
+CREATE TABLE IF NOT EXISTS points_ledger (
+    id TEXT PRIMARY KEY,
+    review_log_id TEXT UNIQUE NOT NULL REFERENCES review_logs(id),
+    card_id TEXT NOT NULL REFERENCES cards(id),
+    points INTEGER NOT NULL,
+    transaction_type TEXT NOT NULL,   -- 'review_new', 'review_learning', 'review_correct', 'review_easy'
+    rating TEXT NOT NULL,             -- 'again', 'hard', 'good', 'easy'
+    reason TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### V5__card_animations.sql
+
+#### `card_animations`
+
+```sql
+CREATE TABLE IF NOT EXISTS card_animations (
+    id          TEXT PRIMARY KEY,
+    card_id     TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    run_id      TEXT REFERENCES workflow_runs(id) ON DELETE SET NULL,
+    anim_type   TEXT NOT NULL,     -- 'flashcard_reveal' | 'keyword_emphasis'
+    script_json TEXT NOT NULL,     -- AnimationScript JSON (pure data, no code)
+    status      TEXT NOT NULL DEFAULT 'queued',  -- 'queued' | 'generating' | 'ready' | 'failed'
+    error_message TEXT,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
 ## Indexes
 
 ### V1__initial_schema.sql
@@ -428,4 +465,47 @@ WHERE dedupe_key IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cards_document_dedupe_key
 ON cards(document_id, dedupe_key)
 WHERE dedupe_key IS NOT NULL;
+```
+
+### V4__points_ledger.sql
+
+#### `idx_points_ledger_card_id`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_points_ledger_card_id ON points_ledger(card_id);
+```
+
+#### `idx_points_ledger_created_at`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_points_ledger_created_at ON points_ledger(created_at);
+```
+
+#### `idx_points_ledger_transaction_type`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_points_ledger_transaction_type ON points_ledger(transaction_type);
+```
+
+### V5__card_animations.sql
+
+#### `idx_card_animations_card_id`
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_card_animations_card_id
+ON card_animations(card_id);
+```
+
+#### `idx_card_animations_status`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_card_animations_status
+ON card_animations(status);
+```
+
+#### `idx_card_animations_run_id`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_card_animations_run_id
+ON card_animations(run_id);
 ```

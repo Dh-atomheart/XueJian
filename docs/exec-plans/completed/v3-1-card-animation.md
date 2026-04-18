@@ -1,6 +1,6 @@
 ---
 title: V3-1 Card Animation
-status: active
+status: archived
 owner: platform
 last_reviewed: 2026-04-18
 canonical: true
