@@ -15,7 +15,7 @@ export function FlipCard({ card, isFlipped, onFlip }: FlipCardProps) {
         onClick={!isFlipped ? onFlip : undefined}
         className={cn(
           'group relative w-full max-w-xl cursor-pointer select-none',
-          'rounded-[24px] border border-line-soft bg-white shadow-card',
+          'rounded-[24px] border border-line-soft bg-paper-card shadow-card',
           'transition-all duration-300',
           !isFlipped && 'hover:shadow-sticky hover:-translate-y-0.5'
         )}

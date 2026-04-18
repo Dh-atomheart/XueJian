@@ -74,5 +74,5 @@ V3 完成后 → V4 阶段可启动
 ### V4（Backlog — V3 完成后启动）
 
 - ~~v4-1-knowledge-graph.md~~ → [已完成](../completed/v4-1-knowledge-graph.md)
-- [v4-2-theme-switching-and-theme-packs.md](./v4-2-theme-switching-and-theme-packs.md)
+- ~~v4-2-theme-switching-and-theme-packs.md~~ → [已完成](../completed/v4-2-theme-switching-and-theme-packs.md)
 - [v4-3-android-capability-assessment.md](./v4-3-android-capability-assessment.md)

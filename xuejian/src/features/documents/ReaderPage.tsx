@@ -158,7 +158,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
 
   if (!document) {
     return (
-      <Panel variant="panel" className="rounded-[32px] py-16 text-center text-rose-700">
+      <Panel variant="panel" className="rounded-[32px] py-16 text-center text-ink-muted">
         当前文档不存在，无法进入阅读页。
       </Panel>
     )
@@ -177,7 +177,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
           onClose={closeReader}
         />
 
-        <div className="space-y-4 bg-[radial-gradient(circle_at_top_left,rgba(248,225,108,0.18),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,246,238,0.92))] px-4 py-4">
+        <div className="space-y-4 bg-[radial-gradient(circle_at_top_left,rgb(var(--highlight-yellow)/0.18),transparent_34%),linear-gradient(180deg,rgb(var(--paper-base)/0.92),rgb(var(--paper-soft)/0.92))] px-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[11px] uppercase tracking-[0.26em] text-ink-soft">
@@ -204,7 +204,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
           </div>
 
           {readerNotice ? (
-            <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="rounded-[22px] border border-highlight-yellow/40 bg-highlight-yellow/10 px-4 py-3 text-sm text-ink-muted">
               {readerNotice}
             </div>
           ) : null}
@@ -224,11 +224,11 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
           <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
             <div
               ref={scrollContainerRef}
-              className="relative flex min-h-[520px] flex-1 items-start justify-center overflow-auto rounded-[28px] border border-line-soft bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(246,242,230,0.92))] px-6 py-8"
+              className="relative flex min-h-[520px] flex-1 items-start justify-center overflow-auto rounded-[28px] border border-line-soft bg-[linear-gradient(180deg,rgb(var(--paper-base)/0.92),rgb(var(--paper-soft)/0.92))] px-6 py-8"
               data-testid="reader-pdf-stage"
             >
               {binaryError ? (
-                <div className="flex min-h-[420px] items-center justify-center text-center text-sm text-rose-700">
+                <div className="flex min-h-[420px] items-center justify-center text-center text-sm text-ink-muted">
                   {binaryError}
                 </div>
               ) : isLoadingBinary || !pdfBytes ? (
@@ -236,7 +236,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                   正在铺开 PDF 纸面...
                 </div>
               ) : (
-                <div className="relative inline-block min-h-[640px] min-w-[560px] rounded-[12px] bg-white shadow-[0_18px_60px_rgba(26,26,26,0.08)]">
+                <div className="relative inline-block min-h-[640px] min-w-[560px] rounded-[12px] bg-paper-card shadow-paper">
                   <PdfPageCanvas
                     pdfBytes={pdfBytes}
                     pageNumber={reader.currentPage}
@@ -291,7 +291,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
 
                 <div className="space-y-3 select-text" onMouseUp={handleExcerptSelection}>
                   {currentPageAnchors.length === 0 ? (
-                    <p className="rounded-[18px] bg-white/80 px-4 py-4 text-sm leading-6 text-ink-soft">
+                    <p className="rounded-[18px] bg-paper-muted/80 px-4 py-4 text-sm leading-6 text-ink-soft">
                       当前页还没有可用的文本锚点。
                     </p>
                   ) : (
@@ -302,7 +302,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                           'rounded-[18px] border px-4 py-4 text-sm leading-7 transition-colors',
                           selectedCard?.anchorId === anchor.id
                             ? 'border-ink/15 bg-highlight-yellow/18'
-                            : 'border-line-soft bg-white/80'
+                            : 'border-line-soft bg-paper-muted/80'
                         )}
                       >
                         {anchor.textQuote}
@@ -312,7 +312,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                 </div>
 
                 {selectionText ? (
-                  <div className="absolute bottom-4 right-4 flex items-center gap-2 rounded-full border border-ink/10 bg-white/90 px-3 py-2 shadow-card">
+                  <div className="absolute bottom-4 right-4 flex items-center gap-2 rounded-full border border-ink/10 bg-paper-base/90 px-3 py-2 shadow-card">
                     <span className="text-xs text-ink-muted">已选 {selectionText.length} 字</span>
                     <Button
                       variant="sketch"
@@ -340,7 +340,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                 </div>
 
                 {showSelectionSaved ? (
-                  <div className="mt-4 rounded-[18px] border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
+                  <div className="mt-4 rounded-[18px] border border-highlight-green/40 bg-highlight-green/10 px-3 py-3 text-sm text-ink-muted">
                     已捕获当前选区，可继续整理为贴笺或回到卡片工坊深化内容。
                   </div>
                 ) : null}
@@ -366,7 +366,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
 
 function ReaderMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[22px] border border-line-soft bg-white/76 px-4 py-4">
+    <div className="rounded-[22px] border border-line-soft bg-paper-base/76 px-4 py-4">
       <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">{label}</p>
       <p className="mt-2 font-ui text-sm text-ink">{value}</p>
     </div>

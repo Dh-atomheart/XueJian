@@ -12,25 +12,25 @@ const RATINGS: { key: ReviewRating; label: string; sublabel: string; color: stri
     key: 'again',
     label: '忘了',
     sublabel: 'Again',
-    color: 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100',
+    color: 'border-highlight-pink/50 bg-highlight-pink/15 text-ink hover:bg-highlight-pink/25',
   },
   {
     key: 'hard',
     label: '困难',
     sublabel: 'Hard',
-    color: 'border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100',
+    color: 'border-highlight-yellow/50 bg-highlight-yellow/15 text-ink hover:bg-highlight-yellow/25',
   },
   {
     key: 'good',
     label: '记得',
     sublabel: 'Good',
-    color: 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+    color: 'border-highlight-green/50 bg-highlight-green/15 text-ink hover:bg-highlight-green/25',
   },
   {
     key: 'easy',
     label: '简单',
     sublabel: 'Easy',
-    color: 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100',
+    color: 'border-highlight-blue/50 bg-highlight-blue/15 text-ink hover:bg-highlight-blue/25',
   },
 ]
 

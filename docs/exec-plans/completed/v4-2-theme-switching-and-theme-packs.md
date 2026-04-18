@@ -1,6 +1,6 @@
 ---
 title: V4-2 Theme Switching And Theme Packs
-status: active
+status: archived
 owner: design
 last_reviewed: 2026-04-18
 canonical: true
