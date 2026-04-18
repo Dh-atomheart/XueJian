@@ -19,7 +19,8 @@ Last garden run: `2026-04-18`
 | Test-and-check clarity | 5 | Workflows and short agent entrypoints remain usable |
 
 ## Signals
-- `local_links`: docs\exec-plans\active\m6-byok-and-minimal-analytics.md -> ./m5-study-scheduling.md does not resolve; docs\exec-plans\active\v2-2-points-system.md -> ./m5-study-scheduling.md does not resolve; docs\exec-plans\active\v4-3-android-capability-assessment.md -> ./m5-study-scheduling.md does not resolve
+- `frontmatter`: docs\exec-plans\completed\m6-byok-and-minimal-analytics.md has invalid status `completed`
+- `local_links`: docs\exec-plans\active\v2-1-rag.md -> ./m6-byok-and-minimal-analytics.md does not resolve; docs\exec-plans\active\v3-2-ai-podcast.md -> ./m6-byok-and-minimal-analytics.md does not resolve; docs\exec-plans\active\v4-3-android-capability-assessment.md -> ./m6-byok-and-minimal-analytics.md does not resolve
 
 ## Update Policy
 

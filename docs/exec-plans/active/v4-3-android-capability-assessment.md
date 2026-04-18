@@ -20,7 +20,7 @@ canonical: true
 - [../completed/m3-card-production-line.md](../completed/m3-card-production-line.md) ✅
 - [../completed/m4-reading-and-sticky-notes.md](../completed/m4-reading-and-sticky-notes.md) ✅
 - [../completed/m5-study-scheduling.md](../completed/m5-study-scheduling.md) ✅
-- [./m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md)
+- [../completed/m6-byok-and-minimal-analytics.md](../completed/m6-byok-and-minimal-analytics.md) ✅
 - [../../references/ai-orchestration.md](../../references/ai-orchestration.md)
 
 ## Scope

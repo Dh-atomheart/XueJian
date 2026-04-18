@@ -1,6 +1,6 @@
 ---
 title: M6 BYOK And Minimal Analytics
-status: active
+status: archived
 owner: app
 last_reviewed: 2026-04-18
 canonical: true
@@ -37,10 +37,10 @@ canonical: true
 
 | ID | 验收点 | 状态 |
 |----|--------|------|
-| m6-a1 | 配置模型并测试连接 | ⏳ |
-| m6-a2 | API Key 只进 Stronghold | ⏳ |
-| m6-a3 | 首页与设置页最小统计概览 | ⏳ |
-| m6-a4 | 统计 UI 保持克制 | ⏳ |
+| m6-a1 | 配置模型并测试连接 | ✅ |
+| m6-a2 | API Key 只进 Stronghold | ✅ |
+| m6-a3 | 首页与设置页最小统计概览 | ✅ |
+| m6-a4 | 统计 UI 保持克制 | ✅ |
 
 ## Relevant Files
 

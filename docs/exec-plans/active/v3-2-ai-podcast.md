@@ -16,7 +16,7 @@ canonical: true
 
 - [../../product-specs/v3.md](../../product-specs/v3.md)
 - [./v2-1-rag.md](./v2-1-rag.md)
-- [./m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md)
+- [../completed/m6-byok-and-minimal-analytics.md](../completed/m6-byok-and-minimal-analytics.md) ✅
 - [../../references/ai-orchestration.md](../../references/ai-orchestration.md)
 
 ## Scope
