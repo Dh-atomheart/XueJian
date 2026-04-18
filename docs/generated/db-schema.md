@@ -4,14 +4,14 @@ status: active
 owner: platform
 last_reviewed: 2026-04-18
 canonical: false
-source_hash: bc6eba580c152ad5
+source_hash: d6d825aac799aa77
 ---
 
 # Database Schema
 
 This file is generated from `xuejian/src-tauri/src/migrations/*.sql`.
 
-- Source hash: `bc6eba580c152ad5`
+- Source hash: `d6d825aac799aa77`
 
 ## Migrations
 - `V1__initial_schema.sql`
@@ -20,6 +20,8 @@ This file is generated from `xuejian/src-tauri/src/migrations/*.sql`.
 - `V4__points_ledger.sql`
 - `V5__card_animations.sql`
 - `V6__podcast_episodes.sql`
+- `V7__knowledge_graph.sql`
+- `V8__points_daily_bonus_rule.sql`
 
 ## Tables
 
@@ -367,6 +369,56 @@ CREATE TABLE IF NOT EXISTS podcast_episodes (
 );
 ```
 
+### V7__knowledge_graph.sql
+
+#### `knowledge_nodes`
+
+```sql
+CREATE TABLE IF NOT EXISTS knowledge_nodes (
+    id              TEXT PRIMARY KEY,
+    node_type       TEXT NOT NULL DEFAULT 'concept',
+    label           TEXT NOT NULL,
+    aliases_json    TEXT NOT NULL DEFAULT '[]',
+    source_ids_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json   TEXT NOT NULL DEFAULT '{}',
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### `knowledge_edges`
+
+```sql
+CREATE TABLE IF NOT EXISTS knowledge_edges (
+    id              TEXT PRIMARY KEY,
+    from_node_id    TEXT NOT NULL REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
+    to_node_id      TEXT NOT NULL REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
+    relation        TEXT NOT NULL,
+    confidence      REAL NOT NULL DEFAULT 0.5,
+    source_ids_json TEXT NOT NULL DEFAULT '[]',
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### `graph_build_runs`
+
+```sql
+CREATE TABLE IF NOT EXISTS graph_build_runs (
+    id              TEXT PRIMARY KEY,
+    run_id          TEXT REFERENCES workflow_runs(id) ON DELETE SET NULL,
+    scope_description TEXT NOT NULL DEFAULT '',
+    document_ids_json TEXT NOT NULL DEFAULT '[]',
+    nodes_created   INTEGER NOT NULL DEFAULT 0,
+    edges_created   INTEGER NOT NULL DEFAULT 0,
+    nodes_merged    INTEGER NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'queued',
+    error_message   TEXT,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
 ## Indexes
 
 ### V1__initial_schema.sql
@@ -550,4 +602,52 @@ CREATE INDEX IF NOT EXISTS idx_podcast_episodes_document_id ON podcast_episodes(
 
 ```sql
 CREATE INDEX IF NOT EXISTS idx_podcast_episodes_run_id ON podcast_episodes(run_id);
+```
+
+### V7__knowledge_graph.sql
+
+#### `idx_knowledge_nodes_type`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_knowledge_nodes_type ON knowledge_nodes(node_type);
+```
+
+#### `idx_knowledge_nodes_label`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_knowledge_nodes_label ON knowledge_nodes(label);
+```
+
+#### `idx_knowledge_edges_from`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_knowledge_edges_from ON knowledge_edges(from_node_id);
+```
+
+#### `idx_knowledge_edges_to`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_knowledge_edges_to ON knowledge_edges(to_node_id);
+```
+
+#### `idx_knowledge_edges_relation`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_knowledge_edges_relation ON knowledge_edges(relation);
+```
+
+#### `idx_graph_build_runs_status`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_graph_build_runs_status ON graph_build_runs(status);
+```
+
+### V8__points_daily_bonus_rule.sql
+
+#### `idx_points_ledger_grant_scope_unique`
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_points_ledger_grant_scope_unique
+ON points_ledger(grant_scope)
+WHERE grant_scope IS NOT NULL;
 ```
