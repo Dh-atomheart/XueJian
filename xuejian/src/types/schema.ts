@@ -208,7 +208,7 @@ export const workflowEventSchema = z.object({
 
 export const workflowRunSchema = z.object({
   id: z.string().uuid(),
-  workflowType: z.enum(['card_generation', 'knowledge_qa', 'podcast_generation']),
+  workflowType: z.enum(['card_generation', 'knowledge_qa', 'podcast_generation', 'knowledge_graph']),
   presetId: z.string().nullable(),
   status: z.enum(['queued', 'running', 'waiting_confirmation', 'completed', 'failed', 'cancelled']),
   threadId: z.string().min(1),

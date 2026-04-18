@@ -47,7 +47,7 @@ V2 完成后 → V3 阶段可启动
 V3 完成后 → V4 阶段可启动
 ```
 
-当前焦点：**V2 阶段**（MVP 已全部完成）。M1–M6 已归档至 `completed/`。
+当前焦点：**V4 阶段**（MVP、V2、V3 已全部完成）。M1–M6、V2、V3 已归档至 `completed/`。
 
 ## 模块计划
 
@@ -69,10 +69,10 @@ V3 完成后 → V4 阶段可启动
 ### V3（Backlog — V2 完成后启动）
 
 - ~~v3-1-card-animation.md~~ → [已完成](../completed/v3-1-card-animation.md)
-- [v3-2-ai-podcast.md](./v3-2-ai-podcast.md)
+- ~~v3-2-ai-podcast.md~~ → [已完成](../completed/v3-2-ai-podcast.md)
 
 ### V4（Backlog — V3 完成后启动）
 
-- [v4-1-knowledge-graph.md](./v4-1-knowledge-graph.md)
+- ~~v4-1-knowledge-graph.md~~ → [已完成](../completed/v4-1-knowledge-graph.md)
 - [v4-2-theme-switching-and-theme-packs.md](./v4-2-theme-switching-and-theme-packs.md)
 - [v4-3-android-capability-assessment.md](./v4-3-android-capability-assessment.md)

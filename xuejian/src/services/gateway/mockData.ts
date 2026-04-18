@@ -513,6 +513,68 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     list_podcast_episodes: [],
     cancel_podcast_episode: undefined,
     delete_podcast_episode: undefined,
+
+    // ─── Knowledge Graph ───
+    start_graph_build_workflow: {
+      id: 'graph-build-001',
+      runId: 'run-graph-001',
+      scopeDescription: '1 document(s)',
+      documentIds: [MOCK_DOCUMENT_ID],
+      nodesCreated: 0,
+      edgesCreated: 0,
+      nodesMerged: 0,
+      status: 'queued',
+      errorMessage: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    list_graph_nodes: [
+      {
+        id: 'node-001',
+        nodeType: 'concept',
+        label: '光合作用',
+        aliases: ['Photosynthesis'],
+        sourceIds: [MOCK_DOCUMENT_ID],
+        metadata: {},
+        createdAt: new Date(MOCK_NOW).toISOString(),
+        updatedAt: new Date(MOCK_NOW).toISOString(),
+      },
+      {
+        id: 'node-002',
+        nodeType: 'term',
+        label: '叶绿素',
+        aliases: ['Chlorophyll'],
+        sourceIds: [MOCK_DOCUMENT_ID],
+        metadata: {},
+        createdAt: new Date(MOCK_NOW).toISOString(),
+        updatedAt: new Date(MOCK_NOW).toISOString(),
+      },
+    ],
+    list_graph_edges: [
+      {
+        id: 'edge-001',
+        fromNodeId: 'node-001',
+        toNodeId: 'node-002',
+        relation: 'requires',
+        confidence: 0.85,
+        sourceIds: [MOCK_DOCUMENT_ID],
+        createdAt: new Date(MOCK_NOW).toISOString(),
+        updatedAt: new Date(MOCK_NOW).toISOString(),
+      },
+    ],
+    get_node_sources: [MOCK_DOCUMENT_ID],
+    merge_graph_nodes: {
+      id: 'node-001',
+      nodeType: 'concept',
+      label: '光合作用',
+      aliases: ['Photosynthesis'],
+      sourceIds: [MOCK_DOCUMENT_ID],
+      metadata: {},
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    delete_graph_node: undefined,
+    list_graph_build_runs: [],
   }
 
   return mockResponses[cmd] as T

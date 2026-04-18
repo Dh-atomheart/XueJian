@@ -192,7 +192,7 @@ export interface KnowledgeScope {
 
 export interface AgentPreset {
   id: string
-  type: 'card_generation' | 'knowledge_qa' | 'podcast_generation'
+  type: 'card_generation' | 'knowledge_qa' | 'podcast_generation' | 'knowledge_graph'
   name: string
   modelProfileId: string
   knowledgeScopeId: string | null
@@ -217,7 +217,7 @@ export interface AgentRun {
 
 export interface WorkflowRun {
   id: string
-  workflowType: 'card_generation' | 'knowledge_qa' | 'podcast_generation'
+  workflowType: 'card_generation' | 'knowledge_qa' | 'podcast_generation' | 'knowledge_graph'
   presetId: string | null
   status: 'queued' | 'running' | 'waiting_confirmation' | 'completed' | 'failed' | 'cancelled'
   threadId: string

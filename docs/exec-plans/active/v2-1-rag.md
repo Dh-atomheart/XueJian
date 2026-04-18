@@ -1,6 +1,6 @@
 ---
 title: V2-1 RAG
-status: completed
+status: archived
 owner: platform
 last_reviewed: 2026-04-18
 canonical: true

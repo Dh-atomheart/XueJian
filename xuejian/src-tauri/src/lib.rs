@@ -166,6 +166,13 @@ pub fn run() {
             commands::podcast::list_podcast_episodes,
             commands::podcast::cancel_podcast_episode,
             commands::podcast::delete_podcast_episode,
+            commands::knowledge_graph::start_graph_build_workflow,
+            commands::knowledge_graph::list_graph_nodes,
+            commands::knowledge_graph::list_graph_edges,
+            commands::knowledge_graph::get_node_sources,
+            commands::knowledge_graph::merge_graph_nodes,
+            commands::knowledge_graph::delete_graph_node,
+            commands::knowledge_graph::list_graph_build_runs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

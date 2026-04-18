@@ -1,6 +1,6 @@
 ---
 title: V4-1 Knowledge Graph
-status: active
+status: archived
 owner: platform
 last_reviewed: 2026-04-17
 canonical: true
