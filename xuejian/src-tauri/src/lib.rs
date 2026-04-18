@@ -158,6 +158,9 @@ pub fn run() {
             commands::points::record_points,
             commands::points::list_points_ledger,
             commands::points::get_points_summary,
+            commands::animation::start_card_animation_workflow,
+            commands::animation::get_card_animation,
+            commands::animation::delete_card_animation,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

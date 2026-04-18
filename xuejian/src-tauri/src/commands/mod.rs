@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod cards;
 pub mod documents;
 pub mod knowledge;

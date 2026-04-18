@@ -411,6 +411,45 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     get_points_summary: {
       todayPoints: 10,
     },
+    start_card_animation_workflow: {
+      id: 'anim-mock-0001',
+      cardId: MOCK_CARD_IDS[0],
+      runId: 'run-anim-0001',
+      animType: 'flashcard_reveal',
+      scriptJson: JSON.stringify({
+        type: 'flashcard_reveal',
+        title: '什么是光合作用?',
+        palette: 'default',
+        steps: [
+          { id: 's1', type: 'text', content: '什么是光合作用?', emphasis: [], delay_ms: 0 },
+          { id: 's2', type: 'reveal', content: '植物利用光能将二氧化碳和水转化为葡萄糖和氧气的过程', emphasis: [], delay_ms: 600 },
+        ],
+      }),
+      status: 'ready',
+      errorMessage: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    get_card_animation: {
+      id: 'anim-mock-0001',
+      cardId: MOCK_CARD_IDS[0],
+      runId: 'run-anim-0001',
+      animType: 'flashcard_reveal',
+      scriptJson: JSON.stringify({
+        type: 'flashcard_reveal',
+        title: '什么是光合作用?',
+        palette: 'default',
+        steps: [
+          { id: 's1', type: 'text', content: '什么是光合作用?', emphasis: [], delay_ms: 0 },
+          { id: 's2', type: 'reveal', content: '植物利用光能将二氧化碳和水转化为葡萄糖和氧气的过程', emphasis: [], delay_ms: 600 },
+        ],
+      }),
+      status: 'ready',
+      errorMessage: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    delete_card_animation: undefined,
   }
 
   return mockResponses[cmd] as T

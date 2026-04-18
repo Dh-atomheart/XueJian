@@ -1,3 +1,4 @@
+export * from './animation'
 export * from './apiConfigs'
 export * from './cards'
 export * from './documents'

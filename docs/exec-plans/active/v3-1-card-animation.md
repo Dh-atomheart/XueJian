@@ -1,8 +1,8 @@
 ---
 title: V3-1 Card Animation
-status: draft
+status: active
 owner: platform
-last_reviewed: 2026-04-17
+last_reviewed: 2026-04-18
 canonical: true
 ---
 
@@ -19,10 +19,17 @@ canonical: true
 
 ## Scope
 
-- 动画引擎选型
-- 内容分析与动画意图结构化
-- 脚本生成与执行沙箱
+- 动画引擎选型：Framer Motion（`flashcard_reveal` + `keyword_emphasis`）
+- AnimationScript = 纯数据 JSON（无可执行代码）
+- LLM 生成动画脚本，Framer Motion 渲染
 - 预览组件与资源管理
+
+## Technical Decisions
+
+- 2 种动画类型：`flashcard_reveal`（闪卡翻转展示）+ `keyword_emphasis`（关键词高亮强调）
+- 无视频导出，仅应用内预览
+- LLM 生成 AnimationScript JSON，本地 Rust 规则兜底
+- Python 服务新增 `/workflows/card-animation` 端点
 
 ## Acceptance
 
@@ -35,17 +42,23 @@ canonical: true
 
 | ID | 验收点 | 状态 |
 |----|--------|------|
-| v3-1-a1 | 从卡片发起动画生成 | ⏳ |
-| v3-1-a2 | 动画可预览、重生成、删除 | ⏳ |
-| v3-1-a3 | 失败任务保留上下文 | ⏳ |
-| v3-1-a4 | 废弃资源可清理 | ⏳ |
+| v3-1-a1 | 从卡片发起动画生成 | ✅ |
+| v3-1-a2 | 动画可预览、重生成、删除 | ✅ |
+| v3-1-a3 | 失败任务保留上下文 | ✅ |
+| v3-1-a4 | 废弃资源可清理 | ✅ |
 
 ## Relevant Files
 
-- `xuejian/src/features/animation/`
-- `xuejian/src/components/animation/`
-- `xuejian/src-tauri/src/tasks/`
-- `xuejian/src-tauri/src/db/`
+- `xuejian/src/features/animation/` (queries)
+- `xuejian/src/components/cards/AnimationRenderer.tsx`
+- `xuejian/src/components/cards/AnimationPreviewModal.tsx`
+- `xuejian/src/queries/animation.ts`
+- `xuejian/src/services/gateway/animation.ts`
+- `xuejian/src/types/animation.ts`
+- `xuejian/src-tauri/src/commands/animation.rs`
+- `xuejian/src-tauri/src/db/animation_repo.rs`
+- `xuejian/src-tauri/src/migrations/V5__card_animations.sql`
+- `xuejian/orchestration_service/main.py` (new `/workflows/card-animation` endpoint)
 
 ## Checks
 

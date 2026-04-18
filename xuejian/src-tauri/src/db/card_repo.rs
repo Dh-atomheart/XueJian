@@ -186,6 +186,16 @@ impl<'a> CardRepository<'a> {
         Self { db }
     }
 
+    pub fn get_card_by_id(&self, id: &str) -> Result<Option<Card>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, group_id, front, back, document_id, anchor_id, source_page, source_paragraph,
+                    source_coordinates, tags, difficulty, stability, retrievability, state,
+                    next_review, dedupe_key, created_at, updated_at
+             FROM cards WHERE id = ?1",
+        )?;
+        stmt.query_row(params![id], map_card_row).optional().map_err(Into::into)
+    }
+
     pub fn create_review_log(&self, req: CreateReviewLogRequest) -> Result<ReviewLog> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();

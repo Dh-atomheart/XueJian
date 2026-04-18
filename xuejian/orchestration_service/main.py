@@ -353,6 +353,166 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit - 3] + "..."
 
 
+# ── Card Animation Workflow ────────────────────────────────
+
+CARD_ANIMATION_SYSTEM_PROMPT = """\
+You are an animation script generator for a flashcard learning app.
+Given a flashcard's front (question) and back (answer), generate an AnimationScript
+that will be rendered by Framer Motion to create an engaging visual review experience.
+
+The script must be valid JSON with this exact shape:
+{
+  "type": "flashcard_reveal" | "keyword_emphasis",
+  "title": "<short descriptive title>",
+  "palette": "default" | "warm" | "cool",
+  "steps": [
+    {
+      "id": "<unique step id like 's1'>",
+      "type": "text" | "reveal" | "emphasis",
+      "content": "<text to display>",
+      "emphasis": ["<word1>", "<word2>"],  // only for keyword_emphasis type
+      "delay_ms": <milliseconds as integer>
+    }
+  ]
+}
+
+Rules:
+- Use "flashcard_reveal" type for factual Q&A cards (2-4 steps: show question, reveal answer).
+- Use "keyword_emphasis" type for definition or concept cards (2-3 steps: highlight key terms).
+- Keep step content concise. Each step should be the full sentence or phrase.
+- Emphasis words must appear verbatim in the step's content string.
+- Delay increases should be 400-800ms between steps.
+- Choose palette based on topic: "warm" for history/arts, "cool" for science/tech, "default" otherwise.
+- Output JSON ONLY. No explanations.
+"""
+
+CARD_ANIMATION_USER_TEMPLATE = """\
+Front (question): {front}
+Back (answer): {back}
+Tags: {tags}
+Animation type: {anim_type}
+
+Generate an AnimationScript. Output JSON only.
+"""
+
+
+def run_card_animation_workflow(
+    run_id: str,
+    card_id: str,
+    front: str,
+    back: str,
+    tags: list[str],
+    anim_type: str,
+    host: HostGatewayClient,
+) -> dict:
+    """Execute the card_animation workflow. Returns {scriptJson: str}."""
+    config_with_key = host.get_default_config_with_key()
+
+    if config_with_key:
+        config, api_key = config_with_key
+        try:
+            script_json = _try_langchain_animation(config, api_key, front, back, tags, anim_type)
+            return {"status": "completed", "scriptJson": script_json}
+        except Exception as exc:
+            logger.error("LLM animation generation failed, using rule-based fallback: %s", exc)
+
+    # Rule-based fallback
+    script_json = _build_rule_based_animation_script(anim_type, front, back, tags)
+    return {"status": "completed", "scriptJson": script_json}
+
+
+def _try_langchain_animation(
+    config: dict, api_key: str, front: str, back: str,
+    tags: list[str], anim_type: str,
+) -> str:
+    """Use LLM to generate an AnimationScript JSON string."""
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_openai import ChatOpenAI
+    except ImportError:
+        raise RuntimeError("LangChain not installed")
+
+    provider = config.get("provider", "openai")
+    model_name = config.get("model") or ("gpt-4o-mini" if provider == "openai" else "claude-3-5-haiku-20241022")
+    base_url = config.get("baseUrl")
+
+    llm_kwargs: dict[str, Any] = {"model": model_name, "api_key": api_key, "temperature": 0.5}
+    if base_url:
+        llm_kwargs["base_url"] = base_url
+
+    if provider == "anthropic":
+        try:
+            from langchain_anthropic import ChatAnthropic
+            llm = ChatAnthropic(model=model_name, api_key=api_key, temperature=0.5, base_url=base_url)
+        except ImportError:
+            llm = ChatOpenAI(**llm_kwargs)
+    else:
+        llm = ChatOpenAI(**llm_kwargs)
+
+    tags_str = ", ".join(tags[:5]) if tags else "none"
+    prompt = CARD_ANIMATION_USER_TEMPLATE.format(
+        front=front[:300], back=back[:500], tags=tags_str, anim_type=anim_type,
+    )
+    response = llm.invoke([
+        SystemMessage(content=CARD_ANIMATION_SYSTEM_PROMPT),
+        HumanMessage(content=prompt),
+    ])
+    raw = str(response.content)
+
+    # Extract the first JSON object from the response
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        raise ValueError(f"LLM did not return valid JSON: {raw[:200]}")
+
+    script_obj = json.loads(match.group())
+    # Validate required keys
+    for key in ("type", "title", "palette", "steps"):
+        if key not in script_obj:
+            raise ValueError(f"Missing key '{key}' in LLM script")
+
+    return json.dumps(script_obj, ensure_ascii=False)
+
+
+def _build_rule_based_animation_script(
+    anim_type: str, front: str, back: str, tags: list[str],
+) -> str:
+    """Deterministic fallback: build a simple AnimationScript."""
+    tag_set = set(t.lower() for t in tags)
+    if "history" in tag_set or "arts" in tag_set or "art" in tag_set:
+        palette = "warm"
+    elif "science" in tag_set or "tech" in tag_set or "physics" in tag_set or "chemistry" in tag_set:
+        palette = "cool"
+    else:
+        palette = "default"
+
+    title = front[:60]
+
+    if anim_type == "keyword_emphasis":
+        # Emphasise first 3 words of the front as keywords
+        emphasis = front.split()[:3]
+        script = {
+            "type": "keyword_emphasis",
+            "title": title,
+            "palette": palette,
+            "steps": [
+                {"id": "s1", "type": "text", "content": front, "emphasis": emphasis, "delay_ms": 0},
+                {"id": "s2", "type": "text", "content": back, "emphasis": [], "delay_ms": 400},
+            ],
+        }
+    else:
+        script = {
+            "type": "flashcard_reveal",
+            "title": title,
+            "palette": palette,
+            "steps": [
+                {"id": "s1", "type": "text", "content": front, "emphasis": [], "delay_ms": 0},
+                {"id": "s2", "type": "reveal", "content": back, "emphasis": [], "delay_ms": 600},
+            ],
+        }
+
+    return json.dumps(script, ensure_ascii=False)
+
+
 def run_card_generation_workflow(
     run_id: str, document_id: str, max_candidates: int, host: HostGatewayClient,
 ) -> dict:
@@ -580,7 +740,7 @@ def build_handler(start_time: float):
                         "protocolVersion": PROTOCOL_VERSION,
                         "serviceVersion": SERVICE_VERSION,
                         "service": "python-orchestration",
-                        "capabilities": ["health-check", "preset-workflows", "card-generation", "knowledge-qa"],
+                        "capabilities": ["health-check", "preset-workflows", "card-generation", "knowledge-qa", "card-animation"],
                     },
                 )
                 return
@@ -594,6 +754,10 @@ def build_handler(start_time: float):
 
             if self.path == "/workflows/knowledge-qa":
                 self._handle_knowledge_qa()
+                return
+
+            if self.path == "/workflows/card-animation":
+                self._handle_card_animation()
                 return
 
             self._write_json(404, {"error": "not_found"})
@@ -660,6 +824,41 @@ def build_handler(start_time: float):
                 self._write_json(200, result)
             except Exception as exc:
                 logger.error("Knowledge QA workflow failed: %s", exc, exc_info=True)
+                self._write_json(500, {"error": str(exc)})
+
+        def _handle_card_animation(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"error": "host_gateway_unavailable"})
+                return
+
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"error": "invalid_json"})
+                return
+
+            run_id = body.get("runId", "")
+            card_id = body.get("cardId", "").strip()
+            front = body.get("front", "").strip()
+            back = body.get("back", "").strip()
+            tags = body.get("tags") or []
+            anim_type = body.get("animType", "flashcard_reveal").strip()
+
+            if not card_id or not front:
+                self._write_json(400, {"error": "missing cardId or front"})
+                return
+
+            logger.info(
+                "Starting card animation: run=%s card=%s type=%s",
+                run_id[:8] if run_id else "none", card_id[:8], anim_type,
+            )
+            try:
+                result = run_card_animation_workflow(
+                    run_id, card_id, front, back, tags, anim_type, _host_gateway,
+                )
+                self._write_json(200, result)
+            except Exception as exc:
+                logger.error("Card animation workflow failed: %s", exc, exc_info=True)
                 self._write_json(500, {"error": str(exc)})
 
     return Handler

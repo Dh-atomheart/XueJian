@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Panel } from '@/components/ui'
 import { FlipCard, RatingBar, SessionProgress } from '@/components/learning'
+import { AnimationPreviewModal } from '@/components/cards/AnimationPreviewModal'
 import { useDailyStatsQuery, useDueCardsQuery, useSubmitReviewMutation } from '@/queries'
 import { useLearningSessionStore } from '@/store/learning'
 import { useAppUiStore } from '@/store'
@@ -20,6 +21,8 @@ export function ReviewPage() {
   const flipCard = useLearningSessionStore((state) => state.flipCard)
   const advanceCard = useLearningSessionStore((state) => state.advanceCard)
   const resetSession = useLearningSessionStore((state) => state.resetSession)
+
+  const [animationCardId, setAnimationCardId] = useState<string | null>(null)
 
   useEffect(() => {
     if (dueCards.length > 0 && queue.length === 0) {
@@ -124,6 +127,20 @@ export function ReviewPage() {
       {/* Center: card stage */}
       {currentCard && <FlipCard card={currentCard} isFlipped={isFlipped} onFlip={flipCard} />}
 
+      {/* Animation preview shortcut */}
+      {currentCard && (
+        <div className="flex justify-center pb-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-ink-soft"
+            onClick={() => setAnimationCardId(currentCard.id)}
+          >
+            ✨ 知识动画
+          </Button>
+        </div>
+      )}
+
       {/* Bottom: rating bar */}
       {isFlipped && currentCard && (
         <div className="border-t border-line-soft/60 bg-paper-base/80 backdrop-blur-sm">
@@ -131,6 +148,15 @@ export function ReviewPage() {
             <RatingBar onRate={handleRate} disabled={submitReview.isPending} previews={previews} />
           </div>
         </div>
+      )}
+
+      {/* Animation preview modal */}
+      {animationCardId && currentCard && (
+        <AnimationPreviewModal
+          cardId={animationCardId}
+          cardFront={currentCard.front}
+          onClose={() => setAnimationCardId(null)}
+        />
       )}
     </div>
   )
