@@ -7,6 +7,7 @@ export interface StartPodcastInput {
   documentId?: string | null
   title?: string
   scopeDescription?: string
+  style?: string
 }
 
 export async function startPodcastWorkflow(input: StartPodcastInput): Promise<PodcastEpisode> {

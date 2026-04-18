@@ -15,6 +15,7 @@ export interface PodcastScript {
   title: string
   description: string
   speakers: string[]
+  outline: string[]
   segments: DialogueSegment[]
 }
 
@@ -46,6 +47,7 @@ export const PodcastScriptSchema = z.object({
   title: z.string(),
   description: z.string(),
   speakers: z.array(z.string()),
+  outline: z.array(z.string()),
   segments: z.array(DialogueSegmentSchema),
 })
 

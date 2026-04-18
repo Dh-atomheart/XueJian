@@ -632,6 +632,11 @@ def _build_rule_based_podcast_script(title: str, context: str) -> str:
         "title": title,
         "description": f"AI 生成的学习播客 — {title}",
         "speakers": ["主持人", "专家"],
+        "outline": [
+            f"话题介绍：{title}",
+            "核心概念讲解",
+            "实例与总结",
+        ],
         "segments": [
             {
                 "id": "seg1",

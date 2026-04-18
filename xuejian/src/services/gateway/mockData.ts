@@ -474,6 +474,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         title: 'AI 学习播客',
         description: '自动生成的学习播客',
         speakers: ['主持人', '专家'],
+        outline: ['话题介绍', '核心概念', '实际应用'],
         segments: [
           { id: 'seg1', speaker: '主持人', text: '欢迎收听今天的播客！', durationMs: 5000 },
           { id: 'seg2', speaker: '专家', text: '今天我们来聊一聊学习方法。', durationMs: 6000 },
@@ -496,6 +497,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         title: 'AI 学习播客',
         description: '自动生成的学习播客',
         speakers: ['主持人', '专家'],
+        outline: ['话题介绍', '核心概念', '实际应用'],
         segments: [
           { id: 'seg1', speaker: '主持人', text: '欢迎收听今天的播客！', durationMs: 5000 },
           { id: 'seg2', speaker: '专家', text: '今天我们来聊一聊学习方法。', durationMs: 6000 },

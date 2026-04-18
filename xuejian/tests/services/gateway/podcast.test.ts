@@ -49,6 +49,18 @@ describe('podcast generation: podcast script and episode can be generated', () =
     }
   })
 
+  it('ready episode scriptJson includes outline array per V3 spec', async () => {
+    const episode = await startPodcastWorkflow({})
+    if (episode.status === 'ready') {
+      const script = JSON.parse(episode.scriptJson)
+      expect(Array.isArray(script.outline)).toBe(true)
+      expect(script.outline.length).toBeGreaterThan(0)
+      for (const item of script.outline) {
+        expect(typeof item).toBe('string')
+      }
+    }
+  })
+
   it('segments have required fields: id, speaker, text, durationMs', async () => {
     const episode = await startPodcastWorkflow({})
     if (episode.status === 'ready') {
