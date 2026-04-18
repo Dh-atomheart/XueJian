@@ -1,5 +1,6 @@
 import { useAppUiStore } from '@/store'
 
+// @acceptance:m1-a3
 describe('useAppUiStore', () => {
   afterEach(() => {
     useAppUiStore.setState({

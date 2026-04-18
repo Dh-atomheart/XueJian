@@ -17,8 +17,8 @@ canonical: true
 - [../../product-specs/v4.md](../../product-specs/v4.md)
 - [../completed/m1-platform-foundation.md](../completed/m1-platform-foundation.md) ✅
 - [../completed/m2-document-import-and-anchors.md](../completed/m2-document-import-and-anchors.md) ✅
-- [./m3-card-production-line.md](./m3-card-production-line.md)
-- [./m4-reading-and-sticky-notes.md](./m4-reading-and-sticky-notes.md)
+- [../completed/m3-card-production-line.md](../completed/m3-card-production-line.md) ✅
+- [../completed/m4-reading-and-sticky-notes.md](../completed/m4-reading-and-sticky-notes.md) ✅
 - [./m5-study-scheduling.md](./m5-study-scheduling.md)
 - [./m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md)
 - [../../references/ai-orchestration.md](../../references/ai-orchestration.md)
@@ -36,6 +36,15 @@ canonical: true
 - 区分可复用、需重写、仅协议复用和不可行项
 - 明确 Android 迁移复用的是 `Orchestration Protocol`、任务语义和数据契约
 - 不越界承诺 Android 客户端交付
+
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| v4-3-a1 | 输出能力矩阵和阻塞项清单 | ⏳ |
+| v4-3-a2 | 区分可复用、需重写、仅协议复用、不可行 | ⏳ |
+| v4-3-a3 | 明确复用 Orchestration Protocol | ⏳ |
+| v4-3-a4 | 不越界承诺 Android 交付 | ⏳ |
 
 ## Relevant Files
 

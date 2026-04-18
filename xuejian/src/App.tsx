@@ -1,8 +1,8 @@
 import { AppShell } from '@/components/shell'
-import { DocumentStatusBadge, ImportDocumentButton } from '@/components/documents'
+import { DocumentStatusBadge, ImportDocumentButton, StickyNotesPanel } from '@/components/documents'
 import { Button, Divider, Panel } from '@/components/ui'
 import { CardStudioPage } from '@/features/cards'
-import { LibraryPage } from '@/features/documents'
+import { LibraryPage, ReaderPage } from '@/features/documents'
 import {
   useHostGatewayManifestQuery,
   useOrchestrationServiceHealthQuery,
@@ -26,11 +26,22 @@ function healthBadgeClasses(status: 'starting' | 'healthy' | 'degraded' | 'stopp
 
 function App() {
   const activeNavItem = useAppUiStore((state) => state.activeNavItem)
+  const reader = useAppUiStore((state) => state.reader)
+  const isContextRailOpen = useAppUiStore((state) => state.isContextRailOpen)
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const openReader = useAppUiStore((state) => state.openReader)
   const { data: recentDocuments = [], isLoading: isLoadingDocuments } = useRecentDocumentsQuery(5)
   const { data: serviceHealth } = useOrchestrationServiceHealthQuery()
   const { data: workflowRuns = [] } = useRecentWorkflowRunsQuery(5)
   const { data: gatewayManifest } = useHostGatewayManifestQuery()
+
+  if (reader.documentId) {
+    return (
+      <AppShell contextPanel={isContextRailOpen ? <StickyNotesPanel documentId={reader.documentId} /> : undefined}>
+        <ReaderPage documentId={reader.documentId} />
+      </AppShell>
+    )
+  }
 
   if (activeNavItem === 'library') {
     return (
@@ -192,8 +203,19 @@ function App() {
 
                     <div className="flex items-center gap-3">
                       <DocumentStatusBadge status={document.status} />
-                      <Button variant="ghost" size="sm" onClick={() => setActiveNavItem('library')}>
-                        Open
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (document.status === 'ready') {
+                            openReader(document.id, document.pageCount ?? 1)
+                            return
+                          }
+
+                          setActiveNavItem('library')
+                        }}
+                      >
+                        {document.status === 'ready' ? 'Read' : 'Open'}
                       </Button>
                     </div>
                   </li>

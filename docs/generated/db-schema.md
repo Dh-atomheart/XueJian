@@ -2,7 +2,7 @@
 title: Database Schema
 status: active
 owner: platform
-last_reviewed: 2026-04-17
+last_reviewed: 2026-04-18
 canonical: false
 source_hash: 7a5d87910cf764e1
 ---

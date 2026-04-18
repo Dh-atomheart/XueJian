@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildDocumentAnalysis, createStableHash } from '@/services/renderer/document-analysis'
 
+// @acceptance:m2-a2 @acceptance:m2-a4
 describe('document-analysis', () => {
   it('builds stable paragraph anchors and chunks from page text items', () => {
     const analysis = buildDocumentAnalysis([

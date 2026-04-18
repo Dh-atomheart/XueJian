@@ -16,6 +16,7 @@ canonical: true
 | TD-002 | Doc gardening | 当前园丁任务只更新质量分数和生成文档，不做自动分类修复 | 在下一轮扩展 drift 分类和更细粒度检查 |
 | TD-003 | Architecture lint | 目前是路径级约束，尚未扩展到更细的 symbol-level 依赖关系 | 视代码体量增长再升级 |
 | TD-004 | Rust dead code | `DocumentChunkSearchResult` + `search_chunks` 未使用；`HostHttpGateway::port/state` 未使用；`UpdateSettingsDto` 4 字段未读；`HealthPayload.uptime_seconds` 未读 | M4 实现阅读/搜索功能时自然消耗 `search_chunks`；其余加 `#[allow(dead_code)]` 或等实际调用 |
+| TD-005 | Reader anchors | M4 当前只提供“回到摘录区手动重绑”的提示，还没有显式锚点重绑 UI 与保存路径 | 为锚点漂移修复拆一个后续 exec plan，补齐手动重绑流程与持久化 |
 
 ## Usage
 

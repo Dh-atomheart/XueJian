@@ -1,6 +1,7 @@
 import { cardsGateway } from '@/services/gateway/cards'
 import { orchestrationGateway } from '@/services/gateway/orchestration'
 
+// @acceptance:m3-a1 @acceptance:m3-a2
 describe('cards gateway mocks', () => {
   it('returns empty card list outside Tauri', async () => {
     const cards = await cardsGateway.list({ documentId: 'doc-1' })
@@ -18,12 +19,14 @@ describe('cards gateway mocks', () => {
     expect(Array.isArray(highlights)).toBe(true)
   })
 
+  // @acceptance:m3-a1
   it('startGeneration returns a mock workflow run outside Tauri', async () => {
     const run = await cardsGateway.startGeneration('doc-1', 10)
     expect(run.workflowType).toBe('card_generation')
     expect(run.status).toBe('queued')
   })
 
+  // @acceptance:m3-a2
   it('resumeGeneration returns a mock workflow run outside Tauri', async () => {
     const run = await cardsGateway.resumeGeneration('run-1')
     expect(run.workflowType).toBe('card_generation')

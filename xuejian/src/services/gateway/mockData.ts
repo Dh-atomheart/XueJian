@@ -1,0 +1,400 @@
+import type { Card, Document, DocumentAnchor, DocumentChunk, Highlight } from '@/types'
+
+const MOCK_NOW = '2026-04-17T09:00:00.000Z'
+
+const MOCK_DOCUMENT_ID = '22222222-2222-4222-8222-222222222222'
+const MOCK_ANCHOR_IDS = [
+  '55555555-5555-4555-8555-555555555555',
+  '66666666-6666-4666-8666-666666666666',
+] as const
+const MOCK_CARD_IDS = [
+  '33333333-3333-4333-8333-333333333333',
+  '44444444-4444-4444-8444-444444444444',
+] as const
+const MOCK_HIGHLIGHT_IDS = [
+  '77777777-7777-4777-8777-777777777777',
+  '88888888-8888-4888-8888-888888888888',
+] as const
+
+const mockDocument: Document = {
+  id: MOCK_DOCUMENT_ID,
+  title: 'M4 Reader Mock Notes.pdf',
+  filePath: 'mock://documents/m4-reader.pdf',
+  fileType: 'pdf',
+  fileSize: 52_480,
+  pageCount: 1,
+  contentHash: 'm4-reader-mock-hash',
+  status: 'ready',
+  createdAt: new Date(MOCK_NOW),
+  updatedAt: new Date(MOCK_NOW),
+}
+
+const mockAnchors: DocumentAnchor[] = [
+  {
+    id: MOCK_ANCHOR_IDS[0],
+    documentId: MOCK_DOCUMENT_ID,
+    page: 1,
+    paragraph: 1,
+    textQuote: 'Chunking keeps the page readable while stable anchors hold the user\'s place.',
+    rects: [{ x: 72, y: 118, width: 356, height: 18 }],
+    hash: 'anchor-chunk-reading-flow',
+    createdAt: new Date(MOCK_NOW),
+  },
+  {
+    id: MOCK_ANCHOR_IDS[1],
+    documentId: MOCK_DOCUMENT_ID,
+    page: 1,
+    paragraph: 2,
+    textQuote: 'Sticky notes should sit beside the paper instead of covering the text itself.',
+    rects: [{ x: 72, y: 186, width: 372, height: 18 }],
+    hash: 'anchor-sticky-rail-layout',
+    createdAt: new Date(MOCK_NOW),
+  },
+]
+
+const mockChunks: DocumentChunk[] = [
+  {
+    id: '99999999-9999-4999-8999-999999999991',
+    documentId: MOCK_DOCUMENT_ID,
+    pageStart: 1,
+    pageEnd: 1,
+    chunkIndex: 0,
+    content:
+      'Chunking keeps the page readable while stable anchors hold the user\'s place. Sticky notes should sit beside the paper instead of covering the text itself.',
+    tokenCount: 32,
+    metadata: { source: 'mock-reader' },
+    createdAt: new Date(MOCK_NOW),
+  },
+]
+
+const mockCards: Card[] = [
+  {
+    id: MOCK_CARD_IDS[0],
+    groupId: null,
+    documentId: MOCK_DOCUMENT_ID,
+    anchorId: MOCK_ANCHOR_IDS[0],
+    front: '为什么阅读区要保留稳定锚点？',
+    back: '因为卡片与原文的双向跳转必须建立在稳定位置之上，否则定位会漂移。',
+    sourcePage: 1,
+    sourceParagraph: 1,
+    sourceCoordinates: { x: 72, y: 118, width: 356, height: 18 },
+    tags: ['m4', 'reader'],
+    difficulty: 0.28,
+    stability: 2.1,
+    retrievability: null,
+    state: 'new',
+    nextReview: null,
+    createdAt: new Date(MOCK_NOW),
+    updatedAt: new Date(MOCK_NOW),
+  },
+  {
+    id: MOCK_CARD_IDS[1],
+    groupId: null,
+    documentId: MOCK_DOCUMENT_ID,
+    anchorId: MOCK_ANCHOR_IDS[1],
+    front: '贴笺栏为什么应独立于正文？',
+    back: '右侧贴笺栏可以保持上下文可见，同时避免遮挡正文与文本选择。',
+    sourcePage: 1,
+    sourceParagraph: 2,
+    sourceCoordinates: { x: 72, y: 186, width: 372, height: 18 },
+    tags: ['m4', 'layout'],
+    difficulty: 0.32,
+    stability: 2.4,
+    retrievability: null,
+    state: 'learning',
+    nextReview: null,
+    createdAt: new Date(MOCK_NOW),
+    updatedAt: new Date(MOCK_NOW),
+  },
+]
+
+const mockHighlights: Highlight[] = [
+  {
+    id: MOCK_HIGHLIGHT_IDS[0],
+    cardId: MOCK_CARD_IDS[0],
+    documentId: MOCK_DOCUMENT_ID,
+    anchorId: MOCK_ANCHOR_IDS[0],
+    pageNumber: 1,
+    rectangles: [{ x: 72, y: 118, width: 356, height: 18 }],
+    textContent: mockAnchors[0].textQuote,
+    color: '#F8E16C',
+    createdAt: new Date(MOCK_NOW),
+  },
+  {
+    id: MOCK_HIGHLIGHT_IDS[1],
+    cardId: MOCK_CARD_IDS[1],
+    documentId: MOCK_DOCUMENT_ID,
+    anchorId: MOCK_ANCHOR_IDS[1],
+    pageNumber: 1,
+    rectangles: [{ x: 72, y: 186, width: 372, height: 18 }],
+    textContent: mockAnchors[1].textQuote,
+    color: '#C8E6C9',
+    createdAt: new Date(MOCK_NOW),
+  },
+]
+
+const mockPdfBinary = Array.from(
+  buildPdfBytes([
+    'XueJian M4 Reader Mock',
+    'Chunking keeps the page readable while stable anchors hold the user\'s place.',
+    'Sticky notes should sit beside the paper instead of covering the text itself.',
+  ])
+)
+
+export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unknown>): T {
+  const filters = getRecord(args?.filters)
+  const limit = getNumber(args?.limit) ?? getNumber(filters?.limit)
+  const documentId = getString(args?.documentId) ?? getString(filters?.documentId) ?? getString(args?.id)
+  const pageNumber = getNumber(filters?.pageNumber)
+  const anchorId = getString(filters?.anchorId)
+  const cardId = getString(filters?.cardId)
+
+  const mockResponses: Record<string, unknown> = {
+    get_host_gateway_manifest: {
+      protocolVersion: 'xuejian-orchestration/v1',
+      modelGatewayCommands: [
+        'list_api_configs',
+        'get_api_config',
+        'create_api_config',
+        'update_api_config',
+        'set_default_api_config',
+        'delete_api_config',
+        'store_api_key',
+        'test_api_connection',
+      ],
+      toolGatewayCommands: [
+        'list_documents',
+        'get_document',
+        'create_document',
+        'update_document_status',
+        'delete_document',
+        'list_document_anchors',
+        'list_document_chunks',
+        'list_due_cards',
+        'create_card',
+        'list_cards',
+        'list_highlights',
+        'create_highlight',
+        'update_highlight',
+        'delete_highlight',
+        'update_card_review',
+        'list_card_candidates',
+        'update_card_candidate',
+        'bulk_update_card_candidate_statuses',
+        'start_card_generation_workflow',
+        'resume_card_generation_workflow',
+        'finalize_card_generation_workflow',
+      ],
+    },
+    get_orchestration_service_health: {
+      status: 'stopped',
+      endpoint: null,
+      protocolVersion: null,
+      serviceVersion: null,
+      pid: null,
+      startedAt: null,
+      checkedAt: new Date(MOCK_NOW).toISOString(),
+      protocolCompatible: false,
+      errorMessage: null,
+    },
+    list_workflow_runs: [],
+    list_workflow_events: [],
+    get_workflow_checkpoint: null,
+    get_settings: {
+      theme: 'default',
+      language: 'zh-CN',
+      dailyNewCardLimit: 20,
+      reviewTimeLimit: 30,
+    },
+    list_documents: limitItems([serializeDocument(mockDocument)], limit),
+    get_document:
+      documentId === MOCK_DOCUMENT_ID || documentId == null ? serializeDocument(mockDocument) : null,
+    list_document_anchors:
+      documentId === MOCK_DOCUMENT_ID || documentId == null
+        ? limitItems(mockAnchors.map(serializeAnchor), limit)
+        : [],
+    list_document_chunks:
+      documentId === MOCK_DOCUMENT_ID || documentId == null
+        ? limitItems(mockChunks.map(serializeChunk), limit)
+        : [],
+    list_card_candidates: [],
+    start_card_generation_workflow: {
+      id: '11111111-1111-4111-8111-111111111111',
+      workflowType: 'card_generation',
+      presetId: 'm3-card-production-line',
+      status: 'queued',
+      threadId: 'card-generation:mock',
+      checkpointRef: 'queued',
+      approvalPayload: null,
+      costUsd: null,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    resume_card_generation_workflow: {
+      id: '11111111-1111-4111-8111-111111111111',
+      workflowType: 'card_generation',
+      presetId: 'm3-card-production-line',
+      status: 'queued',
+      threadId: 'card-generation:mock',
+      checkpointRef: 'queued',
+      approvalPayload: null,
+      costUsd: null,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    finalize_card_generation_workflow: {
+      createdCount: 0,
+      skippedDuplicates: 0,
+      rejectedCount: 0,
+      run: {
+        id: '11111111-1111-4111-8111-111111111111',
+        workflowType: 'card_generation',
+        presetId: 'm3-card-production-line',
+        status: 'completed',
+        threadId: 'card-generation:mock',
+        checkpointRef: 'completed',
+        approvalPayload: null,
+        costUsd: null,
+        errorMessage: null,
+        startedAt: null,
+        finishedAt: new Date(MOCK_NOW).toISOString(),
+        createdAt: new Date(MOCK_NOW).toISOString(),
+        updatedAt: new Date(MOCK_NOW).toISOString(),
+      },
+    },
+    pick_and_import_pdf_document: null,
+    read_document_binary: documentId === MOCK_DOCUMENT_ID || documentId == null ? mockPdfBinary : [],
+    list_cards: limitItems(
+      mockCards
+        .filter((card) => (documentId ? card.documentId === documentId : true))
+        .filter((card) => (anchorId ? card.anchorId === anchorId : true))
+        .filter((card) => (pageNumber ? card.sourcePage === pageNumber : true))
+        .map(serializeCard),
+      limit
+    ),
+    list_highlights: limitItems(
+      mockHighlights
+        .filter((highlight) => (documentId ? highlight.documentId === documentId : true))
+        .filter((highlight) => (cardId ? highlight.cardId === cardId : true))
+        .filter((highlight) => (pageNumber ? highlight.pageNumber === pageNumber : true))
+        .map(serializeHighlight),
+      limit
+    ),
+    list_api_configs: [],
+    get_daily_stats: { newCards: 0, reviewCards: 0, learningTime: 0 },
+  }
+
+  return mockResponses[cmd] as T
+}
+
+function serializeDocument(document: Document) {
+  return {
+    ...document,
+    createdAt: document.createdAt.toISOString(),
+    updatedAt: document.updatedAt.toISOString(),
+  }
+}
+
+function serializeAnchor(anchor: DocumentAnchor) {
+  return {
+    ...anchor,
+    createdAt: anchor.createdAt.toISOString(),
+  }
+}
+
+function serializeChunk(chunk: DocumentChunk) {
+  return {
+    ...chunk,
+    createdAt: chunk.createdAt.toISOString(),
+  }
+}
+
+function serializeCard(card: Card) {
+  return {
+    ...card,
+    createdAt: card.createdAt.toISOString(),
+    updatedAt: card.updatedAt.toISOString(),
+    nextReview: card.nextReview?.toISOString() ?? null,
+  }
+}
+
+function serializeHighlight(highlight: Highlight) {
+  return {
+    ...highlight,
+    createdAt: highlight.createdAt.toISOString(),
+  }
+}
+
+function limitItems<T>(items: T[], limit?: number | null) {
+  if (!limit || limit <= 0) {
+    return items
+  }
+
+  return items.slice(0, limit)
+}
+
+function getRecord(value: unknown) {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
+}
+
+function getString(value: unknown) {
+  return typeof value === 'string' ? value : undefined
+}
+
+function getNumber(value: unknown) {
+  return typeof value === 'number' ? value : undefined
+}
+
+function buildPdfBytes(lines: string[]) {
+  const encoder = new TextEncoder()
+  const contentLines = ['BT', '/F1 20 Tf']
+
+  lines.forEach((line, index) => {
+    if (index === 0) {
+      contentLines.push('72 760 Td')
+    } else {
+      contentLines.push('0 -28 Td')
+    }
+
+    contentLines.push(`(${escapePdfText(line)}) Tj`)
+  })
+
+  contentLines.push('ET')
+
+  const stream = contentLines.join('\n')
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${encoder.encode(stream).length} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ]
+
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+
+  objects.forEach((object, index) => {
+    offsets.push(encoder.encode(pdf).length)
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`
+  })
+
+  const xrefOffset = encoder.encode(pdf).length
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+
+  for (let index = 1; index <= objects.length; index += 1) {
+    pdf += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`
+  }
+
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+  return encoder.encode(pdf)
+}
+
+function escapePdfText(text: string) {
+  return text.replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)')
+}

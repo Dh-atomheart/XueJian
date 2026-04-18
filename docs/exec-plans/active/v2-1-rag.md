@@ -34,6 +34,15 @@ canonical: true
 - 问答结果不进入通用 agent runtime
 - 引用可回查文档来源
 
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| v2-1-a1 | 指定范围内提问获得带引用回答 | ⏳ |
+| v2-1-a2 | 无 embedding 降级为纯 FTS5 | ⏳ |
+| v2-1-a3 | 问答结果不进入通用 agent runtime | ⏳ |
+| v2-1-a4 | 引用可回查文档来源 | ⏳ |
+
 ## Relevant Files
 
 - `xuejian/src/features/agents/`

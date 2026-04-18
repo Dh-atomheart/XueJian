@@ -108,6 +108,7 @@ XueJianProject/
 - 文档结构、frontmatter、命令同步、交叉链接：`python scripts/docs/validate.py`
 - 架构依赖方向：`python scripts/docs/check_architecture.py`
 - 生成数据库 schema 文档：`python scripts/docs/generate_db_schema.py`
+- 验收覆盖率（咨询性）：`python scripts/docs/validate_acceptance.py`
 - 每周文档园丁：`python scripts/docs/garden.py`
 
 ## 许可

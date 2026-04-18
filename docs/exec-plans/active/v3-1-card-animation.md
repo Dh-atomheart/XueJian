@@ -15,7 +15,7 @@ canonical: true
 ## Depends On
 
 - [../../product-specs/v3.md](../../product-specs/v3.md)
-- [./m3-card-production-line.md](./m3-card-production-line.md)
+- [../completed/m3-card-production-line.md](../completed/m3-card-production-line.md) ✅
 
 ## Scope
 
@@ -30,6 +30,15 @@ canonical: true
 - 动画可预览、重生成、删除
 - 失败任务保留足够上下文用于排查和重试
 - 废弃资源可清理
+
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| v3-1-a1 | 从卡片发起动画生成 | ⏳ |
+| v3-1-a2 | 动画可预览、重生成、删除 | ⏳ |
+| v3-1-a3 | 失败任务保留上下文 | ⏳ |
+| v3-1-a4 | 废弃资源可清理 | ⏳ |
 
 ## Relevant Files
 

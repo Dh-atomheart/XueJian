@@ -33,6 +33,15 @@ canonical: true
 - 默认主题 token、字体槽位、纸感壳层与 `AppShell` 已落地
 - 目录与分层符合 [../../../ARCHITECTURE.md](../../../ARCHITECTURE.md)
 
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| m1-a1 | 应用可以启动、构建、lint | ✅ |
+| m1-a2 | gateway、Python 服务健康检查 | ✅ |
+| m1-a3 | 默认主题 token、壳层落地 | ✅ |
+| m1-a4 | 目录与分层符合 ARCHITECTURE | ✅ |
+
 ## Relevant Files
 
 - `xuejian/src/design-system/`

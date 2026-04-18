@@ -33,6 +33,15 @@ canonical: true
 - 主题包只能覆盖 token 和资源，不能改业务组件 API
 - MVP 默认主题始终可回退
 
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| v4-2-a1 | 切换默认/扩展/回退主题 | ⏳ |
+| v4-2-a2 | 关键界面切换后保持可读可用 | ⏳ |
+| v4-2-a3 | 主题包只覆盖 token 和资源 | ⏳ |
+| v4-2-a4 | MVP 默认主题始终可回退 | ⏳ |
+
 ## Relevant Files
 
 - `xuejian/src/design-system/`

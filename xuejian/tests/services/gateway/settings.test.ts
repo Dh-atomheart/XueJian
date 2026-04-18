@@ -2,6 +2,7 @@ import { apiConfigGateway } from '@/services/gateway/models'
 import { orchestrationGateway } from '@/services/gateway/orchestration'
 import { settingsGateway } from '@/services/gateway/settings'
 
+// @acceptance:m1-a2
 describe('gateway mocks', () => {
   it('returns default settings outside Tauri', async () => {
     const settings = await settingsGateway.get()

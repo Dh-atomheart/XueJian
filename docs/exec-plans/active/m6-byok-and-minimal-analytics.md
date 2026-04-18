@@ -33,6 +33,15 @@ canonical: true
 - 首页与设置页可看到最小统计概览
 - 统计 UI 保持克制，不演变成重驾驶舱
 
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| m6-a1 | 配置模型并测试连接 | ⏳ |
+| m6-a2 | API Key 只进 Stronghold | ⏳ |
+| m6-a3 | 首页与设置页最小统计概览 | ⏳ |
+| m6-a4 | 统计 UI 保持克制 | ⏳ |
+
 ## Relevant Files
 
 - `xuejian/src/features/settings/`

@@ -46,6 +46,7 @@ REQUIRED_LAYOUT_PATHS = [
     REPO_ROOT / "scripts" / "docs" / "generate_db_schema.py",
     REPO_ROOT / "scripts" / "docs" / "garden.py",
     REPO_ROOT / "scripts" / "docs" / "preflight.py",
+    REPO_ROOT / "scripts" / "docs" / "validate_acceptance.py",
 ]
 
 

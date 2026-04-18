@@ -92,6 +92,7 @@ describe('structured schemas', () => {
     expect(run.workflowType).toBe('card_generation')
   })
 
+  // @acceptance:m3-a3
   it('parses persisted card candidates returned from M3 commands', () => {
     const candidate = cardCandidateSchema.parse({
       id: '11111111-1111-4111-8111-111111111111',

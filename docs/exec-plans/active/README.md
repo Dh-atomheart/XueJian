@@ -16,6 +16,20 @@ canonical: true
 - 默认先写成 `status: draft`，真正开做后改成 `status: active`。
 - 做完后移动到 `../completed/`，不要长期堆在这里。
 
+## Tests 章节约定
+
+每个计划在 `Acceptance` 后必须有 `## Tests` 表格，用 ID 标记验收点：
+
+| 列 | 说明 |
+|----|------|
+| ID | `{plan}-a{n}` 格式的唯一标识（如 `m4-a1`、`v2-1-a3`） |
+| 验收点 | 对应 Acceptance 中的一条标准 |
+| 状态 | ⏳ 待实现 / ✅ 已通过 |
+
+测试代码中用 `// @acceptance:{id}` 标记关联验收点。Agent 自由决定测试文件位置和类型。
+
+验收覆盖率检查（advisory）：`python scripts/docs/validate_acceptance.py`
+
 ## 依赖关键路径
 
 MVP 模块的执行顺序由依赖关系决定：
@@ -33,7 +47,7 @@ V2 完成后 → V3 阶段可启动
 V3 完成后 → V4 阶段可启动
 ```
 
-当前焦点：**M4 Reading & Sticky Notes**（下一个待激活）。M1、M2、M3 已归档至 `completed/`。
+当前焦点：**M5 Study Scheduling**（推荐下一项）。`M6 BYOK & Minimal Analytics` 也已解除阻塞。M1、M2、M3、M4 已归档至 `completed/`。
 
 ## 模块计划
 
@@ -42,7 +56,7 @@ V3 完成后 → V4 阶段可启动
 - ~~m1-platform-foundation.md~~ → [已完成](../completed/m1-platform-foundation.md)
 - ~~m2-document-import-and-anchors.md~~ → [已完成](../completed/m2-document-import-and-anchors.md)
 - ~~m3-card-production-line.md~~ → [已完成](../completed/m3-card-production-line.md)
-- [m4-reading-and-sticky-notes.md](./m4-reading-and-sticky-notes.md) — `draft`
+- ~~m4-reading-and-sticky-notes.md~~ → [已完成](../completed/m4-reading-and-sticky-notes.md)
 - [m5-study-scheduling.md](./m5-study-scheduling.md) — `draft`
 - [m6-byok-and-minimal-analytics.md](./m6-byok-and-minimal-analytics.md) — `draft`
 

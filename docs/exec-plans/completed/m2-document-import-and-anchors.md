@@ -32,6 +32,15 @@ canonical: true
 - 错误文件不会留下半成品正式数据
 - 锚点至少保留 `page + quote + rects + hash`
 
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| m2-a1 | PDF 导入与状态流转 | ✅ |
+| m2-a2 | Chunk 和 Anchor 可被后续模块复用 | ✅ |
+| m2-a3 | 错误文件不留半成品正式数据 | ⏳ |
+| m2-a4 | 锚点保留 page+quote+rects+hash | ✅ |
+
 ## Relevant Files
 
 - `xuejian/src/components/documents/`

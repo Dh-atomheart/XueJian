@@ -28,6 +28,14 @@ canonical: true
 - <可机械验证的验收标准 2>
 - <可机械验证的验收标准 3>
 
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| <plan>-a1 | <验收标准 1> | ⏳ |
+| <plan>-a2 | <验收标准 2> | ⏳ |
+| <plan>-a3 | <验收标准 3> | ⏳ |
+
 ## Relevant Files
 
 - `<path/to/relevant/code>`

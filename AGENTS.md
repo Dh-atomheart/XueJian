@@ -34,6 +34,7 @@ Run commands from the repository root unless the command already changes directo
 - Architecture validation: `python scripts/docs/check_architecture.py`
 - Regenerate DB schema: `python scripts/docs/generate_db_schema.py`
 - Run doc gardening: `python scripts/docs/garden.py`
+- Acceptance coverage (advisory): `python scripts/docs/validate_acceptance.py`
 - Preflight (all checks): `python scripts/docs/preflight.py`
 
 ## Canonical Sources
@@ -76,7 +77,8 @@ Run commands from the repository root unless the command already changes directo
 
 - Repo-local skills live under `.claude/skills/` and `.codex/skills/`.
 - Windsurf workflows live under `.windsurf/workflows/`.
-- Available workflows: `/start-task`, `/pre-commit`, `/complete-task`, `/new-exec-plan`.
-- Available skills: `harness-navigation`, `code-implementation`.
+- Available workflows: `/start-task`, `/pre-commit`, `/complete-task`, `/new-exec-plan`, `/check-acceptance`.
+- Available skills: `harness-navigation`, `code-implementation`, `xuejian-start-task`, `xuejian-check-acceptance`, `xuejian-pre-commit`, `xuejian-complete-task`, `xuejian-new-exec-plan`.
+- The `xuejian-*` Codex skills are the Codex-side equivalents of the Windsurf workflows with the same names.
 - Prefer the repo map in `docs/references/repo-map-llms.txt` for fast context loading.
 - Prefer mechanical checks over prose assurances.

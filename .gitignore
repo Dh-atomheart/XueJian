@@ -55,9 +55,14 @@ out/
 # ----------------------------------------
 # AI assistant
 # ----------------------------------------
-.codex/
+# .codex/
 .claude/
-.windsurf/
+!.claude/skills/
+!.claude/skills/**/
+.codex/
+!.codex/skills/
+!.codex/skills/**/
+# .windsurf/
 examples/
 
 # ----------------------------------------
@@ -122,6 +127,8 @@ stronghold/
 # Uploaded PDFs and user documents
 uploads/
 documents/
+!xuejian/src/**/documents/
+!xuejian/src/**/documents/**
 user-data/
 data/
 

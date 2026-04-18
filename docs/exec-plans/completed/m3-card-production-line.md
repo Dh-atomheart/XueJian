@@ -33,6 +33,15 @@ canonical: true
 - 候选与正式卡片都保留来源锚点
 - 幂等保存，恢复后不生成重复正式卡片
 
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| m3-a1 | 启动任务、查看候选、批量确认并入库 | ✅ |
+| m3-a2 | 任务支持取消、恢复和错误解释 | ✅ |
+| m3-a3 | 候选与正式卡片都保留来源锚点 | ✅ |
+| m3-a4 | 幂等保存，恢复后不生成重复正式卡片 | ⏳ |
+
 ## Relevant Files
 
 - `xuejian/orchestration_service/main.py` — Python card_generation workflow + HostGatewayClient

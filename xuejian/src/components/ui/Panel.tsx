@@ -1,18 +1,19 @@
 import { cn } from '@/lib/utils'
-import type { ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
 import { surfaceStyles, type SurfaceVariant } from '@/design-system/tokens'
 
-interface PanelProps {
+interface PanelProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode
   variant?: SurfaceVariant
   className?: string
 }
 
-export function Panel({ children, variant = 'panel', className }: PanelProps) {
+export function Panel({ children, variant = 'panel', className, ...props }: PanelProps) {
   const styles = surfaceStyles[variant]
 
   return (
     <div
+      {...props}
       className={cn(
         styles.bg,
         styles.border,

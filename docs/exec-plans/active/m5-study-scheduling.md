@@ -15,7 +15,7 @@ canonical: true
 ## Depends On
 
 - [../completed/m1-platform-foundation.md](../completed/m1-platform-foundation.md) ✅
-- [./m3-card-production-line.md](./m3-card-production-line.md)
+- [../completed/m3-card-production-line.md](../completed/m3-card-production-line.md) ✅
 - [../../design-docs/pages.md](../../design-docs/pages.md)
 
 ## Scope
@@ -32,6 +32,15 @@ canonical: true
 - 用户可完成完整评分流程并写入 `ReviewLog`
 - 评分后同步更新卡片状态和下次复习时间
 - 学习页保持视觉聚焦，不退化为后台管理面板
+
+## Tests
+
+| ID | 验收点 | 状态 |
+|----|--------|------|
+| m5-a1 | 今日待复习和新卡数计算正确 | ⏳ |
+| m5-a2 | 完整评分流程写入 ReviewLog | ⏳ |
+| m5-a3 | 评分后同步更新卡片状态和下次复习时间 | ⏳ |
+| m5-a4 | 学习页保持视觉聚焦 | ⏳ |
 
 ## Relevant Files
 
