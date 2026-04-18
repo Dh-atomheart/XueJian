@@ -39,10 +39,5 @@
     "category": "Productivity",
     "shortDescription": "AI驱动的智能学习记忆应用",
     "longDescription": "学笺是一个AI驱动的智能学习记忆应用，支持文档上传、卡片生成、贴笺式学习和FSRS间隔重复。"
-  },
-  "plugins": {
-    "fs": {
-      "scope": ["$APP/**", "$DOCUMENT/**", "$DOWNLOAD/**"]
-    }
   }
 }

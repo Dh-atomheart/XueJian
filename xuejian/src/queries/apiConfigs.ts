@@ -27,8 +27,13 @@ export function useCreateApiConfigMutation() {
 export function useUpdateApiConfigMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Omit<ApiConfig, 'id' | 'createdAt'>> }) =>
-      apiConfigGateway.update(id, data),
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string
+      data: Partial<Omit<ApiConfig, 'id' | 'createdAt'>>
+    }) => apiConfigGateway.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: apiConfigQueryKeys.all })
     },
@@ -64,7 +69,10 @@ export function useStoreApiKeyMutation() {
 
 export function useTestApiConnectionMutation() {
   return useMutation({
-    mutationFn: (data: { provider: ApiConfig['provider']; apiKey: string; baseUrl?: string | null }) =>
-      apiConfigGateway.testConnection(data),
+    mutationFn: (data: {
+      provider: ApiConfig['provider']
+      apiKey: string
+      baseUrl?: string | null
+    }) => apiConfigGateway.testConnection(data),
   })
 }

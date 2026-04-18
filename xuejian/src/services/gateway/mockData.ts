@@ -1,4 +1,4 @@
-import type { Card, Document, DocumentAnchor, DocumentChunk, Highlight } from '@/types'
+import type { AppSettings, Card, Document, DocumentAnchor, DocumentChunk, Highlight } from '@/types'
 
 const MOCK_NOW = '2026-04-17T09:00:00.000Z'
 
@@ -133,6 +133,13 @@ const mockHighlights: Highlight[] = [
   },
 ]
 
+let mockAppSettings: AppSettings = {
+  theme: 'default',
+  language: 'zh-CN',
+  dailyNewCardLimit: 20,
+  reviewTimeLimit: 30,
+}
+
 const mockPdfBinary = Array.from(
   buildPdfBytes([
     'XueJian M4 Reader Mock',
@@ -149,6 +156,24 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   const pageNumber = getNumber(filters?.pageNumber)
   const anchorId = getString(filters?.anchorId)
   const cardId = getString(filters?.cardId)
+
+  if (cmd === 'update_settings') {
+    const data = getRecord(args?.data)
+
+    mockAppSettings = {
+      ...mockAppSettings,
+      ...(data?.theme ? { theme: data.theme as AppSettings['theme'] } : {}),
+      ...(data?.language ? { language: data.language as AppSettings['language'] } : {}),
+      ...(typeof data?.dailyNewCardLimit === 'number'
+        ? { dailyNewCardLimit: data.dailyNewCardLimit }
+        : {}),
+      ...(typeof data?.reviewTimeLimit === 'number'
+        ? { reviewTimeLimit: data.reviewTimeLimit }
+        : {}),
+    }
+
+    return mockAppSettings as T
+  }
 
   const mockResponses: Record<string, unknown> = {
     get_host_gateway_manifest: {
@@ -201,12 +226,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     list_workflow_runs: [],
     list_workflow_events: [],
     get_workflow_checkpoint: null,
-    get_settings: {
-      theme: 'default',
-      language: 'zh-CN',
-      dailyNewCardLimit: 20,
-      reviewTimeLimit: 30,
-    },
+    get_settings: mockAppSettings,
     list_documents: limitItems([serializeDocument(mockDocument)], limit),
     get_document:
       documentId === MOCK_DOCUMENT_ID || documentId == null
@@ -272,6 +292,10 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       },
     },
     pick_and_import_pdf_document: null,
+    import_document_from_path: serializeDocument(mockDocument),
+    save_document_analysis: serializeDocument(mockDocument),
+    update_document_status: undefined,
+    delete_document: undefined,
     read_document_binary:
       documentId === MOCK_DOCUMENT_ID || documentId == null ? mockPdfBinary : [],
     list_cards: limitItems(
@@ -318,12 +342,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     delete_api_config: undefined,
     store_api_key: undefined,
     test_api_connection: { success: true, message: '连接测试通过 (mock)' },
-    update_settings: {
-      theme: 'default',
-      language: 'zh-CN',
-      dailyNewCardLimit: 20,
-      reviewTimeLimit: 30,
-    },
+    update_settings: mockAppSettings,
     get_daily_stats: { newCards: 2, reviewCards: 0 },
     list_due_cards: limitItems(mockCards.map(serializeCard), limit),
     create_review_log: {
@@ -448,5 +467,5 @@ function buildPdfBytes(lines: string[]) {
 }
 
 function escapePdfText(text: string) {
-  return text.replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)')
+  return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
 }

@@ -31,7 +31,6 @@ tauri-plugin-stronghold = "2"
 iota_stronghold = "2.1.0"
 
 # File system
-tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 

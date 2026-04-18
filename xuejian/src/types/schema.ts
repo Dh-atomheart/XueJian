@@ -53,7 +53,7 @@ const nullableDateValueSchema: z.ZodType<Date | null, z.ZodTypeDef, unknown> = z
 )
 
 export const appSettingsSchema = z.object({
-  theme: z.enum(['default', 'dark', 'light']),
+  theme: z.enum(['default', 'comic-sketch', 'contrast-paper']),
   language: z.enum(['zh-CN', 'en-US']),
   dailyNewCardLimit: z.number().int().nonnegative(),
   reviewTimeLimit: z.number().int().nonnegative(),

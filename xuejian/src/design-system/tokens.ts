@@ -6,6 +6,9 @@
 export const themeTokens = {
   colors: {
     paperBase: '#fbfbf9',
+    paperMuted: '#f5f5f0',
+    paperSoft: '#eaeae5',
+    paperCard: '#ffffff',
     ink: '#1a1a1a',
     inkMuted: '#666666',
     inkSoft: '#a0a0a0',
@@ -83,7 +86,7 @@ export const surfaceStyles: Record<SurfaceVariant, {
     padding: 'p-4',
   },
   paperCard: {
-    bg: 'bg-white',
+    bg: 'bg-paper-card',
     border: 'border border-line-soft',
     shadow: 'shadow-card',
     padding: 'p-4',
@@ -100,7 +103,7 @@ export const surfaceStyles: Record<SurfaceVariant, {
     padding: 'px-4 py-2',
   },
   modal: {
-    bg: 'bg-white',
+    bg: 'bg-paper-card',
     border: 'border border-line-soft',
     shadow: 'shadow-lg',
     padding: 'p-6',

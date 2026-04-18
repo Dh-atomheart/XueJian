@@ -1,3 +1,5 @@
+const colorVar = (name) => `rgb(var(${name}) / <alpha-value>)`
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -9,23 +11,24 @@ export default {
       colors: {
         // Default theme tokens - 极简学术感 + 中度手绘漫画风格
         paper: {
-          base: '#fbfbf9',
-          muted: '#f5f5f0',
-          soft: '#eaeae5',
+          base: colorVar('--paper-base'),
+          muted: colorVar('--paper-muted'),
+          soft: colorVar('--paper-soft'),
+          card: colorVar('--paper-card'),
         },
         ink: {
-          DEFAULT: '#1a1a1a',
-          muted: '#666666',
-          soft: '#a0a0a0',
+          DEFAULT: colorVar('--ink'),
+          muted: colorVar('--ink-muted'),
+          soft: colorVar('--ink-soft'),
         },
         line: {
-          soft: '#e5e5e0',
+          soft: colorVar('--line-soft'),
         },
         highlight: {
-          yellow: '#F8E16C',
-          green: '#C8E6C9',
-          blue: '#BBDEFB',
-          pink: '#F8BBD9',
+          yellow: colorVar('--highlight-yellow'),
+          green: colorVar('--highlight-green'),
+          blue: colorVar('--highlight-blue'),
+          pink: colorVar('--highlight-pink'),
         },
       },
       fontFamily: {
@@ -39,9 +42,9 @@ export default {
         'thin': '1px',
       },
       boxShadow: {
-        'paper': '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)',
-        'sticky': '0 2px 8px rgba(0,0,0,0.06)',
-        'card': '0 1px 4px rgba(0,0,0,0.05)',
+        'paper': 'var(--shadow-paper)',
+        'sticky': 'var(--shadow-sticky)',
+        'card': 'var(--shadow-card)',
       },
       borderRadius: {
         'sketch': '2px',

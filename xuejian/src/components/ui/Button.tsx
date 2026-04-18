@@ -32,9 +32,11 @@ export interface ButtonProps
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, ...props }, ref) => {
+    const resolvedVariant = variant ?? 'default'
+
     return (
       <button
-        className={cn(buttonVariants({ variant, size, className }))}
+        className={cn('theme-button', `button-${resolvedVariant}`, buttonVariants({ variant, size, className }))}
         ref={ref}
         {...props}
       />

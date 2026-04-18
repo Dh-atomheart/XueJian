@@ -1,8 +1,8 @@
 ---
 title: V4-2 Theme Switching And Theme Packs
-status: draft
+status: active
 owner: design
-last_reviewed: 2026-04-17
+last_reviewed: 2026-04-18
 canonical: true
 ---
 
@@ -37,17 +37,24 @@ canonical: true
 
 | ID | 验收点 | 状态 |
 |----|--------|------|
-| v4-2-a1 | 切换默认/扩展/回退主题 | ⏳ |
+| v4-2-a1 | 切换默认/扩展/回退主题 | ✅ |
 | v4-2-a2 | 关键界面切换后保持可读可用 | ⏳ |
-| v4-2-a3 | 主题包只覆盖 token 和资源 | ⏳ |
-| v4-2-a4 | MVP 默认主题始终可回退 | ⏳ |
+| v4-2-a3 | 主题包只覆盖 token 和资源 | ✅ |
+| v4-2-a4 | MVP 默认主题始终可回退 | ✅ |
 
 ## Relevant Files
 
 - `xuejian/src/design-system/`
+- `xuejian/src/design-system/themes.ts`
+- `xuejian/src/design-system/ThemeProvider.tsx`
 - `xuejian/src/components/shell/`
-- `xuejian/src/assets/themes/`
 - `xuejian/src/features/settings/`
+- `xuejian/src/queries/settings.ts`
+- `xuejian/src/services/gateway/mockData.ts`
+- `xuejian/src-tauri/src/commands/settings.rs`
+- `xuejian/src-tauri/src/db/settings_repo.rs`
+- `xuejian/tests/services/gateway/settings.test.ts`
+- `xuejian/tests/unit/theme-provider.test.tsx`
 
 ## Checks
 
@@ -59,4 +66,5 @@ canonical: true
 ## Notes
 
 - 主题扩展不能借机重写阅读器布局或学习主流程。
-- **Backlog**：此计划属于 V4 阶段，V3 完成前不应启动。
+- 当前已完成第一批基础设施：运行时主题注册、设置持久化、Settings 切换入口、壳层与基础组件变量化。
+- `v4-2-a2` 仍待继续补关键页面的主题细化与更完整的交互验证。

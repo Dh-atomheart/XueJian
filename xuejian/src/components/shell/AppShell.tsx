@@ -12,7 +12,13 @@ interface AppShellProps {
 
 export function AppShell({ children, sidebar, contextPanel, className }: AppShellProps) {
   return (
-    <div className={cn('flex h-screen bg-paper-base font-body text-ink', className)}>
+    <div
+      className={cn(
+        'app-shell-frame paper-texture flex h-screen bg-paper-base font-body text-ink transition-colors duration-200',
+        className
+      )}
+      data-testid="app-shell"
+    >
       {/* 左侧导航轨 */}
       <SidebarRail />
 
@@ -22,19 +28,19 @@ export function AppShell({ children, sidebar, contextPanel, className }: AppShel
         <main className="flex flex-1 overflow-hidden">
           {/* 侧边栏（可选） */}
           {sidebar && (
-            <aside className="w-64 border-r border-line-soft bg-paper-muted">
+            <aside className="theme-surface surface-panel w-64 border-r border-line-soft bg-paper-muted">
               {sidebar}
             </aside>
           )}
 
           {/* 中央内容 */}
-          <div className="flex-1 overflow-auto p-4">
+          <div className="app-shell-main flex-1 overflow-auto p-4">
             {children}
           </div>
 
           {/* 上下文侧栏（可选） */}
           {contextPanel && (
-            <aside className="w-80 border-l border-line-soft bg-paper-muted">
+            <aside className="theme-surface surface-panel w-80 border-l border-line-soft bg-paper-muted">
               {contextPanel}
             </aside>
           )}

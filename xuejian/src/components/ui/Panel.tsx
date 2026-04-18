@@ -15,6 +15,8 @@ export function Panel({ children, variant = 'panel', className, ...props }: Pane
     <div
       {...props}
       className={cn(
+        'theme-surface',
+        `surface-${variant}`,
         styles.bg,
         styles.border,
         styles.shadow,

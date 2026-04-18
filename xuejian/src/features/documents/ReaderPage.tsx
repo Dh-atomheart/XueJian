@@ -2,7 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { HighlightLayer, PdfPageCanvas, PdfToolbar } from '@/components/documents'
 import { Button, Panel } from '@/components/ui'
 import { cn } from '@/lib/utils'
-import { useCardsQuery, useDocumentAnchorsQuery, useDocumentQuery, useHighlightsQuery } from '@/queries'
+import {
+  useCardsQuery,
+  useDocumentAnchorsQuery,
+  useDocumentQuery,
+  useHighlightsQuery,
+} from '@/queries'
 import { documentGateway } from '@/services/gateway/documents'
 import { useAppUiStore } from '@/store'
 import type { Highlight } from '@/types'
@@ -138,7 +143,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
   }
 
   function handleExcerptSelection() {
-    const selected = window.getSelection?.().toString().trim() ?? ''
+    const selected = window.getSelection?.()?.toString().trim() ?? ''
     setSelectionText(selected.length >= 4 ? selected : '')
     setShowSelectionSaved(false)
   }
@@ -175,7 +180,9 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
         <div className="space-y-4 bg-[radial-gradient(circle_at_top_left,rgba(248,225,108,0.18),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,246,238,0.92))] px-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.26em] text-ink-soft">Reader Workbench</p>
+              <p className="text-[11px] uppercase tracking-[0.26em] text-ink-soft">
+                Reader Workbench
+              </p>
               <h1 className="mt-2 font-display text-3xl text-ink">边读边贴笺，不打断正文节奏</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">
                 当前页的贴笺会固定留在右侧，卡片与高亮互相定位，正文区域保持清爽可读。
@@ -205,7 +212,11 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
       </Panel>
 
       <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <Panel variant="paperCard" className="flex min-h-0 flex-col overflow-hidden rounded-[32px] p-0" data-testid="reader-main-stage">
+        <Panel
+          variant="paperCard"
+          className="flex min-h-0 flex-col overflow-hidden rounded-[32px] p-0"
+          data-testid="reader-main-stage"
+        >
           <div className="border-b border-line-soft px-4 py-3 text-xs uppercase tracking-[0.24em] text-ink-soft">
             Page Surface
           </div>
@@ -241,7 +252,10 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                   />
 
                   {focusRect ? (
-                    <svg className="pointer-events-none absolute inset-0 h-full w-full" data-testid="reader-focus-target">
+                    <svg
+                      className="pointer-events-none absolute inset-0 h-full w-full"
+                      data-testid="reader-focus-target"
+                    >
                       <rect
                         x={focusRect.x * reader.scale}
                         y={focusRect.y * reader.scale}
@@ -260,10 +274,16 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-              <Panel variant="panel" className="relative rounded-[28px]" data-testid="reader-excerpt-panel">
+              <Panel
+                variant="panel"
+                className="relative rounded-[28px]"
+                data-testid="reader-excerpt-panel"
+              >
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">Text Layer Notes</p>
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">
+                      Text Layer Notes
+                    </p>
                     <h2 className="mt-2 font-ui text-base text-ink">当前页摘录</h2>
                   </div>
                   <span className="text-xs text-ink-soft">可直接框选文本</span>
@@ -310,7 +330,9 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
               </Panel>
 
               <Panel variant="panel" className="rounded-[28px]">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">Reading Hints</p>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">
+                  Reading Hints
+                </p>
                 <div className="mt-3 space-y-3 text-sm leading-6 text-ink-muted">
                   <p>点击高亮会在右侧贴笺栏定位对应卡片。</p>
                   <p>点击右侧贴笺会滚动到原文坐标，不会长期污染正文。</p>

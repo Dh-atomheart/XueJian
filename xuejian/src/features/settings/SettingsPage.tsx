@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react'
+import { appThemeOptions, resolveAppThemeId } from '@/design-system/themes'
 import { Button, Input, Panel } from '@/components/ui'
 import { StudyStatsCard } from '@/components/stats'
+import { cn } from '@/lib/utils'
 import {
   useApiConfigsQuery,
   useCreateApiConfigMutation,
@@ -9,8 +11,9 @@ import {
   useStoreApiKeyMutation,
   useTestApiConnectionMutation,
   useAppSettingsQuery,
+  useUpdateAppSettingsMutation,
 } from '@/queries'
-import type { ApiConfig } from '@/types'
+import type { ApiConfig, AppThemeId } from '@/types'
 
 type Provider = ApiConfig['provider']
 
@@ -20,6 +23,24 @@ const PROVIDERS: { value: Provider; label: string }[] = [
   { value: 'custom', label: '自定义端点' },
 ]
 
+const THEME_SWATCH_CLASSES: Record<AppThemeId, { paper: string; ink: string; accent: string }> = {
+  default: {
+    paper: 'theme-swatch-paper-default',
+    ink: 'theme-swatch-ink-default',
+    accent: 'theme-swatch-accent-default',
+  },
+  'comic-sketch': {
+    paper: 'theme-swatch-paper-comic-sketch',
+    ink: 'theme-swatch-ink-comic-sketch',
+    accent: 'theme-swatch-accent-comic-sketch',
+  },
+  'contrast-paper': {
+    paper: 'theme-swatch-paper-contrast-paper',
+    ink: 'theme-swatch-ink-contrast-paper',
+    accent: 'theme-swatch-accent-contrast-paper',
+  },
+}
+
 export function SettingsPage() {
   const { data: configs = [], isLoading } = useApiConfigsQuery()
   const { data: appSettings } = useAppSettingsQuery()
@@ -28,8 +49,22 @@ export function SettingsPage() {
   const setDefault = useSetDefaultApiConfigMutation()
   const storeKey = useStoreApiKeyMutation()
   const testConn = useTestApiConnectionMutation()
+  const updateSettings = useUpdateAppSettingsMutation()
 
   const [showForm, setShowForm] = useState(false)
+
+  const currentThemeId = resolveAppThemeId(appSettings?.theme)
+
+  const handleThemeChange = useCallback(
+    (theme: AppThemeId) => {
+      if (theme === currentThemeId || updateSettings.isPending) {
+        return
+      }
+
+      updateSettings.mutate({ theme })
+    },
+    [currentThemeId, updateSettings]
+  )
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-4 py-6">
@@ -88,8 +123,12 @@ export function SettingsPage() {
         <StudyStatsCard />
         {appSettings && (
           <div className="mt-4 flex gap-6 text-sm text-ink-muted">
-            <span>每日新卡上限: <span className="text-ink">{appSettings.dailyNewCardLimit}</span></span>
-            <span>复习时限: <span className="text-ink">{appSettings.reviewTimeLimit} 分钟</span></span>
+            <span>
+              每日新卡上限: <span className="text-ink">{appSettings.dailyNewCardLimit}</span>
+            </span>
+            <span>
+              复习时限: <span className="text-ink">{appSettings.reviewTimeLimit} 分钟</span>
+            </span>
           </div>
         )}
       </Panel>
@@ -98,12 +137,88 @@ export function SettingsPage() {
       <Panel variant="paperCard" className="rounded-[24px] p-6">
         <h2 className="mb-3 font-ui text-lg text-ink">偏好设置</h2>
         {appSettings ? (
-          <div className="space-y-2 text-sm text-ink-muted">
-            <div className="flex justify-between">
-              <span>主题</span>
-              <span className="text-ink">{appSettings.theme}</span>
+          <div className="space-y-4 text-sm text-ink-muted">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-ui text-sm text-ink">主题包</p>
+                <p className="mt-1 text-xs leading-5 text-ink-soft">
+                  主题只覆盖 token 与资源，不会改动阅读器、学习页和设置页的业务交互。
+                </p>
+              </div>
+              <span className="text-xs text-ink-soft">
+                {updateSettings.isPending ? '保存中…' : '已保存在本地设置'}
+              </span>
             </div>
-            <div className="flex justify-between">
+
+            <div className="grid gap-3 md:grid-cols-3">
+              {appThemeOptions.map((themeOption) => {
+                const isActive = currentThemeId === themeOption.id
+
+                return (
+                  <button
+                    key={themeOption.id}
+                    type="button"
+                    data-testid={`theme-option-${themeOption.id}`}
+                    aria-current={isActive ? 'true' : undefined}
+                    disabled={updateSettings.isPending}
+                    onClick={() => handleThemeChange(themeOption.id)}
+                    className={cn(
+                      'rounded-[20px] border px-4 py-4 text-left transition-colors',
+                      isActive
+                        ? 'border-ink/30 bg-paper-card shadow-card'
+                        : 'border-line-soft bg-paper-muted/55 hover:border-ink/20 hover:bg-paper-card'
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-ui text-sm text-ink">{themeOption.label}</p>
+                        <p className="mt-1 text-xs leading-5 text-ink-muted">
+                          {themeOption.description}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          'rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]',
+                          isActive
+                            ? 'border-ink/20 bg-ink text-paper-base'
+                            : 'border-ink/10 bg-paper-base text-ink-soft'
+                        )}
+                      >
+                        {isActive ? '当前' : '可用'}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-2">
+                      <span
+                        className={cn(
+                          'theme-swatch h-5 w-5 rounded-full border border-ink/10',
+                          THEME_SWATCH_CLASSES[themeOption.id].paper
+                        )}
+                      />
+                      <span
+                        className={cn(
+                          'theme-swatch h-5 w-5 rounded-full border border-ink/10',
+                          THEME_SWATCH_CLASSES[themeOption.id].ink
+                        )}
+                      />
+                      <span
+                        className={cn(
+                          'theme-swatch h-5 w-5 rounded-full border border-ink/10',
+                          THEME_SWATCH_CLASSES[themeOption.id].accent
+                        )}
+                      />
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex justify-between rounded-xl border border-line-soft bg-paper-base/70 px-4 py-3">
+              <span>当前主题</span>
+              <span className="text-ink">{appThemeOptions.find((theme) => theme.id === currentThemeId)?.label}</span>
+            </div>
+
+            <div className="flex justify-between rounded-xl border border-line-soft bg-paper-base/70 px-4 py-3">
               <span>语言</span>
               <span className="text-ink">{appSettings.language}</span>
             </div>
@@ -128,7 +243,7 @@ function ConfigRow({
   onDelete: () => void
 }) {
   return (
-    <li className="flex items-center justify-between gap-4 rounded-xl border border-line-soft bg-white/60 px-4 py-3">
+    <li className="flex items-center justify-between gap-4 rounded-xl border border-line-soft bg-paper-card/60 px-4 py-3">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-ui text-sm text-ink">{config.name}</span>
@@ -141,9 +256,7 @@ function ConfigRow({
             </span>
           )}
         </div>
-        {config.model && (
-          <p className="mt-0.5 text-xs text-ink-soft">{config.model}</p>
-        )}
+        {config.model && <p className="mt-0.5 text-xs text-ink-soft">{config.model}</p>}
       </div>
       <div className="flex items-center gap-2">
         {!config.isDefault && (
@@ -229,8 +342,8 @@ function AddConfigForm({
             onClick={() => setProvider(p.value)}
             className={`rounded-lg border px-3 py-1.5 font-ui text-xs transition-colors ${
               provider === p.value
-                ? 'border-ink/30 bg-white text-ink'
-                : 'border-transparent text-ink-muted hover:bg-white/60'
+                ? 'border-ink/30 bg-paper-card text-ink'
+                : 'border-transparent text-ink-muted hover:bg-paper-card/60'
             }`}
           >
             {p.label}

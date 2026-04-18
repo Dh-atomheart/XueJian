@@ -19,6 +19,8 @@ embed_migrations!("src/migrations");
 pub enum DbError {
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
     #[error("Migration error: {0}")]
     Migration(#[from] refinery::Error),
     #[error("IO error: {0}")]
@@ -44,11 +46,7 @@ impl Database {
 
         let conn = Connection::open(&db_path)?;
 
-        // Enable foreign keys
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
-
-        // Enable WAL mode for better concurrency
-        conn.execute("PRAGMA journal_mode = WAL", [])?;
+        configure_connection(&conn)?;
 
         Ok(Self { conn })
     }
@@ -77,4 +75,40 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Database> {
     db.run_migrations()?;
     log::info!("Database initialized successfully");
     Ok(db)
+}
+
+fn configure_connection(conn: &Connection) -> Result<()> {
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::configure_connection;
+    use rusqlite::Connection;
+    use uuid::Uuid;
+
+    #[test]
+    fn configure_connection_enables_foreign_keys_and_wal() {
+        let db_path = std::env::temp_dir().join(format!("xuejian-db-{}.sqlite", Uuid::new_v4()));
+        let conn = Connection::open(&db_path).expect("temp db should open");
+
+        configure_connection(&conn).expect("connection configuration should succeed");
+
+        let foreign_keys: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .expect("foreign_keys pragma should be readable");
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("journal_mode pragma should be readable");
+
+        assert_eq!(foreign_keys, 1);
+        assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
+
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-shm"));
+    }
 }

@@ -64,10 +64,10 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
     } catch (cause) {
       if (importedDocument) {
         try {
-          await documentGateway.updateStatus(importedDocument.id, 'error')
+          await documentGateway.delete(importedDocument.id)
           await queryClient.invalidateQueries({ queryKey: documentsQueryKeys.all })
         } catch {
-          // Best effort rollback of visible state only.
+          // Best effort cleanup — delete cascades chunks, anchors, and file.
         }
       }
 

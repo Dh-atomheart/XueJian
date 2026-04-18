@@ -35,15 +35,11 @@ describe('model config and connection test', () => {
   })
 
   it('sets default config via gateway', async () => {
-    await expect(
-      apiConfigGateway.setDefault('some-config-id')
-    ).resolves.not.toThrow()
+    await expect(apiConfigGateway.setDefault('some-config-id')).resolves.not.toThrow()
   })
 
   it('deletes config via gateway', async () => {
-    await expect(
-      apiConfigGateway.delete('some-config-id')
-    ).resolves.not.toThrow()
+    await expect(apiConfigGateway.delete('some-config-id')).resolves.not.toThrow()
   })
 })
 

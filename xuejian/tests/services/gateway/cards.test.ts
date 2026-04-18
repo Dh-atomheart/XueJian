@@ -32,10 +32,13 @@ describe('cards gateway mocks', () => {
     expect(run.workflowType).toBe('card_generation')
   })
 
-  it('finalizeGeneration returns a mock result outside Tauri', async () => {
+  // @acceptance:m3-a4
+  it('finalizeGeneration returns a mock result with dedupe tracking', async () => {
     const result = await cardsGateway.finalizeGeneration('run-1')
     expect(result.createdCount).toBe(0)
     expect(result.skippedDuplicates).toBe(0)
+    expect(result).toHaveProperty('skippedDuplicates')
+    expect(result.run.status).toBe('completed')
   })
 })
 

@@ -3,6 +3,10 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+const DEFAULT_USER_ID: &str = "default";
+const DEFAULT_LANGUAGE: &str = "zh-CN";
+const DEFAULT_THEME: &str = "default";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
     pub id: String,
@@ -43,6 +47,14 @@ pub struct AppSettings {
     pub review_time_limit: i32,
     pub theme: String,
     pub language: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateAppSettingsRequest {
+    pub daily_new_card_limit: Option<i32>,
+    pub review_time_limit: Option<i32>,
+    pub theme: Option<String>,
+    pub language: Option<String>,
 }
 
 pub struct SettingsRepository<'a> {
@@ -208,13 +220,75 @@ impl<'a> SettingsRepository<'a> {
     }
 
     pub fn get_settings(&self) -> Result<AppSettings> {
-        // For now, return default settings
-        // In the future, these could be stored in the database
-        Ok(AppSettings {
-            daily_new_card_limit: 20,
-            review_time_limit: 30,
-            theme: "default".to_string(),
-            language: "zh-CN".to_string(),
-        })
+        let raw_settings = self
+            .db
+            .connection()
+            .query_row(
+                "SELECT settings FROM users WHERE id = ?1",
+                params![DEFAULT_USER_ID],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+
+        match raw_settings {
+            Some(raw) => Ok(sanitize_settings(serde_json::from_str::<AppSettings>(&raw)?)),
+            None => Ok(default_app_settings()),
+        }
+    }
+
+    pub fn update_settings(&self, req: UpdateAppSettingsRequest) -> Result<AppSettings> {
+        let current = self.get_settings()?;
+        let next_settings = sanitize_settings(AppSettings {
+            daily_new_card_limit: req
+                .daily_new_card_limit
+                .unwrap_or(current.daily_new_card_limit),
+            review_time_limit: req.review_time_limit.unwrap_or(current.review_time_limit),
+            theme: req.theme.unwrap_or(current.theme),
+            language: req.language.unwrap_or(current.language),
+        });
+
+        let serialized = serde_json::to_string(&next_settings)?;
+
+        self.db.connection().execute(
+            "INSERT INTO users (id, name, settings)
+             VALUES (?1, '默认用户', ?2)
+             ON CONFLICT(id) DO UPDATE SET settings = excluded.settings",
+            params![DEFAULT_USER_ID, serialized],
+        )?;
+
+        Ok(next_settings)
+    }
+}
+
+fn default_app_settings() -> AppSettings {
+    AppSettings {
+        daily_new_card_limit: 20,
+        review_time_limit: 30,
+        theme: DEFAULT_THEME.to_string(),
+        language: DEFAULT_LANGUAGE.to_string(),
+    }
+}
+
+fn sanitize_settings(settings: AppSettings) -> AppSettings {
+    AppSettings {
+        daily_new_card_limit: settings.daily_new_card_limit.max(0),
+        review_time_limit: settings.review_time_limit.max(0),
+        theme: sanitize_theme(settings.theme),
+        language: sanitize_language(settings.language),
+    }
+}
+
+fn sanitize_theme(theme: String) -> String {
+    match theme.as_str() {
+        "default" | "comic-sketch" | "contrast-paper" => theme,
+        _ => DEFAULT_THEME.to_string(),
+    }
+}
+
+fn sanitize_language(language: String) -> String {
+    match language.as_str() {
+        "zh-CN" | "en-US" => language,
+        _ => DEFAULT_LANGUAGE.to_string(),
     }
 }

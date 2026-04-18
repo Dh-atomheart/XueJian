@@ -148,8 +148,10 @@ export interface DailyStats {
 
 // ==================== API配置相关 ====================
 
+export type AppThemeId = 'default' | 'comic-sketch' | 'contrast-paper'
+
 export interface AppSettings {
-  theme: 'default' | 'dark' | 'light'
+  theme: AppThemeId
   language: 'zh-CN' | 'en-US'
   dailyNewCardLimit: number
   reviewTimeLimit: number

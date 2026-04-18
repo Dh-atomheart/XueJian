@@ -123,11 +123,16 @@ pub fn get_settings(state: State<'_, AppState>) -> CommandResult<AppSettingsDto>
 #[tauri::command]
 pub fn update_settings(
     state: State<'_, AppState>,
-    _data: UpdateSettingsDto,
+    data: UpdateSettingsDto,
 ) -> CommandResult<AppSettingsDto> {
     let db = state.lock_db()?;
     let repo = SettingsRepository::new(&db);
-    let settings = repo.get_settings()?;
+    let settings = repo.update_settings(crate::db::UpdateAppSettingsRequest {
+        daily_new_card_limit: data.daily_new_card_limit,
+        review_time_limit: data.review_time_limit,
+        theme: data.theme,
+        language: data.language,
+    })?;
     Ok(settings.into())
 }
 
