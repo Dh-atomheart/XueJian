@@ -53,9 +53,15 @@ export const themeTokens = {
 
 export type ThemeTokens = typeof themeTokens
 
+/**
+ * Sketch decoration style — implemented via roughjs (^4.6.0).
+ * Used for decorative borders, empty-state illustrations, card outlines.
+ * NOT for input fields, PDF highlights, or precision click targets.
+ */
 export const sketchStyle = {
   lineWeight: ['hairline', 'thin', 'medium'] as const,
   roughness: 0.5,
+  maxRoughness: 0.6,
   underlineStyle: ['pencil', 'marker'] as const,
   scribbleOpacity: 0.1,
 }

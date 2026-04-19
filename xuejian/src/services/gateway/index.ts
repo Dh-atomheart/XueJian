@@ -1,4 +1,5 @@
 import type { ZodType } from 'zod'
+import { getErrorMessage, reportFeedback } from '@/lib/appFeedback'
 import { getMockGatewayResponse } from './mockData'
 
 const globalScope = globalThis as typeof globalThis & {
@@ -56,7 +57,18 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
     return await tauriInvoke<T>(cmd, args)
   } catch (error) {
-    throw new GatewayError(`Failed to invoke command: ${cmd}`, 'INVOKE_ERROR', error)
+    const detail = getErrorMessage(error, '未返回更具体的底层错误信息')
+    const gatewayError = new GatewayError(`调用命令失败：${cmd}。${detail}`, 'INVOKE_ERROR', error)
+
+    reportFeedback({
+      scope: 'IPC',
+      title: `命令调用失败：${cmd}`,
+      detail,
+      level: 'error',
+      showToast: false,
+    })
+
+    throw gatewayError
   }
 }
 

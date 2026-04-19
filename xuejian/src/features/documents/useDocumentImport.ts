@@ -1,7 +1,9 @@
 import { useEffectEvent, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Document } from '@/types'
-import { documentsQueryKeys } from '@/queries'
+import { cardsQueryKeys, documentsQueryKeys, orchestrationQueryKeys } from '@/queries'
+import { reportAppError } from '@/lib/appFeedback'
+import { cardsGateway } from '@/services/gateway/cards'
 import { documentGateway } from '@/services/gateway/documents'
 import { parsePdfDocument } from '@/services/renderer/pdf'
 import { parseTextDocument } from '@/services/renderer/text'
@@ -56,10 +58,29 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
 
       await queryClient.invalidateQueries({ queryKey: documentsQueryKeys.all })
 
-      setWarnings(analysis.warnings)
+      let generationWarning: string | null = null
+
+      try {
+        setMessage('正在启动卡片候选生成...')
+        await cardsGateway.startGeneration(readyDocument.id)
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all }),
+          queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all }),
+        ])
+      } catch (generationCause) {
+        const detail = reportAppError('卡片生成', generationCause, {
+          title: '文档已导入，但卡片候选生成没有成功启动',
+          showToast: true,
+        })
+        generationWarning = `自动卡片生成没有成功启动：${detail}`
+      }
+
+      setWarnings(generationWarning ? [...analysis.warnings, generationWarning] : analysis.warnings)
       setStage('done')
       setMessage(
-        analysis.warnings[0] ?? `导入完成，共 ${readyDocument.pageCount ?? analysis.pageCount} 页`
+        generationWarning
+          ? '导入完成，但需要手动前往卡片工坊重新生成卡片。'
+          : analysis.warnings[0] ?? '导入完成，已启动卡片候选生成。'
       )
       handleImported(readyDocument)
       return readyDocument
@@ -73,7 +94,10 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
         }
       }
 
-      const nextError = cause instanceof Error ? cause.message : '导入失败'
+      const nextError = reportAppError('文档导入', cause, {
+        title: '文档导入失败',
+        showToast: true,
+      })
       setStage('error')
       setMessage(null)
       setError(nextError)

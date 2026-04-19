@@ -1,9 +1,5 @@
 ---
-title: Technical Architecture Selection Guide
-status: active
-owner: platform
-last_reviewed: 2026-04-18
-canonical: true
+title: 技术架构选型指南
 ---
 
 # V4-5 Technical Architecture Selection Guide
@@ -14,55 +10,50 @@ This guide fixes the target architecture for the V4-5 rearchitecture stream. It 
 
 - [ai-orchestration.md](./ai-orchestration.md)
 - [document-ir.md](./document-ir.md)
-- [../SECURITY.md](../SECURITY.md)
-- [../exec-plans/active/v4-5-ai-stack-and-reader-rearchitecture.md](../exec-plans/active/v4-5-ai-stack-and-reader-rearchitecture.md)
 - [../design-docs/reader-annotation.md](../design-docs/reader-annotation.md)
-- [../../ARCHITECTURE.md](../../ARCHITECTURE.md)
-- [../../xuejian/AGENTS.md](../../xuejian/AGENTS.md)
 
 ## Decision Summary
 
 | Area                       | Chosen Direction                                                                       | Why                                                                                                              |
 | -------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| BYOK                       | Host-owned provider adapters with `openai`, `anthropic`, `google`, `openai_compatible` | Keeps secrets and provider quirks inside the Rust host boundary                                                  |
-| Auth modes                 | `api_key`, `adc`                                                                       | Covers the official provider paths needed now without browser-session hacks                                      |
-| Google auth                | `api_key` and `adc`                                                                    | `adc` is the only acceptable "login-like" path because it remains an official credential flow                    |
-| AI runtime                 | `LangChain + LangGraph`                                                                | LangChain handles model/tool abstractions; LangGraph handles state, checkpoints, resume, and routing             |
-| Reader                     | `react-pdf-viewer` over the custom canvas reader                                       | Better baseline UX and plugin ecosystem while remaining relatively light                                         |
+| BYOK                       | Host-owned provider adapters with `openai`, `anthropic`, `custom`                      | Keeps secrets and provider quirks inside the Rust host boundary                                                  |
+| Protocol routing           | `native` (OpenAI/Anthropic) or `openai-compatible` (custom)                            | Anthropic uses native Messages API; custom endpoints use OpenAI-compatible protocol                             |
+| AI runtime                 | `LiteLLM + PydanticAI + LangChain`                                                     | LiteLLM handles provider routing; PydanticAI handles structured output; LangChain handles PresetWorkflow编排     |
+| LangGraph                  | Future path only                                                                       | Not a current runtime dependency; enter evaluation when checkpoint/resume becomes first-class need               |
+| Reader                     | `PDF.js` custom canvas rendering                                                       | Full control over highlight layer, text selection, and annotation overlay                                         |
 | PDF annotation persistence | SQLite sidecar, not PDF write-back in phase 1                                          | Faster delivery and less risk than full embedded PDF annotation editing                                          |
-| Document parsing           | `Docling -> DocumentIR -> LLM enhancement -> human gate`                               | Parsing-first preserves structure and citations; the model improves output instead of inventing source structure |
-| Document export            | Markdown-first artifacts with structured citations                                     | Easier to diff, persist, review, and reuse than HTML-heavy storage                                               |
-| Open-source comparators    | `Marker`, `MinerU`, `ts-pdf`, `react-pdf-highlighter`                                  | Useful references, but not the default stack                                                                     |
+| Document parsing           | `Docling + PyMuPDF -> DocumentIR -> LLM enhancement -> human gate`                     | Docling provides structure; PyMuPDF provides precise bbox; parsing-first preserves citations                    |
+| Document export            | `.apkg` via genanki + CSV                                                              | Native Anki import with stable exportGuid; CSV for plain-text export                                             |
+| Open-source comparators    | `Marker`, `MinerU`, `ts-pdf`                                                           | Useful references, but not the default stack                                                                     |
 
 ## 1. BYOK And Model Gateway
 
 ### 1.1 Target Provider Model
 
-`ApiConfig` must evolve from the previous narrow provider model into:
+`ApiConfig` aligns with spec.md §2.2.6:
 
-- `provider`: `openai | anthropic | google | openai_compatible`
-- `authMode`: `api_key | adc`
-- `baseUrl?`
+- `provider`: `openai | anthropic | custom`
+- `protocol`: `native | openai-compatible` (inferred from provider; custom = openai-compatible)
+- `apiKey`
+- `baseUrl?` (required for custom)
 - `model`
-- `budgetLimit?`
-- `hasStoredCredential`
+- `isDefault`
 
-`custom` should be retired as a vague bucket. If a service speaks an OpenAI-compatible protocol, it belongs under `openai_compatible`.
+`custom` covers any OpenAI-compatible endpoint (user provides `baseUrl`). Anthropic uses native Messages API, not OpenAI-compatible emulation.
 
 ### 1.2 Credential Boundary
 
 Secrets remain host-owned.
 
-- The Rust host stores credentials and resolves provider-specific auth.
+- The Rust host stores credentials in Stronghold and resolves provider-specific auth.
 - The Python orchestration service receives capability, not raw secrets.
 - The UI can configure and test connections, but it must not persist plaintext credentials outside the host secret store.
 
 This means:
 
-- OpenAI: `api_key`
-- Anthropic: `api_key`
-- Google: `api_key` or `adc`
-- OpenAI-compatible: `api_key` plus `baseUrl`
+- OpenAI: `api_key` via native protocol
+- Anthropic: `api_key` via native Messages API
+- Custom: `api_key` plus `baseUrl` via OpenAI-compatible protocol
 
 ### 1.3 Why Not Browser Login Or Cookie Bridging
 
@@ -73,7 +64,7 @@ The project should not implement:
 - hidden webview auth relays
 - unofficial token extraction from hosted chat products
 
-Those flows are brittle, hard to secure, and do not fit the host-owned secret model. The only accepted "login-like" path in this phase is `google + adc`.
+Those flows are brittle, hard to secure, and do not fit the host-owned secret model.
 
 ### 1.4 Gateway Shape
 
@@ -81,50 +72,62 @@ The Rust gateway should separate:
 
 - model connection testing
 - provider capability reporting
-- model invocation
+- model invocation (via LiteLLM provider routing in Python sidecar)
 - budget and telemetry accounting
 - log redaction
 
-The orchestration manifest should advertise provider and auth capabilities in a stable schema so Python can route behavior without seeing credentials.
+The orchestration manifest should advertise provider and protocol capabilities in a stable schema so Python can route behavior without seeing credentials.
 
-## 2. AI Runtime: LangChain Plus LangGraph
+## 2. AI Runtime: LiteLLM + PydanticAI + LangChain
 
 ### 2.1 Split Of Responsibilities
 
-Use the libraries for what they are good at.
+Use each library for what it is best at.
 
-- LangChain: model clients, tools, structured output, middleware, provider abstraction
-- LangGraph: workflow state, branching, checkpoints, resumption, human-in-the-loop, graph execution
+- **LiteLLM**: provider protocol routing (OpenAI native, Anthropic native, OpenAI-compatible), cost callback, stream normalization
+- **PydanticAI**: structured output validation (`CardDraft`, `RagAnswer`, `Citation`, `WorkflowEvent`), auto-retry on validation failure
+- **LangChain**: PresetWorkflow 编排, tool binding, prompt template management
+- **LangGraph**: future path only — not a current runtime dependency
 
 Do not build a new hand-rolled workflow engine in `main.py`.
 
-### 2.2 Package Direction
+### 2.2 Provider Routing
+
+LiteLLM runs inside the Python sidecar process:
+
+- `provider='openai'` → LiteLLM openai route
+- `provider='anthropic'` → LiteLLM anthropic route (native Messages API)
+- `provider='custom'` → LiteLLM openai-compatible route (user-provided baseUrl)
+
+Rust Host injects credentials from Stronghold into HTTP request headers; LiteLLM does not persist secrets.
+
+### 2.3 Package Direction
 
 `xuejian/orchestration_service/` should move toward:
 
 - `server.py`
 - `clients/host_gateway.py`
-- `providers/`
-- `schemas/`
-- `graph/runtime.py`
-- `graph/checkpointing.py`
+- `providers/litellm_adapter.py`
+- `schemas/card_draft.py`
+- `parsing/docling_pipeline.py`
+- `exports/genanki_exporter.py`
 - `workflows/card_generation.py`
 - `workflows/knowledge_qa.py`
 - `workflows/content_pipeline.py`
 - `workflows/study_coach.py`
 
-### 2.3 Workflow Classes
+### 2.4 Workflow Classes
 
 #### `card_generation`
 
 Flow:
 
-1. Load document context
+1. Load document context (from Docling+PyMuPDF parsed DocumentIR)
 2. Retrieve candidate spans or chunks
-3. Draft cards
+3. Draft cards (PydanticAI `CardDraft` structured output)
 4. Evaluate card quality and citation coverage
 5. Optionally stop for human review
-6. Persist approved drafts
+6. Persist approved drafts (generate stable `exportGuid`)
 
 Why a graph:
 
@@ -164,7 +167,7 @@ Flow:
 4. Generate coaching payload
 5. Save follow-up or review scheduling
 
-### 2.4 Tool Surface To Stabilize
+### 2.5 Tool Surface To Stabilize
 
 The host tool gateway for this phase should converge on:
 
@@ -173,29 +176,32 @@ The host tool gateway for this phase should converge on:
 - `list_reader_annotations`
 - `save_card_drafts`
 - `save_content_artifact`
+- `export_apkg` (genanki `.apkg` generation)
 - `schedule_review`
 
 ## 3. Reader And Sticky Notes
 
 ### 3.1 Primary Choice
 
-The default reader path should move to `react-pdf-viewer`.
+The default reader path uses `PDF.js` with custom canvas rendering.
 
 Reasons:
 
-- better out-of-the-box page navigation and zoom behavior
-- lighter implementation burden than maintaining a custom reader stack
-- easier plugin-based composition for sidebar and note workflows
+- full control over highlight layer, text selection hot zones, and annotation overlay
+- direct integration with Docling+PyMuPDF anchor model (hierarchyPath, bbox, quoteHash)
+- no dependency on third-party viewer plugin lifecycle
+
+`react-pdf-viewer` remains a future evaluation candidate if PDF.js maintenance burden grows.
 
 ### 3.2 What Changes In The Data Model
 
-Stop treating a sticky note as the same thing as a highlight.
+MVP uses a single `Highlight` type. V2+ introduces the following split:
 
-- `Highlight`: selection geometry, spans, and anchor information
-- `ReaderAnnotation`: user-authored annotation metadata
-- `NoteThread`: note body, replies, status, and links to highlights/cards
+- `Highlight`: selection geometry, spans, and anchor information (MVP)
+- `ReaderAnnotation`: user-authored annotation metadata (V2+)
+- `NoteThread`: note body, replies, status, and links to highlights/cards (V2+)
 
-This split makes card linking and future collaboration features much cleaner.
+This split makes card linking and future collaboration features much cleaner, but MVP ships with Highlight only.
 
 ### 3.3 Persistence Rule
 
@@ -228,15 +234,23 @@ Adopt a parsing-first pipeline:
 3. Ask the LLM to draft cards, summaries, labels, and difficulty
 4. Apply evaluator or human review before persistence
 
-### 4.2 Primary Tool: Docling
+### 4.2 Primary Tools: Docling + PyMuPDF
 
-`Docling` is the preferred parser because it gives a strong balance of structure extraction and realistic integration cost.
+`Docling` is the preferred structure parser and `PyMuPDF` is the preferred coordinate extractor.
 
-Primary reasons:
+Docling reasons:
 
-- strong document structure preservation
-- useful coverage across PDF and office-style content
+- strong document structure preservation (headings, paragraphs, tables, figure captions)
+- produces `hierarchyPath` for each block
 - better fit for a parsing-first IR pipeline than model-only extraction
+
+PyMuPDF reasons:
+
+- precise bbox coordinate extraction
+- text quote extraction and page metadata
+- complements Docling's semantic structure with coordinate accuracy
+
+PDF.js is used only for frontend rendering and text selection hot zones, not for parsing or anchor modeling.
 
 ### 4.3 Comparison Set
 
@@ -294,7 +308,7 @@ High-level shape:
 - `citations`
 - `sourceMetadata`
 
-See [document-ir.md](./document-ir.md) for the working reference.
+Default `parserFamily` is `"docling+pymupdf"`. See [document-ir.md](./document-ir.md) for the working reference.
 
 ## 6. Directory Restructure
 
@@ -350,8 +364,6 @@ Recommended order:
 
 ## 8. Validation Checklist
 
-- Docs: `python scripts/docs/validate.py`
-- Architecture: `python scripts/docs/check_architecture.py`
 - Frontend lint: `cd xuejian && npm run lint`
 - Frontend tests: `cd xuejian && npm run test`
 - Rust tests: `cargo test --manifest-path xuejian/src-tauri/Cargo.toml`
@@ -363,3 +375,5 @@ Recommended order:
 - free-form autonomous multi-agent orchestration
 - HTML-first canonical storage for cards
 - moving the system of record away from SQLite
+- Google ADC or browser-session auth flows
+- LangGraph as a current runtime dependency

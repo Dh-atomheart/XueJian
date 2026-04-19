@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import { apiConfigSchema, apiConnectionTestResultSchema } from '@/types'
-import type { ApiConfig, ApiConnectionTestResult, ModelProfile } from '@/types'
+import type { ApiAuthMode, ApiConfig, ApiConnectionTestResult, ModelProfile } from '@/types'
 import { invoke, invokeWithSchema } from './index'
 
-type ApiConfigDraft = Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredKey'>
-type ApiConfigUpdate = Partial<Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredKey'>>
+type ApiConfigDraft = Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey'>
+type ApiConfigUpdate = Partial<
+  Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey'>
+>
 
 /**
  * API 配置相关命令。
@@ -33,6 +35,7 @@ export const apiConfigGateway = {
 
   async testConnection(data: {
     provider: ApiConfig['provider']
+    authMode: ApiAuthMode
     apiKey: string
     baseUrl?: string | null
   }): Promise<ApiConnectionTestResult> {
@@ -56,6 +59,7 @@ export const modelGateway: {
   delete: (id: string) => Promise<void>
   testConnection: (data: {
     provider: ApiConfig['provider']
+    authMode: ApiAuthMode
     apiKey: string
     baseUrl?: string | null
   }) => Promise<ApiConnectionTestResult>

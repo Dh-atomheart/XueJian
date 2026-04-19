@@ -1,9 +1,5 @@
 ---
-title: Design Tokens
-status: active
-owner: design
-last_reviewed: 2026-04-17
-canonical: true
+title: Design Tokens 与视觉契约
 ---
 
 # Design Tokens 与视觉契约

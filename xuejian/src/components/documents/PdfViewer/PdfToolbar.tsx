@@ -48,6 +48,7 @@ export function PdfToolbar({
           size="sm"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
+          title="上一页"
         >
           <ChevronLeftIcon />
         </Button>
@@ -59,6 +60,7 @@ export function PdfToolbar({
           size="sm"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= totalPages}
+          title="下一页"
         >
           <ChevronRightIcon />
         </Button>
@@ -66,7 +68,13 @@ export function PdfToolbar({
 
       {/* Right: zoom */}
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="sm" onClick={zoomOut} disabled={scale <= SCALE_STEPS[0]}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={zoomOut}
+          disabled={scale <= SCALE_STEPS[0]}
+          title="缩小"
+        >
           <MinusIcon />
         </Button>
         <span className="min-w-[3rem] text-center font-latin text-xs text-ink-muted">
@@ -77,6 +85,7 @@ export function PdfToolbar({
           size="sm"
           onClick={zoomIn}
           disabled={scale >= SCALE_STEPS[SCALE_STEPS.length - 1]}
+          title="放大"
         >
           <PlusIcon />
         </Button>

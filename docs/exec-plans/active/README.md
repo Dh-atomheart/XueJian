@@ -32,7 +32,14 @@ Use `// @acceptance:{id}` in code where useful. Advisory coverage check:
 
 ## Plan Index
 
-### MVP
+### MVP (v4.0 Research Alignment)
+
+- [mvp-w1-foundation-and-data-layer.md](./mvp-w1-foundation-and-data-layer.md) — 数据层迁移 + 类型对齐 + Rough.js
+- [mvp-w2-gateway-and-orchestration.md](./mvp-w2-gateway-and-orchestration.md) — LiteLLM + PydanticAI + WorkflowCheckpoint
+- [mvp-w3-document-and-learning.md](./mvp-w3-document-and-learning.md) — Docling+PyMuPDF + 卡片生成 + FSRS
+- [mvp-w4-integration-and-testing.md](./mvp-w4-integration-and-testing.md) — BYOK + 导出 + E2E + 打包
+
+### MVP (Legacy)
 
 - ~~m1-platform-foundation.md~~ -> [completed](../completed/m1-platform-foundation.md)
 - ~~m2-document-import-and-anchors.md~~ -> [completed](../completed/m2-document-import-and-anchors.md)
@@ -58,4 +65,4 @@ Use `// @acceptance:{id}` in code where useful. Advisory coverage check:
 - ~~v4-2-theme-switching-and-theme-packs.md~~ -> [completed](../completed/v4-2-theme-switching-and-theme-packs.md)
 - [v4-3-android-capability-assessment.md](./v4-3-android-capability-assessment.md)
 - [v4-4-app-usability-fixes.md](./v4-4-app-usability-fixes.md)
-- [v4-5-ai-stack-and-reader-rearchitecture.md](./v4-5-ai-stack-and-reader-rearchitecture.md)
+- ~~v4-5-ai-stack-and-reader-rearchitecture.md~~ -> [completed (archived: superseded by spec v4.0)](../completed/v4-5-ai-stack-and-reader-rearchitecture.md)

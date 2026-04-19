@@ -1,9 +1,5 @@
 ---
-title: Reader Annotation Design
-status: active
-owner: design
-last_reviewed: 2026-04-18
-canonical: true
+title: 阅读页贴笺与标注设计
 ---
 
 # Reader Annotation Design
@@ -12,13 +8,13 @@ This file records the target interaction model for the PDF reader, highlights, s
 
 ## Core Model Split
 
-The reader should distinguish between selection and annotation.
+MVP uses a single `Highlight` type. V2+ introduces the following split:
 
-- `Highlight`: geometry, selected text, and source anchor
-- `ReaderAnnotation`: annotation metadata bound to one or more highlights
-- `NoteThread`: note content, replies, status, and card links
+- `Highlight`: geometry, selected text, and source anchor (MVP)
+- `ReaderAnnotation`: annotation metadata bound to one or more highlights (V2+)
+- `NoteThread`: note content, replies, status, and card links (V2+)
 
-Do not use one type to represent all three concerns.
+Do not use one type to represent all three concerns once V2 ships.
 
 ## Primary Reader Behaviors
 
@@ -53,6 +49,6 @@ Phase 1 stores annotations in SQLite sidecar data. The original PDF file remains
 
 This design aligns with:
 
-- `react-pdf-viewer` as the main reader surface
+- `PDF.js` as the main reader surface (custom canvas rendering with highlight overlay)
 - `components/reader/` for reusable reader UI composition
 - `features/reader/` for page orchestration

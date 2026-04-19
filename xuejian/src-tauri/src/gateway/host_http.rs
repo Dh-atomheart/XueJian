@@ -304,6 +304,7 @@ fn api_config_to_json(config: ApiConfig) -> Value {
     json!({
         "id": config.id,
         "provider": config.provider,
+        "authMode": config.auth_mode,
         "name": config.name,
         "baseUrl": config.base_url,
         "model": config.model,

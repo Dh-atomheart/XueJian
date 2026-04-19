@@ -16,15 +16,19 @@ export interface StartKnowledgeQaInput {
 
 export async function searchKnowledge(input: SearchKnowledgeInput): Promise<ChunkSearchResult[]> {
   return invokeWithSchema('search_knowledge', z.array(chunkSearchResultSchema), {
-    query: input.query,
-    documentIds: input.documentIds ?? null,
-    limit: input.limit ?? null,
+    data: {
+      query: input.query,
+      documentIds: input.documentIds ?? null,
+      limit: input.limit ?? null,
+    },
   })
 }
 
 export async function startKnowledgeQaWorkflow(input: StartKnowledgeQaInput): Promise<WorkflowRun> {
   return invokeWithSchema('start_knowledge_qa_workflow', workflowRunSchema, {
-    question: input.question,
-    documentIds: input.documentIds ?? null,
+    data: {
+      question: input.question,
+      documentIds: input.documentIds ?? null,
+    },
   })
 }

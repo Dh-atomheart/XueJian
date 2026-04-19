@@ -7,6 +7,10 @@ vi.mock('@/features/dashboard', () => ({
   DashboardPage: () => <div>Dashboard Page</div>,
 }))
 
+vi.mock('@/features/cards', () => ({
+  CardStudioPage: () => <div>Cards Page</div>,
+}))
+
 vi.mock('@/features/documents', () => ({
   LibraryPage: () => <div>Library Page</div>,
   ReaderPage: ({ documentId }: { documentId: string }) => <div>Reader {documentId}</div>,
@@ -48,8 +52,8 @@ afterEach(() => {
 })
 
 // @acceptance:v4-4-a1
-describe('app onboarding gate', () => {
-  it('forces first-run users into settings until a stored key is available', async () => {
+describe('app setup guidance', () => {
+  it('keeps the dashboard browsable even when no usable model config exists', async () => {
     ;(window as Window & { __TAURI__?: unknown }).__TAURI__ = {}
 
     vi.spyOn(apiConfigGateway, 'list').mockResolvedValue([])
@@ -60,12 +64,14 @@ describe('app onboarding gate', () => {
       </QueryClientProvider>
     )
 
-    await screen.findByText('先完成模型密钥配置，再进入其他功能')
+    await screen.findByText('Dashboard Page')
+    await screen.findByText('AI 功能需先配置模型')
 
-    expect(screen.getByTestId('sidebar-nav-home')).toBeDisabled()
-    expect(screen.getByTestId('sidebar-nav-library')).toBeDisabled()
-    expect(screen.getByTestId('sidebar-nav-learning')).toBeDisabled()
-    expect(screen.getByTestId('sidebar-nav-knowledge')).toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-home')).not.toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-library')).not.toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-cards')).not.toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-learning')).not.toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-knowledge')).not.toBeDisabled()
     expect(screen.getByTestId('sidebar-nav-settings')).not.toBeDisabled()
   })
 })

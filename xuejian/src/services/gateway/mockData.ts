@@ -219,15 +219,19 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       throw new Error('Mock create_api_config requires a valid provider and name')
     }
 
+    const authMode = isApiAuthMode(data?.authMode) ? data.authMode : 'api_key'
+
     const nextConfig: ApiConfig = {
       id: nextMockApiConfigId(),
       provider: data.provider,
+      authMode,
       name: getString(data.name)!,
       model: getNullableString(data.model),
       baseUrl: getNullableString(data.baseUrl),
       budgetLimit: getNullableNumber(data.budgetLimit),
       isDefault: getBoolean(data.isDefault) ?? false,
       isEnabled: getBoolean(data.isEnabled) ?? true,
+      hasStoredCredential: authMode === 'adc',
       hasStoredKey: false,
       createdAt: new Date(),
     }
@@ -269,6 +273,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       const nextConfig: ApiConfig = {
         ...config,
         provider: isApiProvider(data.provider) ? data.provider : config.provider,
+        authMode: isApiAuthMode(data.authMode) ? data.authMode : config.authMode,
         name: getString(data.name) ?? config.name,
         model: data.model === undefined ? config.model : getNullableString(data.model),
         baseUrl: data.baseUrl === undefined ? config.baseUrl : getNullableString(data.baseUrl),
@@ -277,6 +282,8 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         isDefault: getBoolean(data.isDefault) ?? config.isDefault,
         isEnabled: getBoolean(data.isEnabled) ?? config.isEnabled,
       }
+
+      nextConfig.hasStoredCredential = nextConfig.authMode === 'adc' || nextConfig.hasStoredKey
 
       updatedConfig = nextConfig
       return nextConfig
@@ -317,6 +324,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         config.id === configId
           ? {
               ...config,
+              hasStoredCredential: true,
               hasStoredKey: true,
             }
           : config
@@ -324,6 +332,41 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     }
 
     return undefined as T
+  }
+
+  if (cmd === 'test_api_connection') {
+    const data = getRecord(args?.data)
+    const provider = isApiProvider(data?.provider) ? data.provider : 'openai'
+    const authMode = isApiAuthMode(data?.authMode) ? data.authMode : 'api_key'
+    const apiKey = getString(data?.apiKey)?.trim() ?? ''
+    const baseUrl = getNullableString(data?.baseUrl)?.trim().replace(/\/+$/, '') ?? null
+
+    if (authMode === 'adc') {
+      return {
+        success: false,
+        message:
+          provider === 'google'
+            ? 'Google ADC 模式的契约已接线，宿主侧真实凭证探测仍待后续实现。'
+            : `provider ${provider} 暂不支持 authMode=adc`,
+      } as T
+    }
+
+    if (!apiKey) {
+      return { success: false, message: '缺少 API Key。' } as T
+    }
+
+    if (provider === 'openai_compatible') {
+      if (!baseUrl) {
+        return { success: false, message: 'OpenAI-Compatible 需要提供 Base URL。' } as T
+      }
+
+      return {
+        success: true,
+        message: `OpenAI-Compatible 配置字段完整，Base URL: ${baseUrl}`,
+      } as T
+    }
+
+    return { success: true, message: '连接测试通过 (mock)' } as T
   }
 
   if (cmd === 'record_points') {
@@ -789,7 +832,16 @@ function getBoolean(value: unknown) {
 }
 
 function isApiProvider(value: unknown): value is ApiConfig['provider'] {
-  return value === 'openai' || value === 'anthropic' || value === 'custom'
+  return (
+    value === 'openai' ||
+    value === 'anthropic' ||
+    value === 'google' ||
+    value === 'openai_compatible'
+  )
+}
+
+function isApiAuthMode(value: unknown): value is ApiConfig['authMode'] {
+  return value === 'api_key' || value === 'adc'
 }
 
 function nextMockApiConfigId() {

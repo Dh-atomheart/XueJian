@@ -1,6 +1,17 @@
 import { create } from 'zustand'
 
-export type NavItemId = 'home' | 'library' | 'learning' | 'knowledge' | 'settings'
+export type NavItemId = 'home' | 'library' | 'cards' | 'learning' | 'knowledge' | 'settings'
+
+export type AppFeedbackLevel = 'info' | 'warning' | 'error'
+
+export interface AppFeedbackEntry {
+  id: string
+  level: AppFeedbackLevel
+  scope: string
+  title: string
+  detail: string | null
+  createdAt: Date
+}
 
 interface ReaderState {
   documentId: string | null
@@ -15,6 +26,9 @@ interface AppUiState {
   activeNavItem: NavItemId
   isContextRailOpen: boolean
   reader: ReaderState
+  feedbackLog: AppFeedbackEntry[]
+  activeNotices: AppFeedbackEntry[]
+  isFeedbackPanelOpen: boolean
   setActiveNavItem: (item: NavItemId) => void
   setContextRailOpen: (open: boolean) => void
   openReader: (documentId: string, totalPages?: number) => void
@@ -24,6 +38,17 @@ interface AppUiState {
   setReaderScale: (scale: number) => void
   selectHighlight: (highlightId: string | null) => void
   selectCard: (cardId: string | null) => void
+  setFeedbackPanelOpen: (open: boolean) => void
+  toggleFeedbackPanel: () => void
+  reportFeedback: (entry: {
+    level?: AppFeedbackLevel
+    scope: string
+    title: string
+    detail?: string | null
+    showToast?: boolean
+  }) => string
+  dismissNotice: (id: string) => void
+  clearFeedbackLog: () => void
 }
 
 const initialReaderState: ReaderState = {
@@ -35,10 +60,32 @@ const initialReaderState: ReaderState = {
   selectedCardId: null,
 }
 
+const MAX_FEEDBACK_LOG_ENTRIES = 120
+const MAX_ACTIVE_NOTICES = 4
+
+function createFeedbackEntry(input: {
+  level?: AppFeedbackLevel
+  scope: string
+  title: string
+  detail?: string | null
+}) {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    level: input.level ?? 'info',
+    scope: input.scope,
+    title: input.title,
+    detail: input.detail ?? null,
+    createdAt: new Date(),
+  } satisfies AppFeedbackEntry
+}
+
 export const useAppUiStore = create<AppUiState>((set) => ({
   activeNavItem: 'home',
   isContextRailOpen: true,
   reader: initialReaderState,
+  feedbackLog: [],
+  activeNotices: [],
+  isFeedbackPanelOpen: false,
   setActiveNavItem: (activeNavItem) =>
     set((state) => ({
       activeNavItem,
@@ -84,4 +131,22 @@ export const useAppUiStore = create<AppUiState>((set) => ({
     set((state) => ({
       reader: { ...state.reader, selectedCardId, selectedHighlightId: null },
     })),
+  setFeedbackPanelOpen: (isFeedbackPanelOpen) => set({ isFeedbackPanelOpen }),
+  toggleFeedbackPanel: () =>
+    set((state) => ({ isFeedbackPanelOpen: !state.isFeedbackPanelOpen })),
+  reportFeedback: ({ level, scope, title, detail, showToast = true }) => {
+    const entry = createFeedbackEntry({ level, scope, title, detail })
+    set((state) => ({
+      feedbackLog: [entry, ...state.feedbackLog].slice(0, MAX_FEEDBACK_LOG_ENTRIES),
+      activeNotices: showToast
+        ? [entry, ...state.activeNotices].slice(0, MAX_ACTIVE_NOTICES)
+        : state.activeNotices,
+    }))
+    return entry.id
+  },
+  dismissNotice: (id) =>
+    set((state) => ({
+      activeNotices: state.activeNotices.filter((notice) => notice.id !== id),
+    })),
+  clearFeedbackLog: () => set({ feedbackLog: [] }),
 }))

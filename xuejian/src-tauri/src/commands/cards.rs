@@ -248,6 +248,14 @@ struct CardGenerationCheckpointPayload {
     max_candidates: usize,
     phase: String,
     last_chunk_index: Option<usize>,
+    #[serde(default = "default_card_generation_mode")]
+    generation_mode: String,
+    #[serde(default)]
+    fallback_reason: Option<String>,
+}
+
+fn default_card_generation_mode() -> String {
+    "unknown".to_string()
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -619,6 +627,8 @@ pub fn start_card_generation_workflow(
             max_candidates,
             phase: "queued".to_string(),
             last_chunk_index: None,
+            generation_mode: "model".to_string(),
+            fallback_reason: None,
         };
         let summary = build_run_summary(&payload, &CardCandidateCounts::default());
         workflow_repo.upsert_checkpoint(UpsertWorkflowCheckpointRequest {
@@ -823,10 +833,14 @@ async fn execute_card_generation_worker(app_handle: &AppHandle, run_id: &str) ->
     if let Ok(generated_count) = orchestration_result {
         payload.generated_count = generated_count;
         payload.phase = "generating".to_string();
+        payload.generation_mode = "model".to_string();
+        payload.fallback_reason = None;
         log::info!("Python orchestration generated {generated_count} candidates for run {run_id}");
     } else {
         // Fallback to local rule-based generation
         log::warn!("Python orchestration unavailable, falling back to local rule-based generation for run {run_id}");
+        payload.generation_mode = "rule_based_fallback".to_string();
+        payload.fallback_reason = Some("python_orchestration_unavailable".to_string());
         {
             let state = app_handle.state::<AppState>();
             let db = state.lock_db()?;
@@ -1174,6 +1188,8 @@ fn build_run_summary(
         "documentId": payload.document_id,
         "documentTitle": payload.document_title,
         "phase": payload.phase,
+        "generationMode": payload.generation_mode,
+        "fallbackReason": payload.fallback_reason,
         "chunkCursor": payload.chunk_cursor,
         "totalChunks": payload.total_chunks,
         "generatedCount": payload.generated_count,

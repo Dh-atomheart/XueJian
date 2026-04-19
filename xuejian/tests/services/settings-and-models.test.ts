@@ -10,6 +10,7 @@ describe('model config and connection test', () => {
   it('creates an API config via gateway', async () => {
     const config = await apiConfigGateway.create({
       provider: 'openai',
+      authMode: 'api_key',
       name: 'Test Config',
       model: 'gpt-4o',
       baseUrl: null,
@@ -31,6 +32,7 @@ describe('model config and connection test', () => {
   it('tests connection via gateway', async () => {
     const result = await apiConfigGateway.testConnection({
       provider: 'openai',
+      authMode: 'api_key',
       apiKey: 'sk-test-key',
       baseUrl: null,
     })
@@ -54,6 +56,7 @@ describe('API Key only enters Stronghold', () => {
   it('API config responses expose hasStoredKey without leaking plaintext secrets', async () => {
     const config = await apiConfigGateway.create({
       provider: 'openai',
+      authMode: 'api_key',
       name: 'Gate Config',
       model: 'gpt-4o',
       baseUrl: null,
@@ -62,6 +65,7 @@ describe('API Key only enters Stronghold', () => {
       isEnabled: true,
     })
 
+    expect(config.hasStoredCredential).toBe(false)
     expect(config.hasStoredKey).toBe(false)
     expect(config).not.toHaveProperty('apiKey')
   })
@@ -84,6 +88,7 @@ describe('API Key only enters Stronghold', () => {
   it('create response does not leak API key', async () => {
     const config = await apiConfigGateway.create({
       provider: 'anthropic',
+      authMode: 'api_key',
       name: 'Anthropic Config',
       model: 'claude-sonnet-4-20250514',
       baseUrl: null,
@@ -94,7 +99,7 @@ describe('API Key only enters Stronghold', () => {
     const json = JSON.stringify(config)
     expect(json).not.toContain('sk-')
     expect(json).not.toContain('apiKey')
-    expect(json).not.toContain('api_key')
+    expect(json).toContain('"authMode":"api_key"')
   })
 })
 

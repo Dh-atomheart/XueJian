@@ -1,9 +1,5 @@
 ---
-title: Component Rules
-status: active
-owner: design
-last_reviewed: 2026-04-17
-canonical: true
+title: 组件系统规范
 ---
 
 # 组件系统规范

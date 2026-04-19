@@ -11,6 +11,7 @@ type PdfTextContentItem = {
 }
 
 let pdfWorkerConfigured = false
+const pdfDocumentCache = new WeakMap<Uint8Array, Promise<Awaited<ReturnType<typeof getDocument>['promise']>>>()
 
 function ensurePdfWorkerConfigured() {
   if (pdfWorkerConfigured) {
@@ -25,9 +26,7 @@ function ensurePdfWorkerConfigured() {
 }
 
 export async function parsePdfDocument(documentId: string, bytes: Uint8Array) {
-  ensurePdfWorkerConfigured()
-
-  const pdf = await getDocument({ data: bytes }).promise
+  const pdf = await loadPdfDocument(bytes)
   const pages = []
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
@@ -63,11 +62,15 @@ export async function renderPdfPageToCanvas(
   bytes: Uint8Array,
   pageNumber: number,
   canvas: HTMLCanvasElement,
-  scale = 1.25
+  scale = 1.25,
+  signal?: AbortSignal
 ) {
-  ensurePdfWorkerConfigured()
+  const pdf = await loadPdfDocument(bytes)
 
-  const pdf = await getDocument({ data: bytes }).promise
+  if (signal?.aborted) {
+    throw new DOMException('PDF render aborted', 'AbortError')
+  }
+
   const page = await pdf.getPage(pageNumber)
   const viewport = page.getViewport({ scale })
   const context = canvas.getContext('2d')
@@ -81,14 +84,49 @@ export async function renderPdfPageToCanvas(
   canvas.style.width = `${Math.ceil(viewport.width)}px`
   canvas.style.height = `${Math.ceil(viewport.height)}px`
 
-  await page.render({
+  const renderTask = page.render({
     canvas,
     canvasContext: context,
     viewport,
-  }).promise
+  })
 
-  page.cleanup()
-  return viewport
+  const abortHandler = () => renderTask.cancel()
+  signal?.addEventListener('abort', abortHandler, { once: true })
+
+  try {
+    await renderTask.promise
+    return viewport
+  } catch (error) {
+    if (signal?.aborted || isCancelledRender(error)) {
+      throw new DOMException('PDF render aborted', 'AbortError')
+    }
+
+    throw error
+  } finally {
+    signal?.removeEventListener('abort', abortHandler)
+    page.cleanup()
+  }
+}
+
+async function loadPdfDocument(bytes: Uint8Array) {
+  ensurePdfWorkerConfigured()
+
+  const cachedPromise = pdfDocumentCache.get(bytes)
+  if (cachedPromise) {
+    return cachedPromise
+  }
+
+  const nextPromise = getDocument({ data: bytes }).promise.catch((error) => {
+    pdfDocumentCache.delete(bytes)
+    throw error
+  })
+
+  pdfDocumentCache.set(bytes, nextPromise)
+  return nextPromise
+}
+
+function isCancelledRender(error: unknown) {
+  return error instanceof Error && error.name === 'RenderingCancelledException'
 }
 
 function normalizeTextItem(

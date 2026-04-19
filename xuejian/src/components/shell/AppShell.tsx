@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
 import { SidebarRail } from './SidebarRail'
 import { TopBar } from './TopBar'
+import { AppFeedbackLayer } from '@/components/ui'
 
 interface AppShellProps {
   children: ReactNode
@@ -46,6 +47,8 @@ export function AppShell({ children, sidebar, contextPanel, className }: AppShel
           )}
         </main>
       </div>
+
+      <AppFeedbackLayer />
     </div>
   )
 }

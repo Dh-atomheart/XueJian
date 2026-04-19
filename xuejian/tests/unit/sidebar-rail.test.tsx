@@ -25,7 +25,7 @@ describe('sidebar rail icons', () => {
       </QueryClientProvider>
     )
 
-    const buttonIds = ['home', 'library', 'learning', 'knowledge', 'settings']
+    const buttonIds = ['home', 'library', 'cards', 'learning', 'knowledge', 'settings']
 
     for (const buttonId of buttonIds) {
       const button = await screen.findByTestId(`sidebar-nav-${buttonId}`)

@@ -23,7 +23,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-log = "2"
 
 # Database
-rusqlite = { version = "0.32", features = ["bundled", "functions", "chrono", "serde_json"] }
+rusqlite = { version = "0.32", features = ["bundled", "functions", "chrono", "serde_json", "load_extension"] }
 refinery = { version = "0.8", features = ["rusqlite"] }
 
 # Security

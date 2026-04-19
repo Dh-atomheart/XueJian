@@ -6,6 +6,9 @@ describe('useAppUiStore', () => {
     useAppUiStore.setState({
       activeNavItem: 'home',
       isContextRailOpen: true,
+      feedbackLog: [],
+      activeNotices: [],
+      isFeedbackPanelOpen: false,
       reader: {
         documentId: null,
         currentPage: 1,
@@ -21,6 +24,18 @@ describe('useAppUiStore', () => {
     useAppUiStore.getState().setActiveNavItem('library')
 
     expect(useAppUiStore.getState().activeNavItem).toBe('library')
+  })
+
+  it('stores feedback logs and notices centrally', () => {
+    useAppUiStore.getState().reportFeedback({
+      scope: '测试',
+      title: '出现了一个错误',
+      detail: '这里是详细信息',
+      level: 'error',
+    })
+
+    expect(useAppUiStore.getState().feedbackLog).toHaveLength(1)
+    expect(useAppUiStore.getState().activeNotices).toHaveLength(1)
   })
 
   it('toggles context rail state', () => {

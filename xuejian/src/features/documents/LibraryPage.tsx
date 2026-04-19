@@ -9,6 +9,7 @@ export function LibraryPage() {
   const { data: documents = [], isLoading } = useDocumentsQuery()
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const openReader = useAppUiStore((state) => state.openReader)
+  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
 
   useEffect(() => {
     if (documents.length === 0) {
@@ -35,7 +36,7 @@ export function LibraryPage() {
           <div className="mb-4 text-4xl">📄</div>
           <h2 className="mb-2 font-display text-xl text-ink">文档库是空的</h2>
           <p className="mb-6 text-sm leading-relaxed text-ink-muted">
-            上传第一份 PDF 文档，系统会自动解析内容、生成段落锚点和学习卡片。
+            上传第一份文档后，系统会自动解析内容、生成锚点，并启动卡片候选生成。
           </p>
           <ImportDocumentButton
             onImported={(document) => {
@@ -93,20 +94,30 @@ export function LibraryPage() {
         <section className="space-y-4">
           <div className="flex items-end justify-between gap-3">
             <h2 className="font-ui text-base text-ink">文档详情</h2>
-            <Button
-              variant="sketch"
-              size="sm"
-              disabled={!selectedDocument || selectedDocument.status !== 'ready'}
-              onClick={() => {
-                if (!selectedDocument) {
-                  return
-                }
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedDocument || selectedDocument.status !== 'ready'}
+                onClick={() => setActiveNavItem('cards')}
+              >
+                卡片工坊
+              </Button>
+              <Button
+                variant="sketch"
+                size="sm"
+                disabled={!selectedDocument || selectedDocument.status !== 'ready'}
+                onClick={() => {
+                  if (!selectedDocument) {
+                    return
+                  }
 
-                openReader(selectedDocument.id, selectedDocument.pageCount ?? 1)
-              }}
-            >
-              进入阅读
-            </Button>
+                  openReader(selectedDocument.id, selectedDocument.pageCount ?? 1)
+                }}
+              >
+                进入阅读
+              </Button>
+            </div>
           </div>
 
           <DocumentPreviewPane document={selectedDocument} />

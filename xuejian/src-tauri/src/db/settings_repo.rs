@@ -11,6 +11,7 @@ const DEFAULT_THEME: &str = "default";
 pub struct ApiConfig {
     pub id: String,
     pub provider: String,
+    pub auth_mode: String,
     pub name: String,
     pub base_url: Option<String>,
     pub model: Option<String>,
@@ -23,6 +24,7 @@ pub struct ApiConfig {
 #[derive(Debug, Deserialize)]
 pub struct CreateApiConfigRequest {
     pub provider: String,
+    pub auth_mode: String,
     pub name: String,
     pub base_url: Option<String>,
     pub model: Option<String>,
@@ -33,6 +35,7 @@ pub struct CreateApiConfigRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateApiConfigRequest {
     pub provider: Option<String>,
+    pub auth_mode: Option<String>,
     pub name: Option<String>,
     pub base_url: Option<String>,
     pub model: Option<String>,
@@ -69,6 +72,8 @@ impl<'a> SettingsRepository<'a> {
     pub fn create_api_config(&self, req: CreateApiConfigRequest) -> Result<ApiConfig> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
+        let provider = normalize_provider(req.provider);
+        let auth_mode = normalize_auth_mode(req.auth_mode);
 
         // If this is set as default, clear other defaults
         if req.is_default {
@@ -79,17 +84,18 @@ impl<'a> SettingsRepository<'a> {
         }
 
         self.db.connection().execute(
-            "INSERT INTO api_configs (id, provider, name, base_url, model, budget_limit, is_default, created_at, user_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'default')",
+            "INSERT INTO api_configs (id, provider, auth_mode, name, base_url, model, budget_limit, is_default, created_at, user_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'default')",
             params![
-                &id, &req.provider, &req.name, req.base_url, req.model,
+                &id, &provider, &auth_mode, &req.name, req.base_url, req.model,
                 req.budget_limit, req.is_default, &now
             ],
         )?;
 
         Ok(ApiConfig {
             id,
-            provider: req.provider,
+            provider,
+            auth_mode,
             name: req.name,
             base_url: req.base_url,
             model: req.model,
@@ -102,7 +108,7 @@ impl<'a> SettingsRepository<'a> {
 
     pub fn list_api_configs(&self) -> Result<Vec<ApiConfig>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT id, provider, name, base_url, model, budget_limit, is_enabled, is_default, created_at
+            "SELECT id, provider, auth_mode, name, base_url, model, budget_limit, is_enabled, is_default, created_at
              FROM api_configs
              ORDER BY created_at DESC"
         )?;
@@ -110,14 +116,15 @@ impl<'a> SettingsRepository<'a> {
         let configs = stmt.query_map([], |row| {
             Ok(ApiConfig {
                 id: row.get(0)?,
-                provider: row.get(1)?,
-                name: row.get(2)?,
-                base_url: row.get(3)?,
-                model: row.get(4)?,
-                budget_limit: row.get(5)?,
-                is_enabled: row.get(6)?,
-                is_default: row.get(7)?,
-                created_at: row.get(8)?,
+                provider: normalize_provider(row.get::<_, String>(1)?),
+                auth_mode: normalize_auth_mode(row.get::<_, String>(2)?),
+                name: row.get(3)?,
+                base_url: row.get(4)?,
+                model: row.get(5)?,
+                budget_limit: row.get(6)?,
+                is_enabled: row.get(7)?,
+                is_default: row.get(8)?,
+                created_at: row.get(9)?,
             })
         })?;
 
@@ -128,7 +135,7 @@ impl<'a> SettingsRepository<'a> {
 
     pub fn get_api_config(&self, id: &str) -> Result<Option<ApiConfig>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT id, provider, name, base_url, model, budget_limit, is_enabled, is_default, created_at
+            "SELECT id, provider, auth_mode, name, base_url, model, budget_limit, is_enabled, is_default, created_at
              FROM api_configs
              WHERE id = ?1"
         )?;
@@ -136,14 +143,15 @@ impl<'a> SettingsRepository<'a> {
         stmt.query_row(params![id], |row| {
             Ok(ApiConfig {
                 id: row.get(0)?,
-                provider: row.get(1)?,
-                name: row.get(2)?,
-                base_url: row.get(3)?,
-                model: row.get(4)?,
-                budget_limit: row.get(5)?,
-                is_enabled: row.get(6)?,
-                is_default: row.get(7)?,
-                created_at: row.get(8)?,
+                provider: normalize_provider(row.get::<_, String>(1)?),
+                auth_mode: normalize_auth_mode(row.get::<_, String>(2)?),
+                name: row.get(3)?,
+                base_url: row.get(4)?,
+                model: row.get(5)?,
+                budget_limit: row.get(6)?,
+                is_enabled: row.get(7)?,
+                is_default: row.get(8)?,
+                created_at: row.get(9)?,
             })
         })
         .optional()
@@ -159,7 +167,8 @@ impl<'a> SettingsRepository<'a> {
             return Ok(None);
         };
 
-        let provider = req.provider.unwrap_or(current.provider);
+        let provider = normalize_provider(req.provider.unwrap_or(current.provider));
+        let auth_mode = normalize_auth_mode(req.auth_mode.unwrap_or(current.auth_mode));
         let name = req.name.unwrap_or(current.name);
         let base_url = req.base_url.or(current.base_url);
         let model = req.model.or(current.model);
@@ -176,10 +185,11 @@ impl<'a> SettingsRepository<'a> {
 
         self.db.connection().execute(
             "UPDATE api_configs
-             SET provider = ?1, name = ?2, base_url = ?3, model = ?4, budget_limit = ?5, is_enabled = ?6, is_default = ?7
-             WHERE id = ?8",
+             SET provider = ?1, auth_mode = ?2, name = ?3, base_url = ?4, model = ?5, budget_limit = ?6, is_enabled = ?7, is_default = ?8
+             WHERE id = ?9",
             params![
                 provider,
+                auth_mode,
                 name,
                 base_url,
                 model,
@@ -290,5 +300,20 @@ fn sanitize_language(language: String) -> String {
     match language.as_str() {
         "zh-CN" | "en-US" => language,
         _ => DEFAULT_LANGUAGE.to_string(),
+    }
+}
+
+fn normalize_provider(provider: String) -> String {
+    match provider.as_str() {
+        "custom" => "openai_compatible".to_string(),
+        "openai" | "anthropic" | "google" | "openai_compatible" => provider,
+        _ => "openai".to_string(),
+    }
+}
+
+fn normalize_auth_mode(auth_mode: String) -> String {
+    match auth_mode.as_str() {
+        "api_key" | "adc" => auth_mode,
+        _ => "api_key".to_string(),
     }
 }

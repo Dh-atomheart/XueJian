@@ -1,9 +1,5 @@
 ---
-title: Full-Scope Frontend Design
-status: active
-owner: design
-last_reviewed: 2026-04-18
-canonical: true
+title: 学笺全阶段前端设计方案
 ---
 
 # 学笺全阶段前端设计方案
@@ -41,9 +37,13 @@ V2 起 `Knowledge QA` 复用现有 `knowledge` 导航槽位；V3/V4 新槽位优
 
 设计与实现必须对齐以下语义（落地层 schema 已存在于 `xuejian/src/types/schema.ts:cardSchema`）：
 
+- `title`：卡片标题，由 LLM 生成或用户编辑
 - `front`：卡片正面，承载问题或极简提示
 - `back`：卡片背面，承载完整答案与补充
-- `groupId`：相似内容分组（用户手动维护或由生成流程建议）
+- `cardType`：卡片类型（`qa` | `cloze` | `fact`），默认 `qa`
+- `groupId`：相似内容分组（LLM 建议或用户手动维护）
+- `clusterId`：用户管理的簇/牌组
+- `exportGuid`：稳定 Anki GUID，卡片创建时生成，永不变更
 - `documentId` + `anchorId` + `sourcePage` + `sourceCoordinates`：来源文档锚点，支撑贴笺式联动
 - `tags`：主题维度，用于簇级聚合视图
 - `state` + FSRS 参数（`difficulty`/`stability`/`retrievability`/`nextReview`）：功能 7 调度

@@ -15,14 +15,15 @@ export function useApiConfigsQuery() {
 }
 
 export function hasUsableApiConfig(configs: ApiConfig[]): boolean {
-  return configs.some((config) => config.isEnabled && config.hasStoredKey)
+  return configs.some((config) => config.isEnabled && config.hasStoredCredential)
 }
 
 export function useCreateApiConfigMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredKey'>) =>
-      apiConfigGateway.create(data),
+    mutationFn: (
+      data: Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey'>
+    ) => apiConfigGateway.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: apiConfigQueryKeys.all })
     },
@@ -37,7 +38,7 @@ export function useUpdateApiConfigMutation() {
       data,
     }: {
       id: string
-      data: Partial<Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredKey'>>
+      data: Partial<Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey'>>
     }) => apiConfigGateway.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: apiConfigQueryKeys.all })
@@ -81,6 +82,7 @@ export function useTestApiConnectionMutation() {
   return useMutation({
     mutationFn: (data: {
       provider: ApiConfig['provider']
+      authMode: ApiConfig['authMode']
       apiKey: string
       baseUrl?: string | null
     }) => apiConfigGateway.testConnection(data),

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Input, Panel, SketchEmptyState } from '@/components/ui'
 import {
   KnowledgeChatPanel,
@@ -6,12 +6,23 @@ import {
   type KnowledgeChatTurn,
 } from '@/components/knowledge'
 import { useStartKnowledgeQaMutation, useKnowledgeSearchQuery } from '@/queries/knowledge'
-import { useDocumentsQuery } from '@/queries'
+import { useDocumentsQuery, useOrchestrationServiceHealthQuery } from '@/queries'
+import { getErrorMessage, reportAppError, reportFeedback } from '@/lib/appFeedback'
 import { useAppUiStore } from '@/store'
 import { cn } from '@/lib/utils'
-import type { ChunkSearchResult } from '@/types'
+import { isTauriEnvironment } from '@/services/gateway'
+import { orchestrationGateway } from '@/services/gateway/orchestration'
+import type { ChunkSearchResult, WorkflowEvent } from '@/types'
 
-type TurnState = KnowledgeChatTurn & { documentTitleCache: Map<string, string> }
+type KnowledgeAnswerMode = 'grounded' | 'no_relevant_content' | 'excerpt_fallback'
+
+type TurnState = KnowledgeChatTurn & {
+  documentTitleCache: Map<string, string>
+  workflowRunId: string | null
+  answerMode?: KnowledgeAnswerMode
+}
+
+const KNOWLEDGE_POLL_INTERVAL_MS = 1_800
 
 const EXAMPLE_PROMPTS = [
   '这份材料的核心论点是什么？',
@@ -24,9 +35,12 @@ export function KnowledgeQaPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
   const [turns, setTurns] = useState<TurnState[]>([])
+  const [isRestartingService, setIsRestartingService] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const reportedWorkflowFailuresRef = useRef(new Set<string>())
 
   const { data: documents = [] } = useDocumentsQuery()
+  const { data: orchestrationHealth } = useOrchestrationServiceHealthQuery()
   const { data: searchResults = [] } = useKnowledgeSearchQuery(
     searchQuery,
     selectedDocIds,
@@ -43,10 +57,142 @@ export function KnowledgeQaPage() {
     return map
   }, [documents])
 
+  const shouldWarnOrchestration =
+    isTauriEnvironment() &&
+    orchestrationHealth != null &&
+    (!orchestrationHealth.endpoint ||
+      orchestrationHealth.status === 'stopped' ||
+      !orchestrationHealth.protocolCompatible)
+
+  useEffect(() => {
+    const pendingTurns = turns.filter(
+      (turn) => turn.status === 'pending' && turn.workflowRunId != null
+    )
+
+    if (pendingTurns.length === 0) {
+      return
+    }
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void Promise.all(
+        pendingTurns.map(async (turn) => {
+          const workflowRunId = turn.workflowRunId
+          if (!workflowRunId) {
+            return null
+          }
+
+          try {
+            const run = await orchestrationGateway.getRun(workflowRunId)
+            if (!run) {
+              return null
+            }
+
+            if (run.status === 'failed' || run.status === 'cancelled') {
+              const failedMessage = run.errorMessage ?? '知识问答后台流程执行失败'
+
+              if (!reportedWorkflowFailuresRef.current.has(run.id)) {
+                reportedWorkflowFailuresRef.current.add(run.id)
+                reportFeedback({
+                  scope: '知识问答',
+                  title: '知识问答后台流程失败',
+                  detail: failedMessage,
+                  level: 'error',
+                  showToast: false,
+                })
+              }
+
+              return {
+                turnId: turn.id,
+                status: 'error' as const,
+                errorMessage: failedMessage,
+              }
+            }
+
+            if (run.status !== 'completed') {
+              return null
+            }
+
+            const events = await orchestrationGateway.listEvents(run.id, 20)
+            const result = extractKnowledgeQaResult(events, turn.documentTitleCache)
+
+            return {
+              turnId: turn.id,
+              status: 'answered' as const,
+              answer: result.answer,
+              answerMode: result.answerMode,
+              citations: result.citations,
+              errorMessage: null,
+            }
+          } catch (error) {
+            return {
+              turnId: turn.id,
+              status: 'error' as const,
+              errorMessage: getErrorMessage(error, '读取知识问答结果失败'),
+            }
+          }
+        })
+      ).then((updates) => {
+        if (cancelled) {
+          return
+        }
+
+        const updateMap = new Map(
+          updates
+            .filter((update): update is NonNullable<typeof update> => update != null)
+            .map((update) => [update.turnId, update])
+        )
+
+        if (updateMap.size === 0) {
+          return
+        }
+
+        setTurns((prev) =>
+          prev.map((turn) => {
+            const update = updateMap.get(turn.id)
+            return update ? { ...turn, ...update } : turn
+          })
+        )
+      })
+    }, KNOWLEDGE_POLL_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [turns])
+
+  const handleRestartService = useCallback(async () => {
+    setIsRestartingService(true)
+
+    try {
+      const restarted = await orchestrationGateway.restart()
+
+      if (restarted.status !== 'healthy' && restarted.status !== 'degraded') {
+        throw new Error(restarted.errorMessage ?? `当前服务状态：${restarted.status}`)
+      }
+
+      reportFeedback({
+        scope: '知识问答',
+        title: '知识问答服务已重启',
+        detail: restarted.endpoint ? `服务地址：${restarted.endpoint}` : '服务已恢复响应。',
+        level: 'info',
+        showToast: true,
+      })
+    } catch (error) {
+      reportAppError('知识问答', error, {
+        title: '知识问答服务重启失败',
+        showToast: true,
+      })
+    } finally {
+      setIsRestartingService(false)
+    }
+  }, [])
+
   const handleAsk = useCallback(
-    (rawQuestion?: string) => {
+    async (rawQuestion?: string) => {
       const q = (rawQuestion ?? question).trim()
-      if (!q || startQaMutation.isPending) return
+      if (!q || startQaMutation.isPending || isRestartingService) return
 
       const turnId = `turn-${Date.now()}`
       const pendingTurn: TurnState = {
@@ -55,46 +201,63 @@ export function KnowledgeQaPage() {
         answer: null,
         citations: [],
         status: 'pending',
+        answerMode: undefined,
         documentTitleCache: new Map(documentTitleLookup),
+        workflowRunId: null,
       }
 
       setTurns((prev) => [pendingTurn, ...prev])
       setSearchQuery(q)
       setQuestion('')
 
-      startQaMutation.mutate(
-        { question: q, documentIds: selectedDocIds.length > 0 ? selectedDocIds : undefined },
-        {
-          onSuccess: () => {
-            setTurns((prev) =>
-              prev.map((turn) =>
-                turn.id === turnId
-                  ? {
-                      ...turn,
-                      status: 'answered',
-                      answer: '问答工作流已启动。答案和引用会在后台生成后填入这里。',
-                    }
-                  : turn
-              )
-            )
-          },
-          onError: (error) => {
-            setTurns((prev) =>
-              prev.map((turn) =>
-                turn.id === turnId
-                  ? {
-                      ...turn,
-                      status: 'error',
-                      errorMessage: error instanceof Error ? error.message : '问答失败',
-                    }
-                  : turn
-              )
-            )
-          },
+      try {
+        if (shouldWarnOrchestration) {
+          await handleRestartService()
         }
-      )
+
+        const run = await startQaMutation.mutateAsync({
+          question: q,
+          documentIds: selectedDocIds.length > 0 ? selectedDocIds : undefined,
+        })
+
+        setTurns((prev) =>
+          prev.map((turn) =>
+            turn.id === turnId
+              ? {
+                  ...turn,
+                  workflowRunId: run.id,
+                }
+              : turn
+          )
+        )
+      } catch (error) {
+        const detail = reportAppError('知识问答', error, {
+          title: '知识问答启动失败',
+          showToast: true,
+        })
+
+        setTurns((prev) =>
+          prev.map((turn) =>
+            turn.id === turnId
+              ? {
+                  ...turn,
+                  status: 'error',
+                  errorMessage: detail,
+                }
+              : turn
+          )
+        )
+      }
     },
-    [documentTitleLookup, question, selectedDocIds, startQaMutation]
+    [
+      documentTitleLookup,
+      handleRestartService,
+      isRestartingService,
+      question,
+      selectedDocIds,
+      shouldWarnOrchestration,
+      startQaMutation,
+    ]
   )
 
   const handleKeyDown = useCallback(
@@ -122,7 +285,7 @@ export function KnowledgeQaPage() {
 
   const handleRetry = useCallback(
     (turn: KnowledgeChatTurn) => {
-      handleAsk(turn.question)
+      void handleAsk(turn.question)
     },
     [handleAsk]
   )
@@ -137,7 +300,7 @@ export function KnowledgeQaPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">
-            Knowledge Workbench
+            知识问答工作台
           </p>
           <h1 className="mt-2 font-display text-2xl text-ink">知识问答</h1>
           <p className="mt-1 font-body text-sm leading-6 text-ink-muted">
@@ -150,6 +313,38 @@ export function KnowledgeQaPage() {
           </span>
         )}
       </header>
+
+      {shouldWarnOrchestration ? (
+        <Panel
+          variant="paperCard"
+          className="rounded-[20px] border border-amber-200 bg-amber-50/80 p-4"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                服务状态
+              </p>
+              <p className="text-sm text-ink">
+                当前知识问答服务不可用或协议不兼容，系统无法稳定生成回答。
+              </p>
+              {orchestrationHealth?.errorMessage ? (
+                <p className="text-xs leading-5 text-ink-muted break-all">
+                  {orchestrationHealth.errorMessage}
+                </p>
+              ) : null}
+            </div>
+            <Button
+              variant="outline"
+              disabled={isRestartingService}
+              onClick={() => {
+                void handleRestartService()
+              }}
+            >
+              {isRestartingService ? '正在重启服务...' : '重启问答服务'}
+            </Button>
+          </div>
+        </Panel>
+      ) : null}
 
       {documents.length > 0 && (
         <Panel variant="paperCard" className="rounded-[20px] p-4">
@@ -202,11 +397,11 @@ export function KnowledgeQaPage() {
           />
           <Button
             onClick={() => handleAsk()}
-            disabled={!question.trim() || startQaMutation.isPending}
+            disabled={!question.trim() || startQaMutation.isPending || isRestartingService}
             variant="sketch"
             className="rounded-[14px]"
           >
-            提问
+            {startQaMutation.isPending || isRestartingService ? '处理中...' : '提问'}
           </Button>
         </div>
         {turns.length === 0 && (
@@ -267,4 +462,83 @@ export function KnowledgeQaPage() {
       />
     </div>
   )
+}
+
+function extractKnowledgeQaResult(
+  events: WorkflowEvent[],
+  documentTitleCache: Map<string, string>
+) {
+  const completedEvent = events.find(
+    (event) => event.eventType === 'completed' && event.payload != null
+  )
+  const payload = completedEvent?.payload
+  const answerPayload =
+    payload &&
+    typeof payload === 'object' &&
+    payload['answer'] &&
+    typeof payload['answer'] === 'object'
+      ? (payload['answer'] as Record<string, unknown>)
+      : null
+
+  const answer =
+    answerPayload && typeof answerPayload['answer'] === 'string' && answerPayload['answer'].trim()
+      ? answerPayload['answer']
+      : '回答已生成，但没有返回可显示的正文。'
+
+  const citations = Array.isArray(answerPayload?.['citations'])
+    ? answerPayload['citations'].flatMap((citation, index) =>
+        normalizeKnowledgeCitation(citation, index, documentTitleCache)
+      )
+    : []
+
+  const rawAnswerMode = answerPayload?.['answerMode']
+  const answerMode: KnowledgeAnswerMode =
+    rawAnswerMode === 'grounded' ||
+    rawAnswerMode === 'no_relevant_content' ||
+    rawAnswerMode === 'excerpt_fallback'
+      ? rawAnswerMode
+      : citations.length > 0
+        ? 'grounded'
+        : 'excerpt_fallback'
+
+  return { answer, citations, answerMode }
+}
+
+function normalizeKnowledgeCitation(
+  rawCitation: unknown,
+  index: number,
+  documentTitleCache: Map<string, string>
+): KnowledgeChatCitation[] {
+  if (!rawCitation || typeof rawCitation !== 'object') {
+    return []
+  }
+
+  const citation = rawCitation as Record<string, unknown>
+  const documentId = typeof citation['documentId'] === 'string' ? citation['documentId'] : null
+  const snippetCandidate =
+    typeof citation['snippet'] === 'string'
+      ? citation['snippet']
+      : typeof citation['quote'] === 'string'
+        ? citation['quote']
+        : ''
+
+  if (!documentId || !snippetCandidate) {
+    return []
+  }
+
+  return [
+    {
+      id: `${documentId}-${index}`,
+      documentId,
+      documentTitle: documentTitleCache.get(documentId) ?? '文档',
+      page:
+        typeof citation['page'] === 'number'
+          ? citation['page']
+          : typeof citation['pageStart'] === 'number'
+            ? citation['pageStart']
+            : null,
+      snippet: snippetCandidate,
+      relevance: typeof citation['relevanceScore'] === 'number' ? citation['relevanceScore'] : null,
+    },
+  ]
 }

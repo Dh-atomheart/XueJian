@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Document } from '@/types'
 import { useDocumentAnchorsQuery, useDocumentChunksQuery } from '@/queries'
 import { documentCache } from '@/lib/cache/documentCache'
+import { reportAppError } from '@/lib/appFeedback'
 import { documentGateway } from '@/services/gateway/documents'
 import { renderPdfPageToCanvas } from '@/services/renderer/pdf'
 import { Button, Panel } from '@/components/ui'
@@ -65,6 +66,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
 
     async function render() {
       if (!document || !bytes || !canvasRef.current) {
@@ -86,15 +88,20 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
           return
         }
 
-        await renderPdfPageToCanvas(bytes, previewPage, canvas)
+        await renderPdfPageToCanvas(bytes, previewPage, canvas, 1.25, controller.signal)
         if (cancelled) {
           return
         }
 
         await documentCache.setThumbnail(document.id, previewPage, canvas.toDataURL('image/png'))
       } catch (error) {
-        if (!cancelled) {
-          setRenderError(error instanceof Error ? error.message : '渲染 PDF 预览失败')
+        if (!cancelled && !(error instanceof Error && error.name === 'AbortError')) {
+          setRenderError(
+            reportAppError('文档预览', error, {
+              title: 'PDF 预览渲染失败',
+              showToast: false,
+            })
+          )
         }
       } finally {
         if (!cancelled) {
@@ -107,6 +114,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
 
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [bytes, document, previewPage])
 
@@ -135,7 +143,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
         <div className="space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.28em] text-ink-soft">Document Deck</p>
+              <p className="text-xs uppercase tracking-[0.28em] text-ink-soft">文档面板</p>
               <h3 className="mt-2 truncate font-display text-2xl text-ink">{document.title}</h3>
             </div>
             <DocumentStatusBadge status={document.status} />
@@ -158,7 +166,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <p className="font-ui text-sm text-ink">PDF 预览</p>
-              <p className="text-xs text-ink-soft">M2 仅提供分页预览和基础缓存</p>
+              <p className="text-xs text-ink-soft">支持分页预览与本地缓存</p>
             </div>
 
             <div className="flex items-center gap-2">
@@ -200,7 +208,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
               </p>
             ) : isLoadingBinary || isRendering ? (
               <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-ink-soft">
-                正在生成第 {previewPage} 页预览...
+                正在生成第 {previewPage} 页预览…
               </p>
             ) : renderError ? (
               <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-rose-600">
@@ -223,7 +231,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
                     className="rounded-[18px] border border-line-soft bg-white/80 px-3 py-3"
                   >
                     <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-ink-soft">
-                      <span>Chunk #{chunk.chunkIndex + 1}</span>
+                      <span>分块 #{chunk.chunkIndex + 1}</span>
                       <span>
                         {chunk.pageStart ?? '--'} - {chunk.pageEnd ?? '--'} 页
                       </span>

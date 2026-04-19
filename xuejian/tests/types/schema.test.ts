@@ -1,6 +1,8 @@
 import {
   cardCandidateSchema,
   cardGenerationCandidateSchema,
+  documentIRSchema,
+  documentIRBlockSchema,
   finalizeCardGenerationResultSchema,
   ragAnswerSchema,
   serviceHealthStatusSchema,
@@ -34,13 +36,14 @@ describe('structured schemas', () => {
         sourcePage: null,
         sourceParagraph: null,
         sourceQuote: 'quote',
-      }),
+      })
     ).toThrow()
   })
 
   it('parses rag answers with citations', () => {
     const answer = ragAnswerSchema.parse({
       answer: 'FSRS 通过历史复习数据估计下一次最佳复习时间。',
+      answerMode: 'grounded',
       retrievalMode: 'fts5',
       citations: [
         {
@@ -54,21 +57,22 @@ describe('structured schemas', () => {
     })
 
     expect(answer.citations).toHaveLength(1)
+    expect(answer.answerMode).toBe('grounded')
     expect(answer.retrievalMode).toBe('fts5')
   })
 
-  it('normalizes workflow event timestamps into Date instances', () => {
+  it('parses fallback workflow events and normalizes timestamps into Date instances', () => {
     const event = workflowEventSchema.parse({
       runId: '4f4ac6a1-21d0-4d62-bec0-4b7188b84d51',
-      eventType: 'progress',
-      message: '正在生成卡片',
-      progress: 0.4,
-      payload: { chunkIndex: 2 },
+      eventType: 'fallback',
+      message: 'Python orchestration unavailable, using local fallback',
+      progress: null,
+      payload: { generationMode: 'rule_based_fallback' },
       createdAt: '2026-04-16T10:00:00.000Z',
     })
 
     expect(event.createdAt).toBeInstanceOf(Date)
-    expect(event.progress).toBeCloseTo(0.4)
+    expect(event.eventType).toBe('fallback')
   })
 
   it('parses workflow runs returned from the host', () => {
@@ -156,5 +160,88 @@ describe('structured schemas', () => {
 
     expect(status.checkedAt).toBeInstanceOf(Date)
     expect(status.protocolCompatible).toBe(true)
+  })
+})
+
+describe('DocumentIR v1 schemas', () => {
+  const validBlock = {
+    blockId: 'blk-001',
+    blockType: 'heading',
+    pageNumber: 1,
+    content: 'Chapter 1: Introduction',
+    spans: [
+      { spanId: 'sp-001', start: 0, end: 23, page: 1, rect: { x: 72, y: 700, width: 400, height: 24 } },
+    ],
+    anchorId: null,
+    parentBlockId: null,
+    level: 1,
+    language: null,
+    metadata: null,
+  }
+
+  // @acceptance:v4-5-a4
+  it('parses a minimal DocumentIR envelope', () => {
+    const ir = documentIRSchema.parse({
+      documentId: '11111111-1111-4111-8111-111111111111',
+      parserFamily: 'pdfjs',
+      parserVersion: '4.9.155',
+      irVersion: '1',
+      pages: [{ pageNumber: 1, width: 612, height: 792, rotation: 0, label: null }],
+      blocks: [validBlock],
+      assets: [],
+      sourceMetadata: {
+        importTimestamp: '2026-04-19T10:00:00.000Z',
+        sourceHash: 'abc123',
+        languageHint: 'zh',
+        warnings: [],
+        totalBlocks: 1,
+        totalPages: 1,
+      },
+    })
+
+    expect(ir.irVersion).toBe('1')
+    expect(ir.blocks).toHaveLength(1)
+    expect(ir.blocks[0].blockType).toBe('heading')
+    expect(ir.sourceMetadata.totalPages).toBe(1)
+  })
+
+  it('rejects blocks with invalid blockType', () => {
+    expect(() =>
+      documentIRBlockSchema.parse({ ...validBlock, blockType: 'invalid_type' })
+    ).toThrow()
+  })
+
+  it('rejects IR with wrong irVersion', () => {
+    expect(() =>
+      documentIRSchema.parse({
+        documentId: '11111111-1111-4111-8111-111111111111',
+        parserFamily: 'pdfjs',
+        parserVersion: '4.9.155',
+        irVersion: '2',
+        pages: [],
+        blocks: [],
+        assets: [],
+        sourceMetadata: {
+          importTimestamp: '2026-04-19T10:00:00.000Z',
+          sourceHash: null,
+          languageHint: null,
+          warnings: [],
+          totalBlocks: 0,
+          totalPages: 0,
+        },
+      })
+    ).toThrow()
+  })
+
+  it('parses blocks with all blockType variants', () => {
+    const types = [
+      'heading', 'paragraph', 'list', 'list_item', 'table', 'figure',
+      'code_block', 'formula', 'blockquote', 'page_header', 'page_footer', 'unknown',
+    ] as const
+
+    for (const bt of types) {
+      const block = documentIRBlockSchema.parse({ ...validBlock, blockType: bt })
+      expect(block.blockType).toBe(bt)
+    }
   })
 })

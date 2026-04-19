@@ -1,9 +1,5 @@
 ---
-title: Page Layout Rules
-status: active
-owner: design
-last_reviewed: 2026-04-17
-canonical: true
+title: 页面策略与布局规范
 ---
 
 # 页面策略与布局规范

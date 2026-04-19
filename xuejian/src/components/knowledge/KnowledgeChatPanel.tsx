@@ -19,6 +19,7 @@ export interface KnowledgeChatTurn {
   answer: string | null
   citations: KnowledgeChatCitation[]
   status: 'pending' | 'answered' | 'error'
+  answerMode?: 'grounded' | 'no_relevant_content' | 'excerpt_fallback'
   errorMessage?: string | null
 }
 
@@ -55,9 +56,7 @@ export function KnowledgeChatPanel({
       {header}
 
       {turns.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center py-10">
-          {emptyContent}
-        </div>
+        <div className="flex flex-1 items-center justify-center py-10">{emptyContent}</div>
       ) : (
         <ol className="space-y-6">
           {turns.map((turn) => (
@@ -84,16 +83,23 @@ export function KnowledgeChatPanel({
                   {turn.status === 'pending' && <PendingIndicator />}
 
                   {turn.status === 'answered' && turn.answer && (
-                    <p className="font-body text-sm leading-6 text-ink whitespace-pre-line">
-                      {turn.answer}
-                    </p>
+                    <div className="space-y-2">
+                      {turn.answerMode && turn.answerMode !== 'grounded' ? (
+                        <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                          {turn.answerMode === 'no_relevant_content'
+                            ? '未检索到足够相关内容'
+                            : '当前展示的是兜底摘录'}
+                        </p>
+                      ) : null}
+                      <p className="font-body text-sm leading-6 text-ink whitespace-pre-line">
+                        {turn.answer}
+                      </p>
+                    </div>
                   )}
 
                   {turn.status === 'error' && (
                     <div className="space-y-2">
-                      <p className="font-body text-sm leading-6 text-ink">
-                        生成回答时出现问题。
-                      </p>
+                      <p className="font-body text-sm leading-6 text-ink">生成回答时出现问题。</p>
                       {turn.errorMessage && (
                         <p className="font-latin text-xs text-ink-muted break-all">
                           {turn.errorMessage}
@@ -130,7 +136,11 @@ export function KnowledgeChatPanel({
 
                   {turn.status === 'answered' && turn.citations.length === 0 && (
                     <p className="mt-3 border-t border-dashed border-line-soft pt-2 font-ui text-[11px] text-ink-soft">
-                      未检索到可信引用，结果仅供参考。
+                      {turn.answerMode === 'no_relevant_content'
+                        ? '可以换个问法、扩大文档范围，或先确认文档已经完成解析。'
+                        : turn.answerMode === 'excerpt_fallback'
+                          ? '当前回答来自兜底摘录。补齐模型配置或等服务恢复后，再试一次会更稳定。'
+                          : '未检索到可信引用，结果仅供参考。'}
                     </p>
                   )}
                 </Panel>

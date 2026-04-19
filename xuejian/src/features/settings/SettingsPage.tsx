@@ -21,8 +21,12 @@ type Provider = ApiConfig['provider']
 const PROVIDERS: { value: Provider; label: string }[] = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
-  { value: 'custom', label: '自定义端点' },
+  { value: 'openai_compatible', label: 'OpenAI-Compatible' },
 ]
+
+function configHasCredential(config: ApiConfig) {
+  return config.hasStoredCredential || config.hasStoredKey
+}
 
 const THEME_SWATCH_CLASSES: Record<AppThemeId, { paper: string; ink: string; accent: string }> = {
   default: {
@@ -76,7 +80,7 @@ export function SettingsPage({ forcedOnboarding = false }: SettingsPageProps) {
     }
 
     const matchingConfig = configs.find((config) => config.id === editingKeyConfigId)
-    if (!matchingConfig || matchingConfig.hasStoredKey) {
+    if (!matchingConfig || configHasCredential(matchingConfig)) {
       setEditingKeyConfigId(null)
     }
   }, [configs, editingKeyConfigId])
@@ -104,11 +108,29 @@ export function SettingsPage({ forcedOnboarding = false }: SettingsPageProps) {
       </div>
 
       {forcedOnboarding ? (
-        <Panel variant="paperCard" className="rounded-[24px] border border-highlight-yellow/40 bg-highlight-yellow/10 p-5">
+        <Panel
+          variant="paperCard"
+          className="rounded-[24px] border border-highlight-yellow/40 bg-highlight-yellow/10 p-5"
+        >
           <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">First Run Setup</p>
-          <h2 className="mt-2 font-ui text-lg text-ink">先完成模型密钥配置，再进入其他功能</h2>
+          <h2 className="mt-2 font-ui text-lg text-ink">先补齐模型凭证，AI 功能才能稳定可用</h2>
           <p className="mt-2 text-sm leading-6 text-ink-muted">
-            学笺依赖本地保存的模型密钥来驱动卡片生成、知识问答和后续 AI 流程。完成至少一个可用配置后，主界面会自动解锁。
+            学笺依赖本地保存的模型凭证来驱动卡片生成、知识问答和后续 AI
+            流程。凭证补齐之前，你仍然可以浏览文档与设置，但相关 AI 能力会持续提醒你先完成配置。
+          </p>
+        </Panel>
+      ) : null}
+
+      {!forcedOnboarding && !hasConfiguredModel ? (
+        <Panel
+          variant="paperCard"
+          className="rounded-[24px] border border-amber-200 bg-amber-50/70 p-5"
+        >
+          <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">AI Setup</p>
+          <h2 className="mt-2 font-ui text-lg text-ink">当前还没有可用的模型配置</h2>
+          <p className="mt-2 text-sm leading-6 text-ink-muted">
+            文档浏览与基础导航不会被阻断，但卡片生成、知识问答等 AI
+            功能会提示你先在这里添加可用凭证。
           </p>
         </Panel>
       ) : null}
@@ -133,7 +155,8 @@ export function SettingsPage({ forcedOnboarding = false }: SettingsPageProps) {
 
         {forcedOnboarding && !hasConfiguredModel ? (
           <p className="text-xs leading-5 text-ink-soft">
-            Finish one usable model setup before leaving this page. If a config already exists but its key is missing, repair that key here.
+            Finish one usable model setup before leaving this page. If a config already exists but
+            its key is missing, repair that key here.
           </p>
         ) : null}
 
@@ -285,7 +308,9 @@ export function SettingsPage({ forcedOnboarding = false }: SettingsPageProps) {
 
             <div className="flex justify-between rounded-xl border border-line-soft bg-paper-base/70 px-4 py-3">
               <span>当前主题</span>
-              <span className="text-ink">{appThemeOptions.find((theme) => theme.id === currentThemeId)?.label}</span>
+              <span className="text-ink">
+                {appThemeOptions.find((theme) => theme.id === currentThemeId)?.label}
+              </span>
             </div>
 
             <div className="flex justify-between rounded-xl border border-line-soft bg-paper-base/70 px-4 py-3">
@@ -316,6 +341,8 @@ function ConfigRow({
   onSetDefault: () => void
   onDelete: () => void
 }) {
+  const hasCredential = configHasCredential(config)
+
   return (
     <li className="flex items-center justify-between gap-4 rounded-xl border border-line-soft bg-paper-card/60 px-4 py-3">
       <div className="min-w-0">
@@ -327,12 +354,15 @@ function ConfigRow({
           <span
             className={cn(
               'rounded-full border px-2 py-0.5 text-[10px]',
-              config.hasStoredKey
+              hasCredential
                 ? 'border-highlight-green/40 bg-highlight-green/10 text-ink-muted'
                 : 'border-highlight-pink/40 bg-highlight-pink/10 text-ink-muted'
             )}
           >
-            {config.hasStoredKey ? '已存密钥' : '缺少密钥'}
+            {hasCredential ? '已存凭证' : '缺少凭证'}
+          </span>
+          <span className="rounded-full border border-ink/10 bg-paper-muted px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink-soft">
+            {config.authMode}
           </span>
           {config.isDefault && (
             <span className="rounded-full border border-highlight-green/40 bg-highlight-green/10 px-2 py-0.5 text-[10px] text-ink-muted">
@@ -349,7 +379,7 @@ function ConfigRow({
           data-testid={`settings-manage-key-${config.id}`}
           onClick={onManageKey}
         >
-          {isManagingKey ? 'Editing Key' : config.hasStoredKey ? 'Update Key' : 'Add Key'}
+          {isManagingKey ? 'Editing Key' : hasCredential ? 'Update Key' : 'Add Key'}
         </Button>
         {!config.isDefault && (
           <Button variant="ghost" size="sm" onClick={onSetDefault}>
@@ -387,6 +417,19 @@ function AddConfigForm({
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [isTesting, setIsTesting] = useState(false)
 
+  const isOpenAiCompatible = provider === 'openai_compatible'
+
+  const handleProviderSelect = useCallback((nextProvider: Provider) => {
+    setProvider(nextProvider)
+
+    if (nextProvider !== 'openai_compatible') {
+      setBaseUrl('')
+      return
+    }
+
+    setBaseUrl((current) => current || '')
+  }, [])
+
   const handleTestConnection = useCallback(async () => {
     if (!apiKey) return
     setIsTesting(true)
@@ -394,6 +437,7 @@ function AddConfigForm({
     try {
       const result = await testConn.mutateAsync({
         provider,
+        authMode: 'api_key',
         apiKey,
         baseUrl: baseUrl || null,
       })
@@ -406,10 +450,11 @@ function AddConfigForm({
   }, [apiKey, provider, baseUrl, testConn])
 
   const handleSubmit = useCallback(async () => {
-    if (!name || !apiKey) return
+    if (!name || !apiKey || (isOpenAiCompatible && !baseUrl)) return
     try {
       const config = await createConfig.mutateAsync({
         provider,
+        authMode: 'api_key',
         name,
         model: model || null,
         baseUrl: baseUrl || null,
@@ -423,7 +468,17 @@ function AddConfigForm({
     } catch {
       // mutation error handled by TanStack Query
     }
-  }, [name, apiKey, provider, model, baseUrl, createConfig, storeKey, onCreated])
+  }, [
+    name,
+    apiKey,
+    provider,
+    isOpenAiCompatible,
+    model,
+    baseUrl,
+    createConfig,
+    storeKey,
+    onCreated,
+  ])
 
   return (
     <div
@@ -432,7 +487,8 @@ function AddConfigForm({
     >
       {forcedOnboarding ? (
         <p className="text-xs leading-5 text-ink-soft">
-          Add one working model config first. The app will unlock as soon as the key is stored locally.
+          Add one working model config first. The app will unlock as soon as the key is stored
+          locally.
         </p>
       ) : null}
 
@@ -442,7 +498,7 @@ function AddConfigForm({
           <button
             key={p.value}
             type="button"
-            onClick={() => setProvider(p.value)}
+            onClick={() => handleProviderSelect(p.value)}
             className={`rounded-lg border px-3 py-1.5 font-ui text-xs transition-colors ${
               provider === p.value
                 ? 'border-ink/30 bg-paper-card text-ink'
@@ -476,7 +532,7 @@ function AddConfigForm({
         </div>
       </div>
 
-      {provider === 'custom' && (
+      {isOpenAiCompatible && (
         <div>
           <label className="mb-1 block font-ui text-xs text-ink-soft">Base URL</label>
           <Input
@@ -485,6 +541,9 @@ function AddConfigForm({
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="https://api.example.com/v1"
           />
+          <p className="mt-1 text-[11px] text-ink-soft">
+            输入兼容 OpenAI Chat Completions 的服务基地址。当前不内置任何厂商定向预设。
+          </p>
         </div>
       )}
 
@@ -495,7 +554,7 @@ function AddConfigForm({
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-..."
+          placeholder="sk-... / provider-issued key"
           autoComplete="off"
         />
         <p className="mt-1 text-[11px] text-ink-soft">
@@ -532,7 +591,7 @@ function AddConfigForm({
           size="sm"
           data-testid="settings-save-config"
           onClick={handleSubmit}
-          disabled={!name || !apiKey || createConfig.isPending}
+          disabled={!name || !apiKey || (isOpenAiCompatible && !baseUrl) || createConfig.isPending}
         >
           {createConfig.isPending ? '保存中…' : '保存配置'}
         </Button>
@@ -567,6 +626,7 @@ function UpdateApiKeyForm({
     try {
       const result = await testConn.mutateAsync({
         provider: config.provider,
+        authMode: config.authMode,
         apiKey,
         baseUrl: config.baseUrl,
       })
@@ -598,8 +658,8 @@ function UpdateApiKeyForm({
       <div className="space-y-1">
         <p className="font-ui text-sm text-ink">{config.name}</p>
         <p className="text-xs text-ink-soft">
-          Update the locally stored API key for {config.provider}
-          {config.model ? ` / ${config.model}` : ''}.
+          为 {config.provider}
+          {config.model ? ` / ${config.model}` : ''} 更新本地保存的 API Key。
         </p>
       </div>
 
@@ -636,7 +696,7 @@ function UpdateApiKeyForm({
           onClick={handleTestConnection}
           disabled={!apiKey || isTesting}
         >
-          {isTesting ? 'Testing...' : 'Test Connection'}
+          {isTesting ? '测试中…' : '测试连接'}
         </Button>
         <Button
           variant="default"
@@ -645,10 +705,10 @@ function UpdateApiKeyForm({
           onClick={handleSubmit}
           disabled={!apiKey || storeKey.isPending}
         >
-          {storeKey.isPending ? 'Saving...' : 'Save Key'}
+          {storeKey.isPending ? '保存中…' : '保存 Key'}
         </Button>
         <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
+          取消
         </Button>
       </div>
     </div>

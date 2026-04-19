@@ -1,9 +1,5 @@
 ---
-title: Design Docs Index
-status: active
-owner: design
-last_reviewed: 2026-04-18
-canonical: true
+title: 设计文档
 ---
 
 # Design Docs
@@ -27,5 +23,4 @@ Use `reader-annotation.md` together with `pages.md` and `interactions.md` when t
 ## Rules
 
 - Keep this directory focused on stable interaction and visual truth.
-- Put implementation sequencing in `docs/exec-plans/`, not here.
 - If a screen or interaction changes materially, update the matching design doc in the same change.

@@ -2,16 +2,13 @@
 
 > 上传文档，一键生成卡片，卡片贴在原文旁边，像在书里贴便签一样学习。
 
-学笺是一个本地优先的桌面学习应用，围绕“文档导入 -> 卡片生成 -> 贴笺阅读 -> FSRS 复习 -> BYOK 配置”构建完整学习闭环。仓库现在按 harness engineering 方式组织：文档入口更轻、真相源更清晰、校验和园丁任务可机械执行。
+学笺是一个本地优先的桌面学习应用，围绕“文档导入 -> 卡片生成 -> 贴笺阅读 -> FSRS 复习 -> BYOK 配置”构建完整学习闭环。
 
 ## 文档入口
 
-- 仓库级 agent 入口：[AGENTS.md](./AGENTS.md)
-- 架构地图：[ARCHITECTURE.md](./ARCHITECTURE.md)
-- 文档系统入口：[docs/README.md](./docs/README.md)
-- 应用子项目入口：[xuejian/AGENTS.md](./xuejian/AGENTS.md)
 - 产品规格：[docs/product-specs/index.md](./docs/product-specs/index.md)
 - 设计系统：[docs/design-docs/README.md](./docs/design-docs/README.md)
+- 项目总规范：[docs/spec.md](./docs/spec.md)
 
 ## MVP 目标闭环
 
@@ -81,35 +78,18 @@
 
 ```text
 XueJianProject/
-├── AGENTS.md
-├── ARCHITECTURE.md
 ├── docs/
-│   ├── README.md
 │   ├── design-docs/
-│   ├── exec-plans/
-│   ├── generated/
 │   ├── product-specs/
 │   ├── references/
-│   ├── QUALITY_SCORE.md
-│   ├── RELIABILITY.md
-│   └── SECURITY.md
-├── scripts/docs/
+│   └── archive/
 ├── examples/
 └── xuejian/
-    ├── AGENTS.md
     ├── src/
     ├── src-tauri/
     ├── tests/
     └── package.json
 ```
-
-## 机械校验
-
-- 文档结构、frontmatter、命令同步、交叉链接：`python scripts/docs/validate.py`
-- 架构依赖方向：`python scripts/docs/check_architecture.py`
-- 生成数据库 schema 文档：`python scripts/docs/generate_db_schema.py`
-- 验收覆盖率（咨询性）：`python scripts/docs/validate_acceptance.py`
-- 每周文档园丁：`python scripts/docs/garden.py`
 
 ## 许可
 

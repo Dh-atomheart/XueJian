@@ -1,9 +1,5 @@
 ---
-title: Interaction Rules
-status: active
-owner: design
-last_reviewed: 2026-04-17
-canonical: true
+title: 跨页交互与状态反馈规范
 ---
 
 # 跨页交互与状态反馈规范

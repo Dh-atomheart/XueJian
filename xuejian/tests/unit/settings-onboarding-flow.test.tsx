@@ -34,12 +34,14 @@ const appSettings: AppSettings = {
 const missingKeyConfig: ApiConfig = {
   id: 'cfg-missing-key',
   provider: 'openai',
+  authMode: 'api_key',
   name: 'OpenAI Primary',
   model: 'gpt-4o',
   baseUrl: null,
   budgetLimit: null,
   isDefault: true,
   isEnabled: true,
+  hasStoredCredential: false,
   hasStoredKey: false,
   createdAt: new Date('2026-04-18T10:00:00.000Z'),
 }
@@ -82,6 +84,26 @@ afterEach(() => {
 })
 
 describe('settings onboarding flow', () => {
+  it('keeps the openai-compatible provider generic without vendor presets', () => {
+    setupDefaultMocks([])
+    mockedQueries.useStoreApiKeyMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as ReturnType<typeof queries.useStoreApiKeyMutation>)
+
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByTestId('settings-toggle-add-config'))
+    fireEvent.click(screen.getByRole('button', { name: 'OpenAI-Compatible' }))
+
+    expect(
+      screen.getByText(
+        '输入兼容 OpenAI Chat Completions 的服务基地址。当前不内置任何厂商定向预设。'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/千帆|Coding Plan/i)).not.toBeInTheDocument()
+  })
+
   it('keeps the first-run create form open and non-dismissible until a usable model exists', () => {
     setupDefaultMocks([])
     mockedQueries.useStoreApiKeyMutation.mockReturnValue({

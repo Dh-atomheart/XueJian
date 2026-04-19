@@ -3,6 +3,89 @@
  * 基于 spec.md §4 数据模型规范
  */
 
+// ==================== DocumentIR v1 ====================
+
+export type DocumentIRBlockType =
+  | 'heading'
+  | 'paragraph'
+  | 'list'
+  | 'list_item'
+  | 'table'
+  | 'figure'
+  | 'code_block'
+  | 'formula'
+  | 'blockquote'
+  | 'page_header'
+  | 'page_footer'
+  | 'unknown'
+
+export interface IRRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface DocumentIRSpan {
+  spanId: string
+  start: number
+  end: number
+  page: number
+  rect: IRRect | null
+}
+
+export interface DocumentIRBlock {
+  blockId: string
+  blockType: DocumentIRBlockType
+  pageNumber: number
+  content: string
+  spans: DocumentIRSpan[]
+  anchorId: string | null
+  parentBlockId: string | null
+  level: number | null
+  language: string | null
+  metadata: Record<string, unknown> | null
+}
+
+export interface DocumentIRPage {
+  pageNumber: number
+  width: number
+  height: number
+  rotation: number
+  label: string | null
+}
+
+export type DocumentIRAssetType = 'image' | 'table_image' | 'figure'
+
+export interface DocumentIRAsset {
+  assetId: string
+  assetType: DocumentIRAssetType
+  blockId: string | null
+  mimeType: string
+  dataRef: string
+  altText: string | null
+}
+
+export interface DocumentIRMetadata {
+  importTimestamp: string
+  sourceHash: string | null
+  languageHint: string | null
+  warnings: string[]
+  totalBlocks: number
+  totalPages: number
+}
+
+export interface DocumentIR {
+  documentId: string
+  parserFamily: string
+  parserVersion: string
+  irVersion: '1'
+  pages: DocumentIRPage[]
+  blocks: DocumentIRBlock[]
+  assets: DocumentIRAsset[]
+  sourceMetadata: DocumentIRMetadata
+}
+
 // ==================== 文档相关 ====================
 
 export interface Document {
@@ -150,6 +233,10 @@ export interface DailyStats {
 
 export type AppThemeId = 'default' | 'comic-sketch' | 'contrast-paper'
 
+export type ApiProvider = 'openai' | 'anthropic' | 'google' | 'openai_compatible'
+
+export type ApiAuthMode = 'api_key' | 'adc'
+
 export interface AppSettings {
   theme: AppThemeId
   language: 'zh-CN' | 'en-US'
@@ -159,13 +246,15 @@ export interface AppSettings {
 
 export interface ApiConfig {
   id: string
-  provider: 'openai' | 'anthropic' | 'custom'
+  provider: ApiProvider
+  authMode: ApiAuthMode
   name: string
   model: string | null
   baseUrl: string | null
   budgetLimit: number | null
   isDefault: boolean
   isEnabled: boolean
+  hasStoredCredential: boolean
   hasStoredKey: boolean
   createdAt: Date
 }
@@ -244,7 +333,14 @@ export interface WorkflowCheckpoint {
 
 export interface WorkflowEvent {
   runId: string
-  eventType: 'queued' | 'started' | 'progress' | 'waiting_confirmation' | 'completed' | 'failed'
+  eventType:
+    | 'queued'
+    | 'started'
+    | 'progress'
+    | 'waiting_confirmation'
+    | 'completed'
+    | 'failed'
+    | 'fallback'
   message: string | null
   progress: number | null
   payload: Record<string, unknown> | null
@@ -291,6 +387,7 @@ export interface Citation {
 
 export interface RagAnswer {
   answer: string
+  answerMode: 'grounded' | 'no_relevant_content' | 'excerpt_fallback'
   retrievalMode: 'fts5' | 'hybrid'
   citations: Citation[]
 }

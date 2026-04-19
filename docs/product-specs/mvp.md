@@ -1,9 +1,5 @@
 ---
-title: MVP Product Spec
-status: active
-owner: product
-last_reviewed: 2026-04-17
-canonical: true
+title: MVP 规格
 ---
 
 # MVP 规格

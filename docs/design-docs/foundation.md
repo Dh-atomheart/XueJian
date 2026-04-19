@@ -1,9 +1,5 @@
 ---
-title: Design Foundation
-status: active
-owner: design
-last_reviewed: 2026-04-17
-canonical: true
+title: 设计基础与视觉叙事
 ---
 
 # 设计基础与视觉叙事

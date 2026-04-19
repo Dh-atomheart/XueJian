@@ -10,9 +10,16 @@ import type {
   DocumentAnchor,
   DocumentChunk,
   Document,
+  DocumentIR,
+  DocumentIRAsset,
+  DocumentIRBlock,
+  DocumentIRMetadata,
+  DocumentIRPage,
+  DocumentIRSpan,
   FinalizeCardGenerationResult,
   Highlight,
   HostGatewayManifest,
+  IRRect,
   PointsEntry,
   PointsSummary,
   RagAnswer,
@@ -54,6 +61,92 @@ const nullableDateValueSchema: z.ZodType<Date | null, z.ZodTypeDef, unknown> = z
   z.date().nullable()
 )
 
+// ==================== DocumentIR v1 Schemas ====================
+
+export const documentIRBlockTypeSchema = z.enum([
+  'heading',
+  'paragraph',
+  'list',
+  'list_item',
+  'table',
+  'figure',
+  'code_block',
+  'formula',
+  'blockquote',
+  'page_header',
+  'page_footer',
+  'unknown',
+])
+
+export const irRectSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+}) as z.ZodType<IRRect>
+
+export const documentIRSpanSchema = z.object({
+  spanId: z.string().min(1),
+  start: z.number().int().nonnegative(),
+  end: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  rect: irRectSchema.nullable(),
+}) as z.ZodType<DocumentIRSpan>
+
+export const documentIRBlockSchema = z.object({
+  blockId: z.string().min(1),
+  blockType: documentIRBlockTypeSchema,
+  pageNumber: z.number().int().positive(),
+  content: z.string(),
+  spans: z.array(documentIRSpanSchema),
+  anchorId: z.string().nullable(),
+  parentBlockId: z.string().nullable(),
+  level: z.number().int().nullable(),
+  language: z.string().nullable(),
+  metadata: z.record(z.unknown()).nullable(),
+}) as z.ZodType<DocumentIRBlock>
+
+export const documentIRPageSchema = z.object({
+  pageNumber: z.number().int().positive(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  rotation: z.number(),
+  label: z.string().nullable(),
+}) as z.ZodType<DocumentIRPage>
+
+export const documentIRAssetTypeSchema = z.enum(['image', 'table_image', 'figure'])
+
+export const documentIRAssetSchema = z.object({
+  assetId: z.string().min(1),
+  assetType: documentIRAssetTypeSchema,
+  blockId: z.string().nullable(),
+  mimeType: z.string().min(1),
+  dataRef: z.string().min(1),
+  altText: z.string().nullable(),
+}) as z.ZodType<DocumentIRAsset>
+
+export const documentIRMetadataSchema = z.object({
+  importTimestamp: z.string().min(1),
+  sourceHash: z.string().nullable(),
+  languageHint: z.string().nullable(),
+  warnings: z.array(z.string()),
+  totalBlocks: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+}) as z.ZodType<DocumentIRMetadata>
+
+export const documentIRSchema = z.object({
+  documentId: z.string().uuid(),
+  parserFamily: z.string().min(1),
+  parserVersion: z.string().min(1),
+  irVersion: z.literal('1'),
+  pages: z.array(documentIRPageSchema),
+  blocks: z.array(documentIRBlockSchema),
+  assets: z.array(documentIRAssetSchema),
+  sourceMetadata: documentIRMetadataSchema,
+}) as z.ZodType<DocumentIR>
+
+// ==================== App Settings ====================
+
 export const appSettingsSchema = z.object({
   theme: z.enum(['default', 'comic-sketch', 'contrast-paper']),
   language: z.enum(['zh-CN', 'en-US']),
@@ -61,15 +154,21 @@ export const appSettingsSchema = z.object({
   reviewTimeLimit: z.number().int().nonnegative(),
 }) as z.ZodType<AppSettings>
 
+export const apiProviderSchema = z.enum(['openai', 'anthropic', 'google', 'openai_compatible'])
+
+export const apiAuthModeSchema = z.enum(['api_key', 'adc'])
+
 export const apiConfigSchema = z.object({
   id: z.string().uuid(),
-  provider: z.enum(['openai', 'anthropic', 'custom']),
+  provider: apiProviderSchema,
+  authMode: apiAuthModeSchema,
   name: z.string().min(1),
   model: z.string().nullable(),
   baseUrl: z.string().nullable(),
   budgetLimit: z.number().nullable(),
   isDefault: z.boolean(),
   isEnabled: z.boolean(),
+  hasStoredCredential: z.boolean(),
   hasStoredKey: z.boolean(),
   createdAt: dateValueSchema,
 }) as z.ZodType<ApiConfig>
@@ -200,6 +299,7 @@ export const workflowEventSchema = z.object({
     'waiting_confirmation',
     'completed',
     'failed',
+    'fallback',
   ]),
   message: z.string().nullable(),
   progress: z.number().min(0).max(1).nullable(),
@@ -209,7 +309,12 @@ export const workflowEventSchema = z.object({
 
 export const workflowRunSchema = z.object({
   id: z.string().uuid(),
-  workflowType: z.enum(['card_generation', 'knowledge_qa', 'podcast_generation', 'knowledge_graph']),
+  workflowType: z.enum([
+    'card_generation',
+    'knowledge_qa',
+    'podcast_generation',
+    'knowledge_graph',
+  ]),
   presetId: z.string().nullable(),
   status: z.enum(['queued', 'running', 'waiting_confirmation', 'completed', 'failed', 'cancelled']),
   threadId: z.string().min(1),
@@ -278,6 +383,7 @@ export const citationSchema = z.object({
 
 export const ragAnswerSchema = z.object({
   answer: z.string().min(1),
+  answerMode: z.enum(['grounded', 'no_relevant_content', 'excerpt_fallback']),
   retrievalMode: z.enum(['fts5', 'hybrid']),
   citations: z.array(citationSchema),
 }) as z.ZodType<RagAnswer>

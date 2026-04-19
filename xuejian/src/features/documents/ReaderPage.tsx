@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { HighlightLayer, PdfPageCanvas, PdfToolbar } from '@/components/documents'
 import { Button, Panel } from '@/components/ui'
+import { reportAppError } from '@/lib/appFeedback'
 import { resolveReaderRect, type ReaderRect, type ReaderViewport } from '@/lib/readerGeometry'
 import { cn } from '@/lib/utils'
 import {
@@ -47,6 +48,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
   const [isLoadingBinary, setIsLoadingBinary] = useState(false)
   const [binaryError, setBinaryError] = useState<string | null>(null)
+  const [pageRenderError, setPageRenderError] = useState<string | null>(null)
   const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null)
   const [selectionText, setSelectionText] = useState('')
   const [readerNotice, setReaderNotice] = useState<string | null>(null)
@@ -76,7 +78,12 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
       .catch((error) => {
         if (!cancelled) {
           setPdfBytes(null)
-          setBinaryError(error instanceof Error ? error.message : '读取 PDF 失败')
+          setBinaryError(
+            reportAppError('阅读器', error, {
+              title: '读取文档二进制内容失败',
+              showToast: true,
+            })
+          )
         }
       })
       .finally(() => {
@@ -98,6 +105,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
 
   useEffect(() => {
     setPageViewport(null)
+    setPageRenderError(null)
   }, [documentId, reader.currentPage, reader.scale])
 
   const currentPageAnchors = useMemo(
@@ -215,29 +223,38 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
         />
 
         <div className="space-y-4 bg-[radial-gradient(circle_at_top_left,rgb(var(--highlight-yellow)/0.18),transparent_34%),linear-gradient(180deg,rgb(var(--paper-base)/0.92),rgb(var(--paper-soft)/0.92))] px-4 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.26em] text-ink-soft">
-                Reader Workbench
-              </p>
-              <h1 className="mt-2 font-display text-3xl text-ink">边读边贴笺，不打断正文节奏</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">
-                当前页的贴笺会固定留在右侧，卡片与高亮互相定位，正文区域保持清爽可读。
-              </p>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_280px]">
+            <div className="space-y-3">
+              <div className="inline-flex items-center rounded-full border border-ink/10 bg-white/70 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-ink-soft">
+                阅读工作台
+              </div>
+              <div className="space-y-2">
+                <h1 className="font-display text-2xl text-ink">边读边贴笺，保持正文专注</h1>
+                <p className="max-w-3xl text-sm leading-6 text-ink-muted">
+                  当前页的贴笺固定留在右侧，高亮与卡片互相定位，正文区域尽量保持克制和稳定。
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <ReaderMetric label="当前页" value={`第 ${reader.currentPage} 页`} />
+                <ReaderMetric label="贴笺数" value={`${pageCards.length}`} />
+                <ReaderMetric label="高亮数" value={`${highlights.length}`} />
+                <ReaderMetric label="缩放" value={`${Math.round(reader.scale * 100)}%`} />
+              </div>
             </div>
 
-            {!isContextRailOpen ? (
-              <Button variant="sketch" onClick={() => setContextRailOpen(true)}>
-                打开当前页贴笺 ({pageCards.length})
-              </Button>
-            ) : null}
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-4">
-            <ReaderMetric label="当前页" value={`第 ${reader.currentPage} 页`} />
-            <ReaderMetric label="贴笺数" value={`${pageCards.length}`} />
-            <ReaderMetric label="高亮数" value={`${highlights.length}`} />
-            <ReaderMetric label="缩放" value={`${Math.round(reader.scale * 100)}%`} />
+            <div className="rounded-[24px] border border-ink/10 bg-white/75 px-4 py-4 shadow-card">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">本页操作</p>
+              <div className="mt-3 space-y-3 text-sm leading-6 text-ink-muted">
+                <p>高亮会短暂聚焦，不会长期遮挡正文。</p>
+                <p>选中文本后可直接创建贴笺草稿，再回到卡片工坊深化。</p>
+                {!isContextRailOpen ? (
+                  <Button variant="sketch" className="w-full justify-center" onClick={() => setContextRailOpen(true)}>
+                    打开当前页贴笺 ({pageCards.length})
+                  </Button>
+                ) : null}
+              </div>
+            </div>
           </div>
 
           {readerNotice ? (
@@ -255,7 +272,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
           data-testid="reader-main-stage"
         >
           <div className="border-b border-line-soft px-4 py-3 text-xs uppercase tracking-[0.24em] text-ink-soft">
-            Page Surface
+            正文页
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
@@ -267,6 +284,13 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
               {binaryError ? (
                 <div className="flex min-h-[420px] items-center justify-center text-center text-sm text-ink-muted">
                   {binaryError}
+                </div>
+              ) : pageRenderError ? (
+                <div className="flex min-h-[420px] items-center justify-center px-6 text-center text-sm text-ink-muted">
+                  <div className="space-y-3">
+                    <p>{pageRenderError}</p>
+                    <p className="text-xs text-ink-soft">可以尝试切换页码、调整缩放，或重新打开文档。</p>
+                  </div>
                 </div>
               ) : isLoadingBinary || !pdfBytes ? (
                 <div className="flex min-h-[420px] items-center justify-center text-center text-sm text-ink-soft">
@@ -280,6 +304,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                     scale={reader.scale}
                     className="block"
                     onViewportReady={setPageViewport}
+                    onRenderError={setPageRenderError}
                   />
 
                   <HighlightLayer
@@ -321,7 +346,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">
-                      Text Layer Notes
+                      页内摘录
                     </p>
                     <h2 className="mt-2 font-ui text-base text-ink">当前页摘录</h2>
                   </div>
@@ -370,7 +395,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
 
               <Panel variant="panel" className="rounded-[28px]">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">
-                  Reading Hints
+                  阅读提示
                 </p>
                 <div className="mt-3 space-y-3 text-sm leading-6 text-ink-muted">
                   <p>点击高亮会在右侧贴笺栏定位对应卡片。</p>

@@ -1,9 +1,5 @@
 ---
-title: AI Orchestration Reference
-status: active
-owner: platform
-last_reviewed: 2026-04-18
-canonical: true
+title: AI 编排参考
 ---
 
 # AI Orchestration Reference
@@ -16,7 +12,7 @@ The orchestration stack is a three-part system:
 
 - React UI gathers intent and renders outputs
 - Rust host owns secrets, storage, provider adapters, and tool boundaries
-- Python orchestration runs `LangChain + LangGraph` workflows through host gateways
+- Python orchestration runs `LiteLLM + PydanticAI + LangChain` workflows through host gateways
 
 The Python service is not the system of record and must not own plaintext secrets.
 
@@ -39,35 +35,50 @@ The Python service is not the system of record and must not own plaintext secret
 ### Python Orchestration
 
 - choose workflow shape
-- call models and tools through the host
-- maintain graph state and checkpoints
+- call models through LiteLLM provider routing
+- validate structured output via PydanticAI
+- call tools through the host
+- maintain workflow state and checkpoints
 - return structured workflow artifacts
 
-## Why LangChain Plus LangGraph
+## Why LiteLLM Plus PydanticAI Plus LangChain
 
-Use both, with clear responsibilities.
+Use each for its strengths.
+
+### LiteLLM
+
+Use for:
+
+- provider protocol routing (OpenAI native, Anthropic native, OpenAI-compatible)
+- cost callback and token accounting
+- stream normalization across providers
+
+### PydanticAI
+
+Use for:
+
+- structured output validation (`CardDraft`, `RagAnswer`, `Citation`, `WorkflowEvent`)
+- auto-retry on validation failure (max 2 retries)
+- strong typing boundary between LLM output and downstream consumers
 
 ### LangChain
 
 Use for:
 
-- model client abstraction
+- PresetWorkflow 编排
 - tool binding
-- structured output
-- middleware
+- prompt template management
 - provider-aware prompting helpers
 
-### LangGraph
+### LangGraph (Future Path Only)
 
-Use for:
+LangGraph is not a current runtime dependency. It enters evaluation when:
 
-- workflow state
-- routing
-- checkpoints
-- resumable execution
-- human-in-the-loop pauses
+- checkpoint / resume becomes a first-class need
+- human-in-the-loop requires graph-level state recovery
+- multi-branch, long-chain state graphs clearly complexify
 
-Do not use LangChain alone as a replacement for workflow state management.
+Until then, all preset workflows follow LangChain-first design.
 
 ## Workflow Catalog
 
@@ -77,10 +88,10 @@ Recommended node flow:
 
 1. `load_document_context`
 2. `retrieve_candidate_spans`
-3. `draft_cards`
+3. `draft_cards` (PydanticAI `CardDraft` structured output)
 4. `evaluate_cards`
 5. `human_gate`
-6. `persist_cards`
+6. `persist_cards` (generate stable `exportGuid`)
 
 Outputs:
 
@@ -154,13 +165,14 @@ Suggested common fields:
 
 ## Host Tool Surface
 
-The preferred host tool surface for V4-5:
+The preferred host tool surface:
 
 - `load_document_ir`
 - `search_chunks`
 - `list_reader_annotations`
 - `save_card_drafts`
 - `save_content_artifact`
+- `export_apkg` (genanki `.apkg` generation)
 - `schedule_review`
 
 These tools give the Python runtime enough leverage without moving persistence ownership out of the host boundary.
@@ -171,10 +183,10 @@ These tools give the Python runtime enough leverage without moving persistence o
 
 - `server.py`
 - `clients/host_gateway.py`
-- `providers/`
-- `schemas/`
-- `graph/runtime.py`
-- `graph/checkpointing.py`
+- `providers/litellm_adapter.py`
+- `schemas/card_draft.py`
+- `parsing/docling_pipeline.py`
+- `exports/genanki_exporter.py`
 - `workflows/card_generation.py`
 - `workflows/knowledge_qa.py`
 - `workflows/content_pipeline.py`

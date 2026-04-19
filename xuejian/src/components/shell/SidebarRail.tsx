@@ -22,6 +22,11 @@ const navItems: NavItem[] = [
     icon: <LibraryIcon />,
   },
   {
+    id: 'cards',
+    label: '卡片工坊',
+    icon: <CardsIcon />,
+  },
+  {
     id: 'learning',
     label: '学习',
     icon: <LearningIcon />,
@@ -43,8 +48,7 @@ export function SidebarRail() {
   const setActiveItem = useAppUiStore((state) => state.setActiveNavItem)
   const { data: apiConfigs = [], isLoading } = useApiConfigsQuery()
 
-  const isSetupLocked =
-    isTauriEnvironment() && !isLoading && !hasUsableApiConfig(apiConfigs)
+  const needsModelSetup = isTauriEnvironment() && !isLoading && !hasUsableApiConfig(apiConfigs)
 
   return (
     <nav className="app-sidebar-rail flex w-16 flex-col items-center border-r border-line-soft bg-paper-muted py-4">
@@ -60,49 +64,57 @@ export function SidebarRail() {
             key={item.id}
             item={item}
             activeItem={activeItem}
-            disabled={isSetupLocked && item.id !== 'settings'}
+            showSetupCue={needsModelSetup && AI_DEPENDENT_NAV_IDS.has(item.id)}
             onClick={() => setActiveItem(item.id)}
           />
         ))}
       </div>
 
-      {isSetupLocked ? (
-        <div className="mt-3 px-2 text-center text-[10px] leading-4 text-ink-soft">
-          先完成模型密钥配置
-        </div>
+      {needsModelSetup ? (
+        <button
+          type="button"
+          className="mt-3 rounded-[14px] border border-amber-200 bg-amber-50 px-2 py-2 text-center text-[10px] leading-4 text-amber-900 transition-colors hover:border-amber-300 hover:bg-amber-100"
+          onClick={() => setActiveItem('settings')}
+          title="卡片生成与知识问答需要先配置模型"
+        >
+          AI 功能需先配置模型
+        </button>
       ) : null}
     </nav>
   )
 }
 
+const AI_DEPENDENT_NAV_IDS = new Set<NavItemId>(['cards', 'learning', 'knowledge'])
+
 function NavButton({
   item,
   activeItem,
-  disabled,
+  showSetupCue,
   onClick,
 }: {
   item: NavItem
   activeItem: NavItemId
-  disabled: boolean
+  showSetupCue: boolean
   onClick: () => void
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
       className={cn(
-        'rail-nav-button flex h-11 w-11 items-center justify-center rounded-lg transition-colors',
+        'rail-nav-button relative flex h-11 w-11 items-center justify-center rounded-lg transition-colors',
         activeItem === item.id
           ? 'rail-nav-button-active bg-ink/10 text-ink'
-          : 'text-ink-muted hover:bg-ink/5 hover:text-ink',
-        disabled && 'cursor-not-allowed text-ink-soft hover:bg-transparent hover:text-ink-soft'
+          : 'text-ink-muted hover:bg-ink/5 hover:text-ink'
       )}
-      title={disabled ? `${item.label}（需先配置模型）` : item.label}
+      title={showSetupCue ? `${item.label}（当前会提示你先配置模型）` : item.label}
       aria-label={item.label}
       data-testid={`sidebar-nav-${item.id}`}
     >
       {item.icon}
+      {showSetupCue ? (
+        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full border border-paper-base bg-amber-500" />
+      ) : null}
     </button>
   )
 }
@@ -150,6 +162,17 @@ function LearningIcon() {
       <path d="M8 20h8" />
       <path d="M12 8v6" />
       <path d="M9 11h6" />
+    </IconBase>
+  )
+}
+
+function CardsIcon() {
+  return (
+    <IconBase>
+      <path d="M8 5.5h10.5a2 2 0 0 1 2 2V17" />
+      <path d="M6.5 3H17a2 2 0 0 1 2 2v11.5a2 2 0 0 1-2 2H6.5a2.5 2.5 0 0 1-2.5-2.5v-11A2.5 2.5 0 0 1 6.5 3z" />
+      <path d="M8 8h7" />
+      <path d="M8 12h5" />
     </IconBase>
   )
 }

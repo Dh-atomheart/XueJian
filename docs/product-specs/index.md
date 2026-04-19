@@ -1,9 +1,5 @@
 ---
-title: Product Spec Index
-status: active
-owner: product
-last_reviewed: 2026-04-17
-canonical: true
+title: 产品规格索引
 ---
 
 # 产品规格索引
@@ -34,5 +30,4 @@ canonical: true
 ## 统一 Done Means 口径
 
 - 阶段文档只描述稳定目标、验收出口和边界。
-- 具体任务分解进入 `docs/exec-plans/`。
-- 架构细节以 [../../ARCHITECTURE.md](../../ARCHITECTURE.md) 和 [../references/ai-orchestration.md](../references/ai-orchestration.md) 为准。
+- 架构细节以 [../references/ai-orchestration.md](../references/ai-orchestration.md) 为准。

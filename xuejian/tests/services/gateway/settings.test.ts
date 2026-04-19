@@ -38,9 +38,11 @@ describe('gateway mocks', () => {
     expect(configs).toEqual([])
   })
 
-  it('persists a custom API config across mock create, store key, and list calls', async () => {
+  // @acceptance:v4-5-a1
+  it('persists an openai-compatible API config across mock create, store key, and list calls', async () => {
     const created = await apiConfigGateway.create({
-      provider: 'custom',
+      provider: 'openai_compatible',
+      authMode: 'api_key',
       name: 'Local OpenAI Compatible',
       model: 'qwen2.5-14b-instruct',
       baseUrl: 'http://localhost:11434/v1',
@@ -49,8 +51,10 @@ describe('gateway mocks', () => {
       isEnabled: true,
     })
 
-    expect(created.provider).toBe('custom')
+    expect(created.provider).toBe('openai_compatible')
+    expect(created.authMode).toBe('api_key')
     expect(created.baseUrl).toBe('http://localhost:11434/v1')
+    expect(created.hasStoredCredential).toBe(false)
     expect(created.hasStoredKey).toBe(false)
 
     await apiConfigGateway.storeApiKey(created.id, 'local-secret-key')
@@ -60,10 +64,12 @@ describe('gateway mocks', () => {
     expect(configs).toHaveLength(1)
     expect(configs[0]).toMatchObject({
       id: created.id,
-      provider: 'custom',
+      provider: 'openai_compatible',
+      authMode: 'api_key',
       name: 'Local OpenAI Compatible',
       model: 'qwen2.5-14b-instruct',
       baseUrl: 'http://localhost:11434/v1',
+      hasStoredCredential: true,
       hasStoredKey: true,
       isDefault: true,
       isEnabled: true,

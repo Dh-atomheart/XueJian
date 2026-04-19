@@ -31,7 +31,7 @@ export function DocumentList({ documents, selectedDocumentId, onSelect }: Docume
       <div className="rounded-[28px] border border-dashed border-line-soft bg-white/80 px-6 py-10 text-center">
         <p className="font-ui text-sm text-ink">还没有文档</p>
         <p className="mt-2 text-sm text-ink-soft">
-          从左侧导入第一份 PDF，系统会自动完成解析、分块和锚点生成。
+          从左侧导入第一份文档，系统会自动完成解析，并启动卡片候选生成。
         </p>
       </div>
     )

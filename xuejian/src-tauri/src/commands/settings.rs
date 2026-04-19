@@ -14,21 +14,28 @@ use crate::{
 pub struct ApiConfigDto {
     pub id: String,
     pub provider: String,
+    pub auth_mode: String,
     pub name: String,
     pub base_url: Option<String>,
     pub model: Option<String>,
     pub budget_limit: Option<f64>,
     pub is_enabled: bool,
     pub is_default: bool,
+    pub has_stored_credential: bool,
     pub has_stored_key: bool,
     pub created_at: String,
 }
 
 fn api_config_to_dto(config: ApiConfig, secrets: &SecretStore) -> CommandResult<ApiConfigDto> {
+    let has_stored_key = secrets.has_api_key(&config.id)?;
+    let has_stored_credential = config.auth_mode == "adc" || has_stored_key;
+
     Ok(ApiConfigDto {
-        has_stored_key: secrets.has_api_key(&config.id)?,
+        has_stored_credential,
+        has_stored_key,
         id: config.id,
         provider: config.provider,
+        auth_mode: config.auth_mode,
         name: config.name,
         base_url: config.base_url,
         model: config.model,
@@ -41,15 +48,19 @@ fn api_config_to_dto(config: ApiConfig, secrets: &SecretStore) -> CommandResult<
 
 impl ApiConfigDto {
     fn from_config_without_key(config: ApiConfig) -> Self {
+        let has_stored_credential = config.auth_mode == "adc";
+
         Self {
             id: config.id,
             provider: config.provider,
+            auth_mode: config.auth_mode,
             name: config.name,
             base_url: config.base_url,
             model: config.model,
             budget_limit: config.budget_limit,
             is_enabled: config.is_enabled,
             is_default: config.is_default,
+            has_stored_credential,
             has_stored_key: false,
             created_at: config.created_at,
         }
@@ -60,6 +71,7 @@ impl ApiConfigDto {
 #[serde(rename_all = "camelCase")]
 pub struct CreateApiConfigDto {
     pub provider: String,
+    pub auth_mode: String,
     pub name: String,
     pub base_url: Option<String>,
     pub model: Option<String>,
@@ -71,6 +83,7 @@ pub struct CreateApiConfigDto {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateApiConfigDto {
     pub provider: Option<String>,
+    pub auth_mode: Option<String>,
     pub name: Option<String>,
     pub base_url: Option<String>,
     pub model: Option<String>,
@@ -119,6 +132,7 @@ pub struct UpdateSettingsDto {
 #[serde(rename_all = "camelCase")]
 pub struct TestApiConnectionDto {
     pub provider: String,
+    pub auth_mode: String,
     pub api_key: String,
     pub base_url: Option<String>,
 }
@@ -199,6 +213,7 @@ pub fn create_api_config(
 
         let req = CreateApiConfigRequest {
             provider: data.provider,
+            auth_mode: data.auth_mode,
             name: data.name,
             base_url: data.base_url,
             model: data.model,
@@ -224,6 +239,7 @@ pub fn update_api_config(
 
         let req = UpdateApiConfigRequest {
             provider: data.provider,
+            auth_mode: data.auth_mode,
             name: data.name,
             base_url: data.base_url,
             model: data.model,
@@ -276,36 +292,64 @@ pub fn store_api_key(state: State<'_, AppState>, data: StoreApiKeyDto) -> Comman
 pub async fn test_api_connection(
     data: TestApiConnectionDto,
 ) -> CommandResult<ApiConnectionTestResultDto> {
-    let (success, message) = match data.provider.as_str() {
-        "openai" => {
-            let is_valid = !data.api_key.is_empty() && data.api_key.starts_with("sk-");
-            let message = if is_valid {
-                "OpenAI 配置校验通过".to_string()
-            } else {
-                "OpenAI Key 格式不正确".to_string()
-            };
-            (is_valid, message)
-        }
-        "anthropic" => {
-            let is_valid = !data.api_key.is_empty() && data.api_key.starts_with("sk-ant-");
-            let message = if is_valid {
-                "Anthropic 配置校验通过".to_string()
-            } else {
-                "Anthropic Key 格式不正确".to_string()
-            };
-            (is_valid, message)
-        }
-        _ => (
-            false,
-            format!(
-                "暂不支持 provider \"{}\" 的自动连接校验{}",
-                data.provider,
-                data.base_url
-                    .as_ref()
-                    .map(|url| format!(" (baseUrl: {url})"))
-                    .unwrap_or_default()
+    let auth_mode = data.auth_mode.as_str();
+    let trimmed_api_key = data.api_key.trim();
+    let normalized_base_url = data
+        .base_url
+        .as_ref()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty());
+
+    let (success, message) = if auth_mode == "adc" {
+        match data.provider.as_str() {
+            "google" => (
+                false,
+                "Google ADC 模式的配置契约已接通，但本地宿主的实际 ADC 探测尚未在本轮实现。".to_string(),
             ),
-        ),
+            _ => (
+                false,
+                format!("provider \"{}\" 暂不支持 authMode=adc", data.provider),
+            ),
+        }
+    } else if trimmed_api_key.is_empty() {
+        (false, "缺少 API Key。".to_string())
+    } else {
+        match data.provider.as_str() {
+            "openai" => {
+                let message = if trimmed_api_key.starts_with("sk-") {
+                    "OpenAI 配置字段完整，已通过本地预校验。".to_string()
+                } else {
+                    "OpenAI 已收到 API Key，但未命中常见 sk- 前缀；如为正式 Key，请继续以实际调用结果为准。".to_string()
+                };
+                (true, message)
+            }
+            "anthropic" => {
+                let message = if trimmed_api_key.starts_with("sk-ant-") {
+                    "Anthropic 配置字段完整，已通过本地预校验。".to_string()
+                } else {
+                    "Anthropic 已收到 API Key，但未命中常见 sk-ant- 前缀；如为正式 Key，请继续以实际调用结果为准。".to_string()
+                };
+                (true, message)
+            }
+            "google" => (
+                true,
+                "Google API Key 模式的字段已完整；Google ADC 认证将在后续宿主适配中补齐。".to_string(),
+            ),
+            "openai_compatible" => {
+                let Some(base_url) = normalized_base_url else {
+                    return Ok(ApiConnectionTestResultDto {
+                        success: false,
+                        message: "OpenAI-Compatible 需要提供 Base URL。".to_string(),
+                    });
+                };
+
+                (true, format!("OpenAI-Compatible 配置字段完整，Base URL: {base_url}"))
+            }
+            _ => (
+                false,
+                format!("暂不支持 provider \"{}\" 的自动连接校验", data.provider),
+            ),
+        }
     };
 
     Ok(ApiConnectionTestResultDto { success, message })
