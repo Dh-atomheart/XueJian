@@ -77,7 +77,7 @@ export function KnowledgeGraphPage() {
             ))}
           </select>
           <Button
-            variant="filled"
+            variant="default"
             size="sm"
             disabled={selectedDocIds.length === 0 || startBuild.isPending}
             onClick={handleBuild}
@@ -139,11 +139,7 @@ export function KnowledgeGraphPage() {
                   )}
                 </p>
               </div>
-              <Button
-                variant="outlined"
-                size="sm"
-                onClick={() => handleDelete(selectedNode.id)}
-              >
+              <Button variant="outline" size="sm" onClick={() => handleDelete(selectedNode.id)}>
                 删除节点
               </Button>
             </div>
@@ -199,9 +195,7 @@ export function KnowledgeGraphPage() {
             {/* Merge section */}
             <div>
               <h4 className="mb-1 text-sm font-medium">消歧合并</h4>
-              <p className="text-xs text-ink-muted">
-                选择要合并到此节点的另一个节点
-              </p>
+              <p className="text-xs text-ink-muted">选择要合并到此节点的另一个节点</p>
               <div className="mt-1 flex items-center gap-2">
                 <select
                   className="rounded border border-line-soft bg-paper-muted px-2 py-1 text-sm text-ink"
@@ -218,7 +212,7 @@ export function KnowledgeGraphPage() {
                     ))}
                 </select>
                 <Button
-                  variant="filled"
+                  variant="default"
                   size="sm"
                   disabled={!mergeSourceId || mergeNodes.isPending}
                   onClick={handleMerge}

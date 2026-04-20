@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { reportAppError } from '@/lib/appFeedback'
-import { renderPdfPageToCanvas } from '@/services/renderer/pdf'
+import { renderPdfPageToCanvas, type PdfDocumentSource } from '@/services/renderer/pdf'
 
 interface PdfPageCanvasProps {
-  pdfBytes: Uint8Array
+  pdfSource: PdfDocumentSource
   pageNumber: number
   scale: number
   className?: string
@@ -12,7 +12,7 @@ interface PdfPageCanvasProps {
 }
 
 export function PdfPageCanvas({
-  pdfBytes,
+  pdfSource,
   pageNumber,
   scale,
   className,
@@ -30,7 +30,7 @@ export function PdfPageCanvas({
     const controller = new AbortController()
     onRenderError?.(null)
 
-    void renderPdfPageToCanvas(pdfBytes, pageNumber, canvas, scale, controller.signal)
+    void renderPdfPageToCanvas(pdfSource, pageNumber, canvas, scale, controller.signal)
       .then((viewport) => {
         if (!controller.signal.aborted) {
           onViewportReady?.({ width: viewport.width, height: viewport.height })
@@ -51,7 +51,7 @@ export function PdfPageCanvas({
     return () => {
       controller.abort()
     }
-  }, [onRenderError, onViewportReady, pageNumber, pdfBytes, scale])
+  }, [onRenderError, onViewportReady, pageNumber, pdfSource, scale])
 
   return (
     <canvas

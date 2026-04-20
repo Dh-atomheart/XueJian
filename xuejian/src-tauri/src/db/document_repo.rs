@@ -47,6 +47,8 @@ pub struct DocumentAnchor {
     pub text_quote: String,
     pub rects: Vec<DocumentAnchorRect>,
     pub hash: String,
+    pub hierarchy_path: Vec<String>,
+    pub quote_hash: Option<String>,
     pub created_at: String,
 }
 
@@ -57,6 +59,8 @@ pub struct CreateDocumentAnchorRequest {
     pub text_quote: String,
     pub rects: Vec<DocumentAnchorRect>,
     pub hash: String,
+    pub hierarchy_path: Option<Vec<String>>,
+    pub quote_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,7 +178,8 @@ impl<'a> DocumentRepository<'a> {
 
     pub fn list_anchors(&self, document_id: &str) -> Result<Vec<DocumentAnchor>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT id, document_id, page, paragraph, text_quote, rects, hash, created_at
+            "SELECT id, document_id, page, paragraph, text_quote, rects, hash,
+                    hierarchy_path, quote_hash, created_at
              FROM document_anchors
              WHERE document_id = ?1
              ORDER BY page ASC, paragraph ASC, created_at ASC",
@@ -188,6 +193,13 @@ impl<'a> DocumentRepository<'a> {
                 .map_err(json_decode_error)?
                 .unwrap_or_default();
 
+            let hierarchy_path = row
+                .get::<_, Option<String>>(7)?
+                .map(|value| serde_json::from_str::<Vec<String>>(&value))
+                .transpose()
+                .map_err(json_decode_error)?
+                .unwrap_or_default();
+
             Ok(DocumentAnchor {
                 id: row.get(0)?,
                 document_id: row.get(1)?,
@@ -196,7 +208,9 @@ impl<'a> DocumentRepository<'a> {
                 text_quote: row.get(4)?,
                 rects,
                 hash: row.get(6)?,
-                created_at: row.get(7)?,
+                hierarchy_path,
+                quote_hash: row.get(8)?,
+                created_at: row.get(9)?,
             })
         })?;
 
@@ -257,10 +271,17 @@ impl<'a> DocumentRepository<'a> {
 
         for anchor in req.anchors {
             let rects = serde_json::to_string(&anchor.rects).map_err(json_encode_error)?;
+            let hierarchy_path_json = anchor
+                .hierarchy_path
+                .as_deref()
+                .map(|p| serde_json::to_string(p))
+                .transpose()
+                .map_err(json_encode_error)?;
             transaction.execute(
                 "INSERT INTO document_anchors (
-                    id, document_id, page, paragraph, text_quote, rects, hash, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    id, document_id, page, paragraph, text_quote, rects, hash,
+                    hierarchy_path, quote_hash, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     Uuid::new_v4().to_string(),
                     document_id,
@@ -269,6 +290,8 @@ impl<'a> DocumentRepository<'a> {
                     anchor.text_quote,
                     rects,
                     anchor.hash,
+                    hierarchy_path_json,
+                    anchor.quote_hash,
                     &now,
                 ],
             )?;

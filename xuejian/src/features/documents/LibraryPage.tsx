@@ -1,128 +1,134 @@
-import { useEffect, useState } from 'react'
-import type { Document } from '@/types'
-import { useDocumentsQuery } from '@/queries'
-import { DocumentList, DocumentPreviewPane, ImportDocumentButton } from '@/components/documents'
-import { Button, Panel } from '@/components/ui'
-import { useAppUiStore } from '@/store'
+import { useState, useRef, useCallback } from 'react'
+import { SketchButton, SketchCard } from '@/components/ui/Sketch'
+import { useAppStore } from '@/lib/store'
+import { cn } from '@/lib/utils'
 
 export function LibraryPage() {
-  const { data: documents = [], isLoading } = useDocumentsQuery()
-  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
-  const openReader = useAppUiStore((state) => state.openReader)
-  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const { documents, setDocuments } = useAppStore()
 
-  useEffect(() => {
-    if (documents.length === 0) {
-      setSelectedDocumentId(null)
-      return
-    }
+  const filteredDocs = documents.filter((doc) =>
+    doc.name.toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
-    const selectedDocumentStillExists = documents.some(
-      (document) => document.id === selectedDocumentId
-    )
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
 
-    if (!selectedDocumentStillExists) {
-      setSelectedDocumentId(documents[0].id)
-    }
-  }, [documents, selectedDocumentId])
+  const handleDragLeave = useCallback(() => {
+    setIsDragging(false)
+  }, [])
 
-  const selectedDocument = documents.find((document) => document.id === selectedDocumentId) ?? null
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setIsDragging(false)
+      const files = Array.from(e.dataTransfer.files)
+      const newDocs = files.map((file, i) => ({
+        id: `doc-${Date.now()}-${i}`,
+        name: file.name,
+        type: file.name.endsWith('.pdf') ? 'pdf' as const : 'txt' as const,
+        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+        uploadedAt: new Date().toISOString().split('T')[0],
+        pageCount: Math.floor(Math.random() * 100) + 10,
+        cardsGenerated: 0,
+      }))
+      setDocuments([...documents, ...newDocs])
+    },
+    [documents, setDocuments]
+  )
 
-  // Empty state
-  if (!isLoading && documents.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Panel variant="paperCard" className="max-w-md rounded-[24px] p-8 text-center">
-          <div className="mb-4 text-4xl">📄</div>
-          <h2 className="mb-2 font-display text-xl text-ink">文档库是空的</h2>
-          <p className="mb-6 text-sm leading-relaxed text-ink-muted">
-            上传第一份文档后，系统会自动解析内容、生成锚点，并启动卡片候选生成。
-          </p>
-          <ImportDocumentButton
-            onImported={(document) => {
-              setSelectedDocumentId(document.id)
-            }}
-            showFeedback
-            buttonProps={{
-              variant: 'default',
-              className: 'mx-auto',
-            }}
-          />
-          <p className="mt-4 text-xs text-ink-soft">目前支持 PDF 格式</p>
-        </Panel>
-      </div>
-    )
-  }
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || [])
+      const newDocs = files.map((file, i) => ({
+        id: `doc-${Date.now()}-${i}`,
+        name: file.name,
+        type: file.name.endsWith('.pdf') ? 'pdf' as const : 'txt' as const,
+        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+        uploadedAt: new Date().toISOString().split('T')[0],
+        pageCount: Math.floor(Math.random() * 100) + 10,
+        cardsGenerated: 0,
+      }))
+      setDocuments([...documents, ...newDocs])
+    },
+    [documents, setDocuments]
+  )
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      {/* 顶部：标题 + 上传 + 搜索区 */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="font-ui text-xl text-ink">文档库</h1>
-          <p className="mt-0.5 text-sm text-ink-muted">{documents.length} 份文档</p>
+    <div className="max-w-4xl mx-auto px-6 py-8 animate-fade-in">
+      <div className="mb-8">
+        <p className="text-xs tracking-[0.3em] text-ink-muted uppercase mb-2 font-ui">Documents</p>
+        <h1 className="text-2xl font-display font-semibold mb-2">资源库</h1>
+        <p className="text-sm text-ink-muted">管理学习材料 · {documents.length} 个文档</p>
+      </div>
+
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={cn(
+          'mb-8 border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer',
+          isDragging ? 'border-ink/40 bg-paper-muted/50 scale-[1.01]' : 'border-line-soft/60 hover:border-line-soft'
+        )}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <input ref={fileInputRef} type="file" multiple accept=".pdf,.txt,.md,.epub" onChange={handleFileSelect} className="hidden" />
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-4 text-ink-muted">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" /><path d="M12 18v-6" /><path d="m9 15 3-3 3 3" />
+        </svg>
+        <p className="text-sm font-medium mb-1">{isDragging ? '松开以上传文件' : '拖拽文件到此处'}</p>
+        <p className="text-xs text-ink-muted">支持 PDF、TXT、Markdown、EPUB</p>
+      </div>
+
+      {documents.length > 0 && (
+        <div className="mb-6">
+          <input type="text" placeholder="搜索文档..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-4 py-3 bg-paper-muted/50 border border-line-soft/60 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ink/10 transition-all" />
         </div>
-        <ImportDocumentButton
-          onImported={(document) => {
-            setSelectedDocumentId(document.id)
-          }}
-          showFeedback
-          buttonProps={{
-            variant: 'default',
-          }}
-        />
-      </div>
+      )}
 
-      {/* 文档列表 + 预览 */}
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
-        <section>
-          {isLoading ? (
-            <Panel variant="paperCard" className="rounded-[24px] py-16 text-center text-ink-soft">
-              正在读取文档列表…
-            </Panel>
-          ) : (
-            <DocumentList
-              documents={documents}
-              selectedDocumentId={selectedDocumentId}
-              onSelect={(document: Document) => {
-                setSelectedDocumentId(document.id)
-              }}
-            />
-          )}
-        </section>
-
-        <section className="space-y-4">
-          <div className="flex items-end justify-between gap-3">
-            <h2 className="font-ui text-base text-ink">文档详情</h2>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!selectedDocument || selectedDocument.status !== 'ready'}
-                onClick={() => setActiveNavItem('cards')}
-              >
-                卡片工坊
-              </Button>
-              <Button
-                variant="sketch"
-                size="sm"
-                disabled={!selectedDocument || selectedDocument.status !== 'ready'}
-                onClick={() => {
-                  if (!selectedDocument) {
-                    return
-                  }
-
-                  openReader(selectedDocument.id, selectedDocument.pageCount ?? 1)
-                }}
-              >
-                进入阅读
-              </Button>
-            </div>
-          </div>
-
-          <DocumentPreviewPane document={selectedDocument} />
-        </section>
-      </div>
+      {filteredDocs.length > 0 ? (
+        <div className="space-y-3">
+          {filteredDocs.map((doc, index) => (
+            <SketchCard key={doc.id} className="p-4 hover:bg-paper-muted/30 transition-colors cursor-pointer animate-slide-in" style={{ animationDelay: `${index * 50}ms` }}>
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-lg bg-paper-muted flex items-center justify-center flex-shrink-0">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-ink-muted">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 2v6h6" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-medium truncate">{doc.name}</h3>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-xs text-ink-muted">{doc.size}</span>
+                    <span className="text-xs text-ink-muted">·</span>
+                    <span className="text-xs text-ink-muted">{doc.pageCount} 页</span>
+                    <span className="text-xs text-ink-muted">·</span>
+                    <span className="text-xs text-ink-muted">{doc.uploadedAt}</span>
+                  </div>
+                  {doc.cardsGenerated > 0 && (
+                    <p className="text-xs text-ink-muted mt-1">已生成 {doc.cardsGenerated} 张卡片</p>
+                  )}
+                </div>
+                <span className="px-2 py-1 text-xs bg-paper-muted rounded-md text-ink-muted uppercase">{doc.type}</span>
+              </div>
+            </SketchCard>
+          ))}
+        </div>
+      ) : documents.length > 0 ? (
+        <div className="text-center py-12 text-ink-muted"><p className="text-sm">没有找到匹配的文档</p></div>
+      ) : (
+        <div className="text-center py-12 text-ink-muted">
+          <p className="text-sm mb-2">还没有上传任何文档</p>
+          <p className="text-xs">上传学习材料以开始生成知识卡片</p>
+        </div>
+      )}
     </div>
   )
 }

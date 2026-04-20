@@ -106,3 +106,61 @@ class HostGatewayClient:
             "documentIds": document_ids or [],
             "limit": limit,
         })
+
+    # ── Run status & checkpoint ────────────────────────────────
+
+    def get_run_status(self, run_id: str) -> dict | None:
+        """Return the workflow_run record for the given run_id, or None if not found."""
+        try:
+            return self._get(f"/tool-gateway/runs/{run_id}")
+        except Exception:
+            return None
+
+    def save_checkpoint(self, run_id: str, checkpoint: dict) -> dict:
+        """Persist a checkpoint dict for the given workflow run."""
+        return self._post(f"/tool-gateway/runs/{run_id}/checkpoint", checkpoint)
+
+    def load_checkpoint(self, run_id: str) -> dict | None:
+        """Load the most recent checkpoint for the given workflow run."""
+        try:
+            return self._get(f"/tool-gateway/runs/{run_id}/checkpoint")
+        except Exception:
+            return None
+
+    def cancel_run(self, run_id: str) -> dict:
+        """Request the host to mark the run as cancelled."""
+        return self._post(f"/tool-gateway/runs/{run_id}/cancel", {})
+
+    def is_run_cancelled(self, run_id: str) -> bool:
+        """Check whether the run has been cancelled by the host / user."""
+        status = self.get_run_status(run_id)
+        if status is None:
+            return False
+        return status.get("status") == "cancelled"
+
+    # ── Cards (for export) ─────────────────────────────────────
+
+    def update_document_status(self, document_id: str, status: str) -> dict:
+        """Set the document status (e.g. 'parsing', 'parsed', 'failed')."""
+        return self._post(f"/tool-gateway/documents/{document_id}/status", {"status": status})
+
+    def save_document_analysis(self, document_id: str, analysis: dict) -> dict:
+        """Persist parsed anchors + chunks for a document."""
+        return self._post(f"/tool-gateway/documents/{document_id}/analysis", analysis)
+
+    # ── Cards (for export) ─────────────────────────────────────
+
+    def list_cards(
+        self,
+        document_id: str | None = None,
+        group_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """Return cards optionally filtered by document or group."""
+        params: list[str] = [f"limit={limit}"]
+        if document_id:
+            params.append(f"documentId={document_id}")
+        if group_id:
+            params.append(f"groupId={group_id}")
+        qs = "&".join(params)
+        return self._get(f"/tool-gateway/cards?{qs}")

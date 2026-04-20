@@ -1,8 +1,8 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::{
-    commands::{AppState, CommandResult},
+    commands::{AppState, CommandError, CommandResult},
     db::{
         CreateWorkflowRunRequest, UpdateWorkflowRunRequest, WorkflowCheckpoint, WorkflowEvent,
         WorkflowRepository, WorkflowRun,
@@ -143,4 +143,84 @@ pub fn get_workflow_checkpoint(
     }
 
     repo.get_latest_checkpoint(&run_id).map_err(Into::into)
+}
+
+// ── APKG Export (via orchestration service) ───────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportApkgDto {
+    pub output_path: String,
+    pub deck_name: Option<String>,
+    pub document_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportApkgResultDto {
+    pub deck_name: String,
+    pub card_count: u64,
+    pub output_path: String,
+    pub exported_at: String,
+}
+
+#[tauri::command]
+pub async fn export_cards_apkg(
+    state: State<'_, AppState>,
+    data: ExportApkgDto,
+) -> CommandResult<ExportApkgResultDto> {
+    let output_path = data.output_path.trim().to_string();
+    if output_path.is_empty() {
+        return Err(CommandError::InvalidInput("Missing output path".to_string()));
+    }
+
+    let health = state.orchestration.health().await?;
+    if health.status != "healthy" && health.status != "degraded" {
+        return Err(CommandError::Internal(format!(
+            "Orchestration service status: {}",
+            health.status
+        )));
+    }
+
+    let endpoint = health.endpoint.ok_or_else(|| {
+        CommandError::Internal("Orchestration service not available".to_string())
+    })?;
+
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| CommandError::Internal(format!("HTTP client error: {e}")))?;
+
+    let mut payload = serde_json::json!({ "outputPath": output_path });
+    if let Some(deck_name) = &data.deck_name {
+        payload["deckName"] = serde_json::json!(deck_name);
+    }
+    if let Some(document_id) = &data.document_id {
+        payload["documentId"] = serde_json::json!(document_id);
+    }
+
+    let response = client
+        .post(format!("{endpoint}/exports/apkg"))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| CommandError::Internal(format!("Export request failed: {e}")))?;
+
+    if !response.status().is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(CommandError::Internal(format!("Export failed: {body}")));
+    }
+
+    let result: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| CommandError::Internal(format!("Invalid response: {e}")))?;
+
+    Ok(ExportApkgResultDto {
+        deck_name: result["deckName"].as_str().unwrap_or("XueJian Export").to_string(),
+        card_count: result["cardCount"].as_u64().unwrap_or(0),
+        output_path: result["outputPath"].as_str().unwrap_or(&output_path).to_string(),
+        exported_at: result["exportedAt"].as_str().unwrap_or("").to_string(),
+    })
 }

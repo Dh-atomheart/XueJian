@@ -3,6 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tokio::time::sleep;
 
 use crate::{
@@ -457,6 +458,7 @@ pub struct CreateReviewLogDto {
 pub struct DailyStatsDto {
     pub new_cards: i64,
     pub review_cards: i64,
+    pub correct_rate: Option<f64>,
 }
 
 #[tauri::command]
@@ -504,10 +506,11 @@ pub fn get_daily_stats(state: State<'_, AppState>) -> CommandResult<DailyStatsDt
     let db = state.lock_db()?;
     let repo = CardRepository::new(&db);
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let (new_cards, review_cards) = repo.get_daily_stats(&today)?;
+    let (new_cards, review_cards, correct_rate) = repo.get_daily_stats(&today)?;
     Ok(DailyStatsDto {
         new_cards,
         review_cards,
+        correct_rate,
     })
 }
 
@@ -1203,7 +1206,7 @@ fn build_run_summary(
 }
 
 fn ensure_document_is_ready_for_card_generation(document: &Document) -> CommandResult<()> {
-    if document.status == "ready" {
+    if document.status == "ready" || document.status == "parsed" {
         return Ok(());
     }
     Err(CommandError::InvalidInput(format!(
@@ -1311,6 +1314,8 @@ fn build_candidates_for_chunk(
                     workflow_run_id: Some(run_id.to_string()),
                     document_id: document.id.clone(),
                     anchor_id: Some(anchor.id.clone()),
+                    title: None,
+                    card_type: None,
                     front: front.clone(),
                     back: back.clone(),
                     tags: build_candidate_tags(anchor),
@@ -1462,4 +1467,124 @@ fn progress_ratio(cursor: usize, total: usize) -> f64 {
     } else {
         (cursor.min(total) as f64 / total as f64).clamp(0.0, 1.0)
     }
+}
+
+// ── CSV Export ────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportCardsCsvDto {
+    pub output_path: String,
+    pub document_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportCardsCsvResultDto {
+    pub card_count: usize,
+    pub output_path: String,
+}
+
+#[tauri::command]
+pub fn export_cards_csv(
+    state: State<'_, AppState>,
+    data: ExportCardsCsvDto,
+) -> CommandResult<ExportCardsCsvResultDto> {
+    use std::io::Write;
+
+    let output_path = data.output_path.trim().to_string();
+    if output_path.is_empty() {
+        return Err(CommandError::InvalidInput("Missing output path".to_string()));
+    }
+
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let filters = CardFilters {
+        document_id: data.document_id.as_deref(),
+        anchor_id: None,
+        page_number: None,
+        limit: Some(10000),
+    };
+    let cards = repo.list_cards(filters)?;
+
+    let mut file = std::fs::File::create(&output_path)
+        .map_err(|e| CommandError::Internal(format!("Failed to create CSV file: {e}")))?;
+
+    // UTF-8 BOM for Excel compatibility
+    file.write_all(b"\xEF\xBB\xBF")
+        .map_err(|e| CommandError::Internal(format!("Write error: {e}")))?;
+
+    // Header
+    writeln!(file, "front,back,tags,state,difficulty,stability,next_review,created_at")
+        .map_err(|e| CommandError::Internal(format!("Write error: {e}")))?;
+
+    let card_count = cards.len();
+    for card in &cards {
+        let tags = decode_card_tags(card.tags.clone()).join(";");
+        writeln!(
+            file,
+            "{},{},{},{},{:.2},{:.2},{},{}",
+            csv_escape(&card.front),
+            csv_escape(&card.back),
+            csv_escape(&tags),
+            csv_escape(&card.state),
+            card.difficulty,
+            card.stability,
+            csv_escape(card.next_review.as_deref().unwrap_or("")),
+            csv_escape(&card.created_at),
+        )
+        .map_err(|e| CommandError::Internal(format!("Write error: {e}")))?;
+    }
+
+    Ok(ExportCardsCsvResultDto {
+        card_count,
+        output_path,
+    })
+}
+
+fn csv_escape(field: &str) -> String {
+    if field.contains(',') || field.contains('"') || field.contains('\n') {
+        format!("\"{}\"", field.replace('"', "\"\""))
+    } else {
+        field.to_string()
+    }
+}
+
+// ── Dialog-based CSV Export ─────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickExportCsvDto {
+    pub document_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn pick_and_export_csv(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    data: PickExportCsvDto,
+) -> CommandResult<Option<ExportCardsCsvResultDto>> {
+    let Some(file_path) = app
+        .dialog()
+        .file()
+        .add_filter("CSV", &["csv"])
+        .set_title("导出卡片为 CSV")
+        .set_file_name("xuejian-cards.csv")
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+
+    let output_path = file_path
+        .into_path()
+        .map_err(|e| CommandError::InvalidInput(e.to_string()))?
+        .to_string_lossy()
+        .to_string();
+
+    let result = export_cards_csv(state, ExportCardsCsvDto {
+        output_path,
+        document_id: data.document_id,
+    })?;
+
+    Ok(Some(result))
 }

@@ -16,6 +16,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .clients.host_gateway import HostGatewayClient
+from .exports.genanki_exporter import export_cards_to_apkg
+from .parsing.docling_pipeline import run_document_parse_workflow
 from .workflows.card_animation import run_card_animation_workflow
 from .workflows.card_generation import run_card_generation_workflow
 from .workflows.knowledge_graph import run_knowledge_graph_workflow
@@ -26,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [orchestration] %(me
 logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = "xuejian-orchestration/v1"
-SERVICE_VERSION = "0.3.0"
+SERVICE_VERSION = "0.4.0"
 
 # ── HTTP Server ────────────────────────────────────────────
 
@@ -78,10 +80,12 @@ def build_handler(start_time: float):
                             "health-check",
                             "preset-workflows",
                             "card-generation",
+                            "document-parse",
                             "knowledge-qa",
                             "card-animation",
                             "podcast",
                             "knowledge-graph",
+                            "anki-export",
                         ],
                     },
                 )
@@ -92,6 +96,10 @@ def build_handler(start_time: float):
         def do_POST(self) -> None:  # noqa: N802
             if self.path == "/workflows/card-generation":
                 self._handle_card_generation()
+                return
+
+            if self.path == "/workflows/document-parse":
+                self._handle_document_parse()
                 return
 
             if self.path == "/workflows/knowledge-qa":
@@ -108,6 +116,10 @@ def build_handler(start_time: float):
 
             if self.path == "/workflows/knowledge-graph":
                 self._handle_knowledge_graph()
+                return
+
+            if self.path == "/exports/apkg":
+                self._handle_export_apkg()
                 return
 
             self._write_json(404, {"error": "not_found"})
@@ -142,6 +154,37 @@ def build_handler(start_time: float):
                 self._write_json(200, result)
             except Exception as exc:
                 logger.error("Card generation workflow failed: %s", exc, exc_info=True)
+                self._write_json(500, {"error": str(exc)})
+
+        def _handle_document_parse(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"error": "host_gateway_unavailable"})
+                return
+
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"error": "invalid_json"})
+                return
+
+            run_id = body.get("runId", "")
+            document_id = body.get("documentId")
+
+            if not document_id:
+                self._write_json(400, {"error": "missing documentId"})
+                return
+
+            logger.info(
+                "Starting document parse: run=%s doc=%s",
+                run_id[:8] if run_id else "none", document_id[:8],
+            )
+            try:
+                result = run_document_parse_workflow(
+                    run_id, document_id, _host_gateway,
+                )
+                self._write_json(200, result)
+            except Exception as exc:
+                logger.error("Document parse workflow failed: %s", exc, exc_info=True)
                 self._write_json(500, {"error": str(exc)})
 
         def _handle_knowledge_qa(self) -> None:
@@ -276,6 +319,61 @@ def build_handler(start_time: float):
                 self._write_json(200, result)
             except Exception as exc:
                 logger.error("Knowledge graph workflow failed: %s", exc, exc_info=True)
+                self._write_json(500, {"error": str(exc)})
+
+        def _handle_export_apkg(self) -> None:
+            """POST /exports/apkg — export cards to an Anki .apkg file.
+
+            Request body:
+              outputPath  str   required — absolute path where the .apkg should be written
+              deckName    str   optional — Anki deck name (default: "XueJian Export")
+              documentId  str   optional — filter to cards from this document
+              groupId     str   optional — filter to cards from this group
+
+            Response:
+              200 { deckName, cardCount, outputPath, exportedAt }
+              400 missing outputPath
+              500 genanki not installed or other error
+            """
+            if _host_gateway is None:
+                self._write_json(503, {"error": "host_gateway_unavailable"})
+                return
+
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"error": "invalid_json"})
+                return
+
+            output_path = (body.get("outputPath") or "").strip()
+            if not output_path:
+                self._write_json(400, {"error": "missing outputPath"})
+                return
+
+            deck_name = (body.get("deckName") or "XueJian Export").strip()
+            document_id = (body.get("documentId") or "").strip() or None
+            group_id = (body.get("groupId") or "").strip() or None
+
+            logger.info(
+                "Export apkg: deck=%s doc=%s group=%s -> %s",
+                deck_name, document_id or "all", group_id or "all", output_path,
+            )
+
+            try:
+                cards = _host_gateway.list_cards(
+                    document_id=document_id,
+                    group_id=group_id,
+                    limit=5000,
+                )
+                result = export_cards_to_apkg(cards, output_path, deck_name=deck_name)
+                self._write_json(200, result)
+            except ImportError as exc:
+                logger.error("genanki not installed: %s", exc)
+                self._write_json(500, {"error": "genanki_not_installed", "detail": str(exc)})
+            except ValueError as exc:
+                self._write_json(400, {"error": str(exc)})
+            except Exception as exc:
+                logger.error("Anki export failed: %s", exc, exc_info=True)
                 self._write_json(500, {"error": str(exc)})
 
     return Handler

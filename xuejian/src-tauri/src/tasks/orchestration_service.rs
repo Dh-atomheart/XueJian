@@ -13,6 +13,8 @@ use tokio::time::sleep;
 
 use crate::gateway::ORCHESTRATION_PROTOCOL_VERSION;
 
+const STARTUP_BACKOFF_MS: [u64; 8] = [100, 200, 350, 600, 900, 1300, 1800, 2500];
+
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError {
     #[error("Python orchestration script not found: {0}")]
@@ -190,7 +192,7 @@ impl OrchestrationServiceManager {
 
         let mut last_error = None;
 
-        for _ in 0..20 {
+        for backoff_ms in STARTUP_BACKOFF_MS {
             match fetch_health(&endpoint).await {
                 Ok(payload) => {
                     let status = self.status_from_payload(payload);
@@ -200,13 +202,19 @@ impl OrchestrationServiceManager {
                 Err(error) => {
                     last_error = Some(error.to_string());
                     self.refresh_process_state()?;
-                    sleep(Duration::from_millis(250)).await;
+
+                    if self.process.is_none() {
+                        break;
+                    }
+
+                    sleep(Duration::from_millis(backoff_ms)).await;
                 }
             }
         }
 
         let error = last_error.unwrap_or_else(|| "health check timed out".to_string());
         self.stop()?;
+        self.last_health = ServiceHealthStatus::stopped(Some(error.clone()));
         Err(ServiceError::Startup(error))
     }
 
@@ -228,6 +236,16 @@ impl OrchestrationServiceManager {
 
                 if self.process.is_none() {
                     return Ok(self.last_health.clone());
+                }
+
+                if self.last_health.status == "starting" {
+                    let starting = ServiceHealthStatus {
+                        checked_at: chrono::Utc::now().to_rfc3339(),
+                        error_message: Some(error.to_string()),
+                        ..self.last_health.clone()
+                    };
+                    self.last_health = starting.clone();
+                    return Ok(starting);
                 }
 
                 let degraded = ServiceHealthStatus {
@@ -362,12 +380,12 @@ fn detect_python_command() -> Result<PythonCommandSpec> {
         candidates.push(PythonCommandSpec::new(custom_python));
     }
 
+    candidates.push(PythonCommandSpec::new("python3"));
+    candidates.push(PythonCommandSpec::new("python"));
+
     if cfg!(target_os = "windows") {
         candidates.push(PythonCommandSpec::with_args("py", ["-3"]));
     }
-
-    candidates.push(PythonCommandSpec::new("python3"));
-    candidates.push(PythonCommandSpec::new("python"));
 
     for candidate in candidates {
         let mut command = Command::new(&candidate.executable);

@@ -1,6 +1,6 @@
 ---
 title: MVP W3 Document And Learning
-status: draft
+status: done
 owner: platform
 last_reviewed: 2026-04-19
 canonical: true
@@ -41,14 +41,14 @@ canonical: true
 
 ## Tests
 
-| ID | 验收点 | 状态 |
-|----|--------|------|
-| mvp-w3-a1 | PDF 上传落盘 + 状态流转 uploading→parsed→ready | ⏳ |
-| mvp-w3-a2 | Docling+PyMuPDF 产出 DocumentIR 含 hierarchyPath/bbox/quoteHash | ⏳ |
-| mvp-w3-a3 | 文档转卡片：CardDraft → 人工确认 → Card（含 exportGuid） | ⏳ |
-| mvp-w3-a4 | genanki .apkg 导出可被 Anki 导入 | ⏳ |
-| mvp-w3-a5 | FSRS 评分：state 和 nextReview 正确更新 | ⏳ |
-| mvp-w3-a6 | 贴笺栏卡片→原文锚点跳转 | ⏳ |
+| ID        | 验收点                                                          | 状态 |
+| --------- | --------------------------------------------------------------- | ---- |
+| mvp-w3-a1 | PDF 上传落盘 + 状态流转 uploading→parsed→ready                  | ✅   |
+| mvp-w3-a2 | Docling+PyMuPDF 产出 DocumentIR 含 hierarchyPath/bbox/quoteHash | ✅   |
+| mvp-w3-a3 | 文档转卡片：CardDraft → 人工确认 → Card（含 exportGuid）        | ✅   |
+| mvp-w3-a4 | genanki .apkg 导出可被 Anki 导入                                | ✅   |
+| mvp-w3-a5 | FSRS 评分：state 和 nextReview 正确更新                         | ✅   |
+| mvp-w3-a6 | 贴笺栏卡片→原文锚点跳转                                         | ✅   |
 
 ## Relevant Files
 

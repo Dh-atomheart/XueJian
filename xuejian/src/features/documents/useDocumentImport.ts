@@ -5,7 +5,7 @@ import { cardsQueryKeys, documentsQueryKeys, orchestrationQueryKeys } from '@/qu
 import { reportAppError } from '@/lib/appFeedback'
 import { cardsGateway } from '@/services/gateway/cards'
 import { documentGateway } from '@/services/gateway/documents'
-import { parsePdfDocument } from '@/services/renderer/pdf'
+import { parsePdfDocument, resolvePdfDocumentSource } from '@/services/renderer/pdf'
 import { parseTextDocument } from '@/services/renderer/text'
 import { parseDocxDocument } from '@/services/renderer/docx'
 
@@ -124,8 +124,10 @@ async function parseDocumentByType(document: Document) {
 
   switch (fileType) {
     case 'pdf': {
-      const bytes = await documentGateway.readBinary(id)
-      return parsePdfDocument(id, bytes)
+      const source = await resolvePdfDocumentSource(document.filePath, () =>
+        documentGateway.readBinary(id)
+      )
+      return parsePdfDocument(id, source)
     }
     case 'md':
     case 'txt': {

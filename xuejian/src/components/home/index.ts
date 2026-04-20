@@ -1,0 +1,6 @@
+export { HomeTaskHero } from './HomeTaskHero'
+export { HomeRecentDocumentsPanel } from './HomeRecentDocumentsPanel'
+export { HomeQuickActionsPanel } from './HomeQuickActionsPanel'
+export { HomeStudyOverviewPanel } from './HomeStudyOverviewPanel'
+export { HomeHeatmapPanel } from './HomeHeatmapPanel'
+export { HomeInsightRail } from './HomeInsightRail'

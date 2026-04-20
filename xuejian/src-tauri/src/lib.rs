@@ -61,7 +61,7 @@ pub fn run() {
                 }
             };
 
-            let host_gateway_port = tauri::async_runtime::block_on(host_gateway.start()).map_err(|error| {
+            let host_gateway_port = host_gateway.start().map_err(|error| {
                 log::error!("Failed to start host HTTP gateway: {}", error);
                 Box::new(std::io::Error::new(
                     std::io::ErrorKind::Other,
@@ -71,36 +71,35 @@ pub fn run() {
 
             log::info!("Host HTTP gateway started on port {host_gateway_port}");
 
-            let orchestration =
-                match tasks::OrchestrationService::new(app.handle(), Some(host_gateway_port)) {
-                    Ok(orchestration) => {
-                        let health =
-                            tauri::async_runtime::block_on(orchestration.start()).map_err(|error| {
-                                log::error!("Failed to start orchestration service: {}", error);
-                                Box::new(std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    format!("Orchestration service startup failed: {error}"),
-                                ))
-                            })?;
+            let orchestration = match tasks::OrchestrationService::new(app.handle(), Some(host_gateway_port)) {
+                Ok(orchestration) => orchestration,
+                Err(error) => {
+                    log::error!("Failed to initialize orchestration service: {}", error);
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Orchestration service initialization failed: {error}"),
+                    )));
+                }
+            };
 
+            app.manage(AppState::new(db, secrets, orchestration));
+
+            let orchestration = app.state::<AppState>().orchestration.clone();
+            tauri::async_runtime::spawn(async move {
+                match orchestration.start().await {
+                    Ok(health) => {
                         log::info!(
                             "Orchestration service started successfully on {:?}",
                             health.endpoint
                         );
-                        orchestration
                     }
                     Err(error) => {
-                        log::error!("Failed to initialize orchestration service: {}", error);
-                        return Err(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Orchestration service initialization failed: {error}"),
-                        )));
+                        log::warn!("Background orchestration startup failed: {}", error);
                     }
-                };
+                }
+            });
 
-            app.manage(AppState::new(db, secrets, orchestration));
-
-            log::info!("学笺应用启动成功");
+            log::info!("学笺应用启动成功，后台服务将继续预热");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -133,6 +132,8 @@ pub fn run() {
             commands::cards::start_card_generation_workflow,
             commands::cards::resume_card_generation_workflow,
             commands::cards::finalize_card_generation_workflow,
+            commands::cards::export_cards_csv,
+            commands::cards::pick_and_export_csv,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::settings::list_api_configs,
@@ -153,6 +154,7 @@ pub fn run() {
             commands::orchestration::update_workflow_run,
             commands::orchestration::list_workflow_events,
             commands::orchestration::get_workflow_checkpoint,
+            commands::orchestration::export_cards_apkg,
             commands::knowledge::search_knowledge,
             commands::knowledge::start_knowledge_qa_workflow,
             commands::points::record_points,
@@ -180,7 +182,8 @@ pub fn run() {
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
             if let Some(state) = app_handle.try_state::<AppState>() {
-                let _ = tauri::async_runtime::block_on(state.orchestration.stop());
+                let orchestration = state.orchestration.clone();
+                let _ = tauri::async_runtime::block_on(async move { orchestration.stop().await });
             }
         }
     });

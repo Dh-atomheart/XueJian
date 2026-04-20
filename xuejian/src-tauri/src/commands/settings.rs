@@ -293,64 +293,149 @@ pub async fn test_api_connection(
     data: TestApiConnectionDto,
 ) -> CommandResult<ApiConnectionTestResultDto> {
     let auth_mode = data.auth_mode.as_str();
-    let trimmed_api_key = data.api_key.trim();
+    let trimmed_api_key = data.api_key.trim().to_string();
     let normalized_base_url = data
         .base_url
         .as_ref()
         .map(|value| value.trim().trim_end_matches('/').to_string())
         .filter(|value| !value.is_empty());
 
-    let (success, message) = if auth_mode == "adc" {
-        match data.provider.as_str() {
-            "google" => (
-                false,
-                "Google ADC 模式的配置契约已接通，但本地宿主的实际 ADC 探测尚未在本轮实现。".to_string(),
-            ),
-            _ => (
-                false,
-                format!("provider \"{}\" 暂不支持 authMode=adc", data.provider),
-            ),
-        }
-    } else if trimmed_api_key.is_empty() {
-        (false, "缺少 API Key。".to_string())
-    } else {
-        match data.provider.as_str() {
-            "openai" => {
-                let message = if trimmed_api_key.starts_with("sk-") {
-                    "OpenAI 配置字段完整，已通过本地预校验。".to_string()
-                } else {
-                    "OpenAI 已收到 API Key，但未命中常见 sk- 前缀；如为正式 Key，请继续以实际调用结果为准。".to_string()
-                };
-                (true, message)
-            }
-            "anthropic" => {
-                let message = if trimmed_api_key.starts_with("sk-ant-") {
-                    "Anthropic 配置字段完整，已通过本地预校验。".to_string()
-                } else {
-                    "Anthropic 已收到 API Key，但未命中常见 sk-ant- 前缀；如为正式 Key，请继续以实际调用结果为准。".to_string()
-                };
-                (true, message)
-            }
-            "google" => (
-                true,
-                "Google API Key 模式的字段已完整；Google ADC 认证将在后续宿主适配中补齐。".to_string(),
-            ),
-            "openai_compatible" => {
-                let Some(base_url) = normalized_base_url else {
-                    return Ok(ApiConnectionTestResultDto {
-                        success: false,
-                        message: "OpenAI-Compatible 需要提供 Base URL。".to_string(),
-                    });
-                };
+    if auth_mode == "adc" {
+        return Ok(ApiConnectionTestResultDto {
+            success: false,
+            message: match data.provider.as_str() {
+                "google" => "Google ADC 模式的配置契约已接通，但本地宿主的实际 ADC 探测尚未在本轮实现。".to_string(),
+                _ => format!("provider \"{}\" 暂不支持 authMode=adc", data.provider),
+            },
+        });
+    }
 
-                (true, format!("OpenAI-Compatible 配置字段完整，Base URL: {base_url}"))
-            }
-            _ => (
-                false,
-                format!("暂不支持 provider \"{}\" 的自动连接校验", data.provider),
-            ),
+    if trimmed_api_key.is_empty() {
+        return Ok(ApiConnectionTestResultDto {
+            success: false,
+            message: "缺少 API Key。".to_string(),
+        });
+    }
+
+    // Determine endpoint and headers for real connection test
+    let (url, auth_header, body) = match data.provider.as_str() {
+        "openai" => (
+            "https://api.openai.com/v1/chat/completions".to_string(),
+            format!("Bearer {trimmed_api_key}"),
+            serde_json::json!({
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            }),
+        ),
+        "anthropic" => (
+            "https://api.anthropic.com/v1/messages".to_string(),
+            trimmed_api_key.clone(),
+            serde_json::json!({
+                "model": "claude-3-haiku-20240307",
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            }),
+        ),
+        "openai_compatible" => {
+            let Some(base_url) = normalized_base_url.clone() else {
+                return Ok(ApiConnectionTestResultDto {
+                    success: false,
+                    message: "OpenAI-Compatible 需要提供 Base URL。".to_string(),
+                });
+            };
+            (
+                format!("{base_url}/chat/completions"),
+                format!("Bearer {trimmed_api_key}"),
+                serde_json::json!({
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 1,
+                }),
+            )
+        }
+        "google" => {
+            return Ok(ApiConnectionTestResultDto {
+                success: true,
+                message: "Google API Key 模式的字段已完整；Google ADC 认证将在后续宿主适配中补齐。".to_string(),
+            });
+        }
+        other => {
+            return Ok(ApiConnectionTestResultDto {
+                success: false,
+                message: format!("暂不支持 provider \"{other}\" 的自动连接校验"),
+            });
         }
     };
 
-    Ok(ApiConnectionTestResultDto { success, message })
+    // Make real HTTP request
+    let start = std::time::Instant::now();
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(ApiConnectionTestResultDto {
+                success: false,
+                message: format!("无法创建 HTTP 客户端: {e}"),
+            });
+        }
+    };
+
+    let mut request = client.post(&url).json(&body);
+    if data.provider == "anthropic" {
+        request = request
+            .header("x-api-key", &auth_header)
+            .header("anthropic-version", "2023-06-01");
+    } else {
+        request = request.header("Authorization", &auth_header);
+    }
+
+    match request.send().await {
+        Ok(response) => {
+            let elapsed_ms = start.elapsed().as_millis();
+            let status = response.status();
+            if status.is_success() || status.as_u16() == 200 {
+                Ok(ApiConnectionTestResultDto {
+                    success: true,
+                    message: format!("连接成功！响应耗时 {elapsed_ms}ms。"),
+                })
+            } else if status.as_u16() == 401 || status.as_u16() == 403 {
+                Ok(ApiConnectionTestResultDto {
+                    success: false,
+                    message: format!("认证失败 (HTTP {status})。请检查 API Key 是否正确。"),
+                })
+            } else {
+                let body_text = response.text().await.unwrap_or_default();
+                let detail = if body_text.len() > 200 {
+                    body_text[..200].to_string()
+                } else {
+                    body_text
+                };
+                Ok(ApiConnectionTestResultDto {
+                    success: false,
+                    message: format!("服务端返回 HTTP {status}: {detail}"),
+                })
+            }
+        }
+        Err(e) => {
+            if e.is_timeout() {
+                Ok(ApiConnectionTestResultDto {
+                    success: false,
+                    message: "连接超时（15秒）。请检查网络或 Base URL 是否正确。".to_string(),
+                })
+            } else if e.is_connect() {
+                Ok(ApiConnectionTestResultDto {
+                    success: false,
+                    message: format!("无法连接到服务器: {e}"),
+                })
+            } else {
+                Ok(ApiConnectionTestResultDto {
+                    success: false,
+                    message: format!("请求失败: {e}"),
+                })
+            }
+        }
+    }
 }

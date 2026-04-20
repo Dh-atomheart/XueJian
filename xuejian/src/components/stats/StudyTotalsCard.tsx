@@ -48,7 +48,7 @@ function Metric({
   unit: string
 }) {
   return (
-    <div className="rounded-[20px] border border-line-soft bg-paper-card/80 px-4 py-4">
+    <div className="rounded-card border border-line-soft bg-paper-card/80 px-4 py-4">
       <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
         {label}
       </p>

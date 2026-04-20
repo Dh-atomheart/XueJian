@@ -53,6 +53,8 @@ const mockAnchors: DocumentAnchor[] = [
     textQuote: "Chunking keeps the page readable while stable anchors hold the user's place.",
     rects: [normalizedRect(72, 118, 356, 18)],
     hash: 'anchor-chunk-reading-flow',
+    hierarchyPath: [],
+    quoteHash: null,
     createdAt: new Date(MOCK_NOW),
   },
   {
@@ -63,6 +65,8 @@ const mockAnchors: DocumentAnchor[] = [
     textQuote: 'Sticky notes should sit beside the paper instead of covering the text itself.',
     rects: [normalizedRect(72, 186, 372, 18)],
     hash: 'anchor-sticky-rail-layout',
+    hierarchyPath: [],
+    quoteHash: null,
     createdAt: new Date(MOCK_NOW),
   },
 ]
@@ -90,6 +94,10 @@ const mockCards: Card[] = [
     anchorId: MOCK_ANCHOR_IDS[0],
     front: '为什么阅读区要保留稳定锚点？',
     back: '因为卡片与原文的双向跳转必须建立在稳定位置之上，否则定位会漂移。',
+    title: null,
+    cardType: 'qa' as const,
+    clusterId: null,
+    exportGuid: null,
     sourcePage: 1,
     sourceParagraph: 1,
     sourceCoordinates: normalizedRect(72, 118, 356, 18),
@@ -109,6 +117,10 @@ const mockCards: Card[] = [
     anchorId: MOCK_ANCHOR_IDS[1],
     front: '贴笺栏为什么应独立于正文？',
     back: '右侧贴笺栏可以保持上下文可见，同时避免遮挡正文与文本选择。',
+    title: null,
+    cardType: 'qa' as const,
+    clusterId: null,
+    exportGuid: null,
     sourcePage: 1,
     sourceParagraph: 2,
     sourceCoordinates: normalizedRect(72, 186, 372, 18),
@@ -158,6 +170,10 @@ const defaultMockAppSettings: AppSettings = {
 let mockAppSettings: AppSettings = { ...defaultMockAppSettings }
 let mockApiConfigCounter = 1
 let mockApiConfigs: ApiConfig[] = []
+
+function inferMockProtocol(provider: ApiConfig['provider']): ApiConfig['protocol'] {
+  return provider === 'openai' || provider === 'anthropic' ? 'native' : 'openai-compatible'
+}
 
 export function resetMockGatewayState() {
   mockAppSettings = { ...defaultMockAppSettings }
@@ -233,6 +249,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       isEnabled: getBoolean(data.isEnabled) ?? true,
       hasStoredCredential: authMode === 'adc',
       hasStoredKey: false,
+      protocol: inferMockProtocol(data.provider),
       createdAt: new Date(),
     }
 
@@ -270,9 +287,11 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         return config
       }
 
+      const nextProvider = isApiProvider(data.provider) ? data.provider : config.provider
+
       const nextConfig: ApiConfig = {
         ...config,
-        provider: isApiProvider(data.provider) ? data.provider : config.provider,
+        provider: nextProvider,
         authMode: isApiAuthMode(data.authMode) ? data.authMode : config.authMode,
         name: getString(data.name) ?? config.name,
         model: data.model === undefined ? config.model : getNullableString(data.model),
@@ -281,6 +300,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
           data.budgetLimit === undefined ? config.budgetLimit : getNullableNumber(data.budgetLimit),
         isDefault: getBoolean(data.isDefault) ?? config.isDefault,
         isEnabled: getBoolean(data.isEnabled) ?? config.isEnabled,
+        protocol: inferMockProtocol(nextProvider),
       }
 
       nextConfig.hasStoredCredential = nextConfig.authMode === 'adc' || nextConfig.hasStoredKey
@@ -344,10 +364,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     if (authMode === 'adc') {
       return {
         success: false,
-        message:
-          provider === 'google'
-            ? 'Google ADC 模式的契约已接线，宿主侧真实凭证探测仍待后续实现。'
-            : `provider ${provider} 暂不支持 authMode=adc`,
+        message: `provider ${provider} 暂不支持 authMode=adc`,
       } as T
     }
 
@@ -355,14 +372,14 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       return { success: false, message: '缺少 API Key。' } as T
     }
 
-    if (provider === 'openai_compatible') {
+    if (provider === 'custom') {
       if (!baseUrl) {
-        return { success: false, message: 'OpenAI-Compatible 需要提供 Base URL。' } as T
+        return { success: false, message: 'Custom (OpenAI-Compatible) 需要提供 Base URL。' } as T
       }
 
       return {
         success: true,
-        message: `OpenAI-Compatible 配置字段完整，Base URL: ${baseUrl}`,
+        message: `Custom (OpenAI-Compatible) 配置字段完整，Base URL: ${baseUrl}`,
       } as T
     }
 
@@ -832,12 +849,7 @@ function getBoolean(value: unknown) {
 }
 
 function isApiProvider(value: unknown): value is ApiConfig['provider'] {
-  return (
-    value === 'openai' ||
-    value === 'anthropic' ||
-    value === 'google' ||
-    value === 'openai_compatible'
-  )
+  return value === 'openai' || value === 'anthropic' || value === 'custom' || value === 'qianfan'
 }
 
 function isApiAuthMode(value: unknown): value is ApiConfig['authMode'] {

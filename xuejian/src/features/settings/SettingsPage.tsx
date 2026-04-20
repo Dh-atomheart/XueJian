@@ -1,715 +1,234 @@
-import { useCallback, useEffect, useState } from 'react'
-import { appThemeOptions, resolveAppThemeId } from '@/design-system/themes'
-import { Button, Input, Panel } from '@/components/ui'
-import { StudyStatsCard } from '@/components/stats'
+import { useState } from 'react'
+import { SketchButton, SketchCard } from '@/components/ui/Sketch'
+import { useAppStore } from '@/lib/store'
+import { useAppUiStore } from '@/store'
 import { cn } from '@/lib/utils'
-import {
-  hasUsableApiConfig,
-  useApiConfigsQuery,
-  useCreateApiConfigMutation,
-  useDeleteApiConfigMutation,
-  useSetDefaultApiConfigMutation,
-  useStoreApiKeyMutation,
-  useTestApiConnectionMutation,
-  useAppSettingsQuery,
-  useUpdateAppSettingsMutation,
-} from '@/queries'
-import type { ApiConfig, AppThemeId } from '@/types'
 
-type Provider = ApiConfig['provider']
+export function SettingsPage() {
+  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const { aiConfig, setAIConfig } = useAppStore()
 
-const PROVIDERS: { value: Provider; label: string }[] = [
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai_compatible', label: 'OpenAI-Compatible' },
-]
+  const [provider, setProvider] = useState(aiConfig?.provider || 'openai')
+  const [apiKey, setApiKey] = useState(aiConfig?.apiKey || '')
+  const [baseUrl, setBaseUrl] = useState(aiConfig?.baseUrl || '')
+  const [model, setModel] = useState(aiConfig?.model || 'gpt-4')
+  const [showKey, setShowKey] = useState(false)
+  const [saved, setSaved] = useState(false)
 
-function configHasCredential(config: ApiConfig) {
-  return config.hasStoredCredential || config.hasStoredKey
-}
+  const handleSave = () => {
+    setAIConfig({
+      provider: provider as 'openai' | 'anthropic' | 'custom',
+      apiKey,
+      baseUrl: baseUrl || undefined,
+      model,
+    })
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
 
-const THEME_SWATCH_CLASSES: Record<AppThemeId, { paper: string; ink: string; accent: string }> = {
-  default: {
-    paper: 'theme-swatch-paper-default',
-    ink: 'theme-swatch-ink-default',
-    accent: 'theme-swatch-accent-default',
-  },
-  'comic-sketch': {
-    paper: 'theme-swatch-paper-comic-sketch',
-    ink: 'theme-swatch-ink-comic-sketch',
-    accent: 'theme-swatch-accent-comic-sketch',
-  },
-  'contrast-paper': {
-    paper: 'theme-swatch-paper-contrast-paper',
-    ink: 'theme-swatch-ink-contrast-paper',
-    accent: 'theme-swatch-accent-contrast-paper',
-  },
-}
-
-interface SettingsPageProps {
-  forcedOnboarding?: boolean
-}
-
-export function SettingsPage({ forcedOnboarding = false }: SettingsPageProps) {
-  const { data: configs = [], isLoading } = useApiConfigsQuery()
-  const { data: appSettings } = useAppSettingsQuery()
-  const createConfig = useCreateApiConfigMutation()
-  const deleteConfig = useDeleteApiConfigMutation()
-  const setDefault = useSetDefaultApiConfigMutation()
-  const storeKey = useStoreApiKeyMutation()
-  const testConn = useTestApiConnectionMutation()
-  const updateSettings = useUpdateAppSettingsMutation()
-
-  const [showForm, setShowForm] = useState(forcedOnboarding)
-  const [editingKeyConfigId, setEditingKeyConfigId] = useState<string | null>(null)
-
-  const currentThemeId = resolveAppThemeId(appSettings?.theme)
-  const hasConfiguredModel = hasUsableApiConfig(configs)
-  const editingKeyConfig = configs.find((config) => config.id === editingKeyConfigId) ?? null
-  const shouldShowCreateForm = forcedOnboarding ? !editingKeyConfig : showForm && !editingKeyConfig
-
-  useEffect(() => {
-    if (forcedOnboarding) {
-      setShowForm(true)
-    }
-  }, [forcedOnboarding])
-
-  useEffect(() => {
-    if (!editingKeyConfigId) {
-      return
-    }
-
-    const matchingConfig = configs.find((config) => config.id === editingKeyConfigId)
-    if (!matchingConfig || configHasCredential(matchingConfig)) {
-      setEditingKeyConfigId(null)
-    }
-  }, [configs, editingKeyConfigId])
-
-  const handleThemeChange = useCallback(
-    (theme: AppThemeId) => {
-      if (theme === currentThemeId || updateSettings.isPending) {
-        return
-      }
-
-      updateSettings.mutate({ theme })
+  const providers = [
+    {
+      id: 'openai' as const,
+      name: 'OpenAI',
+      description: 'GPT-4, GPT-3.5 等模型',
+      models: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
     },
-    [currentThemeId, updateSettings]
-  )
+    {
+      id: 'anthropic' as const,
+      name: 'Anthropic',
+      description: 'Claude 系列模型',
+      models: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
+    },
+    {
+      id: 'custom' as const,
+      name: '自定义',
+      description: '兼容 OpenAI API 的服务',
+      models: [] as string[],
+    },
+  ]
+
+  const currentProvider = providers.find((p) => p.id === provider)
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 px-4 py-6">
-      {/* Header */}
-      <div>
-        <p className="text-xs uppercase tracking-[0.26em] text-ink-soft">Settings</p>
-        <h1 className="mt-1 font-display text-2xl text-ink">模型与偏好</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          配置 AI 模型凭证，所有 API Key 仅存储在本地 Stronghold 密钥库中。
-        </p>
+    <div className="max-w-2xl mx-auto px-6 py-8 animate-fade-in">
+      <div className="flex items-center gap-4 mb-8">
+        <button
+          onClick={() => setActiveNavItem('home')}
+          className="p-2 hover:bg-paper-muted rounded-lg transition-colors"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+        <div>
+          <p className="text-xs tracking-[0.3em] text-ink-muted uppercase mb-1 font-ui">Settings</p>
+          <h1 className="text-2xl font-display font-semibold">设置</h1>
+        </div>
       </div>
 
-      {forcedOnboarding ? (
-        <Panel
-          variant="paperCard"
-          className="rounded-[24px] border border-highlight-yellow/40 bg-highlight-yellow/10 p-5"
-        >
-          <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">First Run Setup</p>
-          <h2 className="mt-2 font-ui text-lg text-ink">先补齐模型凭证，AI 功能才能稳定可用</h2>
-          <p className="mt-2 text-sm leading-6 text-ink-muted">
-            学笺依赖本地保存的模型凭证来驱动卡片生成、知识问答和后续 AI
-            流程。凭证补齐之前，你仍然可以浏览文档与设置，但相关 AI 能力会持续提醒你先完成配置。
-          </p>
-        </Panel>
-      ) : null}
+      {/* AI 配置 */}
+      <SketchCard className="mb-6">
+        <h2 className="font-medium mb-4">AI 模型配置</h2>
+        <p className="text-sm text-ink-muted mb-6">
+          配置你的 AI API Key 以启用智能功能。采用 BYOK 策略，密钥仅保存在本地。
+        </p>
 
-      {!forcedOnboarding && !hasConfiguredModel ? (
-        <Panel
-          variant="paperCard"
-          className="rounded-[24px] border border-amber-200 bg-amber-50/70 p-5"
-        >
-          <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">AI Setup</p>
-          <h2 className="mt-2 font-ui text-lg text-ink">当前还没有可用的模型配置</h2>
-          <p className="mt-2 text-sm leading-6 text-ink-muted">
-            文档浏览与基础导航不会被阻断，但卡片生成、知识问答等 AI
-            功能会提示你先在这里添加可用凭证。
-          </p>
-        </Panel>
-      ) : null}
-
-      {/* Model configs */}
-      <Panel variant="paperCard" className="space-y-4 rounded-[24px] p-6">
-        <div className="flex items-center justify-between">
-          <h2 className="font-ui text-lg text-ink">模型配置</h2>
-          <Button
-            variant="sketch"
-            size="sm"
-            data-testid="settings-toggle-add-config"
-            disabled={forcedOnboarding}
-            onClick={() => {
-              setEditingKeyConfigId(null)
-              setShowForm(!showForm)
-            }}
-          >
-            {showForm ? '取消' : '添加配置'}
-          </Button>
-        </div>
-
-        {forcedOnboarding && !hasConfiguredModel ? (
-          <p className="text-xs leading-5 text-ink-soft">
-            Finish one usable model setup before leaving this page. If a config already exists but
-            its key is missing, repair that key here.
-          </p>
-        ) : null}
-
-        {editingKeyConfig ? (
-          <UpdateApiKeyForm
-            config={editingKeyConfig}
-            storeKey={storeKey}
-            testConn={testConn}
-            onSaved={() => {
-              setEditingKeyConfigId(null)
-              setShowForm(false)
-            }}
-            onCancel={() => setEditingKeyConfigId(null)}
-          />
-        ) : null}
-
-        {shouldShowCreateForm && (
-          <AddConfigForm
-            forcedOnboarding={forcedOnboarding}
-            onCreated={() => setShowForm(false)}
-            createConfig={createConfig}
-            storeKey={storeKey}
-            testConn={testConn}
-          />
-        )}
-
-        {isLoading ? (
-          <p className="py-4 text-center text-sm text-ink-muted">加载中…</p>
-        ) : configs.length === 0 && !showForm ? (
-          <div className="py-6 text-center">
-            <p className="text-sm text-ink-muted">
-              尚未配置任何模型。添加第一个 API 配置来开始使用 AI 功能。
-            </p>
-          </div>
-        ) : (
-          <ul className="space-y-3">
-            {configs.map((config) => (
-              <ConfigRow
-                key={config.id}
-                config={config}
-                isManagingKey={editingKeyConfigId === config.id}
-                onManageKey={() => {
-                  setEditingKeyConfigId(config.id)
-                  setShowForm(false)
+        <div className="mb-6">
+          <label className="block text-sm font-medium mb-3">选择提供商</label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {providers.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => {
+                  setProvider(p.id)
+                  if (p.models.length > 0) setModel(p.models[0])
                 }}
-                onSetDefault={() => setDefault.mutate(config.id)}
-                onDelete={() => deleteConfig.mutate(config.id)}
-              />
+                className={cn(
+                  'p-4 rounded-lg border text-left transition-colors',
+                  provider === p.id
+                    ? 'border-ink/30 bg-paper-muted/50'
+                    : 'border-line-soft/60 hover:border-line-soft'
+                )}
+              >
+                <p className="font-medium text-sm">{p.name}</p>
+                <p className="text-xs text-ink-muted mt-1">{p.description}</p>
+              </button>
             ))}
-          </ul>
-        )}
-      </Panel>
+          </div>
+        </div>
 
-      {/* Minimal stats overview */}
-      <Panel variant="paperCard" className="rounded-[24px] p-6">
-        <h2 className="mb-3 font-ui text-lg text-ink">学习概览</h2>
-        <StudyStatsCard />
-        {appSettings && (
-          <div className="mt-4 flex gap-6 text-sm text-ink-muted">
-            <span>
-              每日新卡上限: <span className="text-ink">{appSettings.dailyNewCardLimit}</span>
-            </span>
-            <span>
-              复习时限: <span className="text-ink">{appSettings.reviewTimeLimit} 分钟</span>
-            </span>
+        <div className="mb-6">
+          <label className="block text-sm font-medium mb-2">API Key</label>
+          <div className="relative">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={`输入你的 ${currentProvider?.name} API Key`}
+              className="w-full px-4 py-3 pr-12 bg-paper-muted/50 border border-line-soft/60 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ink/10 transition-all"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(!showKey)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-paper-muted rounded transition-colors"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {showKey ? (
+                  <>
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" x2="23" y1="1" y2="23" />
+                  </>
+                ) : (
+                  <>
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </>
+                )}
+              </svg>
+            </button>
+          </div>
+          <p className="text-xs text-ink-muted mt-2">密钥仅保存在本地存储中，不会上传到服务器</p>
+        </div>
+
+        {provider === 'custom' && (
+          <div className="mb-6">
+            <label className="block text-sm font-medium mb-2">Base URL（可选）</label>
+            <input
+              type="url"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.example.com/v1"
+              className="w-full px-4 py-3 bg-paper-muted/50 border border-line-soft/60 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ink/10 transition-all"
+            />
           </div>
         )}
-      </Panel>
 
-      {/* Preferences (read-only display for now) */}
-      <Panel variant="paperCard" className="rounded-[24px] p-6">
-        <h2 className="mb-3 font-ui text-lg text-ink">偏好设置</h2>
-        {appSettings ? (
-          <div className="space-y-4 text-sm text-ink-muted">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="font-ui text-sm text-ink">主题包</p>
-                <p className="mt-1 text-xs leading-5 text-ink-soft">
-                  主题只覆盖 token 与资源，不会改动阅读器、学习页和设置页的业务交互。
-                </p>
-              </div>
-              <span className="text-xs text-ink-soft">
-                {updateSettings.isPending ? '保存中…' : '已保存在本地设置'}
-              </span>
+        <div className="mb-6">
+          <label className="block text-sm font-medium mb-2">模型</label>
+          {currentProvider?.models && currentProvider.models.length > 0 ? (
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full px-4 py-3 bg-paper-muted/50 border border-line-soft/60 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ink/10 transition-all"
+            >
+              {currentProvider.models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="输入模型名称"
+              className="w-full px-4 py-3 bg-paper-muted/50 border border-line-soft/60 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ink/10 transition-all"
+            />
+          )}
+        </div>
+
+        <div className="flex items-center gap-4">
+          <SketchButton variant="outline" onClick={handleSave}>
+            {saved ? '已保存' : '保存配置'}
+          </SketchButton>
+          {saved && <span className="text-sm text-green-600 animate-fade-in">配置已保存</span>}
+        </div>
+      </SketchCard>
+
+      {/* 学习设置 */}
+      <SketchCard className="mb-6">
+        <h2 className="font-medium mb-4">学习设置</h2>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">每日新卡片数量</p>
+              <p className="text-xs text-ink-muted">控制每天学习的新卡片上限</p>
             </div>
-
-            <div className="grid gap-3 md:grid-cols-3">
-              {appThemeOptions.map((themeOption) => {
-                const isActive = currentThemeId === themeOption.id
-
-                return (
-                  <button
-                    key={themeOption.id}
-                    type="button"
-                    data-testid={`theme-option-${themeOption.id}`}
-                    aria-current={isActive ? 'true' : undefined}
-                    disabled={updateSettings.isPending}
-                    onClick={() => handleThemeChange(themeOption.id)}
-                    className={cn(
-                      'rounded-[20px] border px-4 py-4 text-left transition-colors',
-                      isActive
-                        ? 'border-ink/30 bg-paper-card shadow-card'
-                        : 'border-line-soft bg-paper-muted/55 hover:border-ink/20 hover:bg-paper-card'
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-ui text-sm text-ink">{themeOption.label}</p>
-                        <p className="mt-1 text-xs leading-5 text-ink-muted">
-                          {themeOption.description}
-                        </p>
-                      </div>
-                      <span
-                        className={cn(
-                          'rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]',
-                          isActive
-                            ? 'border-ink/20 bg-ink text-paper-base'
-                            : 'border-ink/10 bg-paper-base text-ink-soft'
-                        )}
-                      >
-                        {isActive ? '当前' : '可用'}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 flex items-center gap-2">
-                      <span
-                        className={cn(
-                          'theme-swatch h-5 w-5 rounded-full border border-ink/10',
-                          THEME_SWATCH_CLASSES[themeOption.id].paper
-                        )}
-                      />
-                      <span
-                        className={cn(
-                          'theme-swatch h-5 w-5 rounded-full border border-ink/10',
-                          THEME_SWATCH_CLASSES[themeOption.id].ink
-                        )}
-                      />
-                      <span
-                        className={cn(
-                          'theme-swatch h-5 w-5 rounded-full border border-ink/10',
-                          THEME_SWATCH_CLASSES[themeOption.id].accent
-                        )}
-                      />
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-
-            <div className="flex justify-between rounded-xl border border-line-soft bg-paper-base/70 px-4 py-3">
-              <span>当前主题</span>
-              <span className="text-ink">
-                {appThemeOptions.find((theme) => theme.id === currentThemeId)?.label}
-              </span>
-            </div>
-
-            <div className="flex justify-between rounded-xl border border-line-soft bg-paper-base/70 px-4 py-3">
-              <span>语言</span>
-              <span className="text-ink">{appSettings.language}</span>
-            </div>
+            <select className="px-3 py-2 bg-paper-muted/50 border border-line-soft/60 rounded-lg text-sm">
+              <option>10</option>
+              <option>20</option>
+              <option>30</option>
+              <option>50</option>
+            </select>
           </div>
-        ) : (
-          <p className="text-sm text-ink-muted">加载中…</p>
-        )}
-      </Panel>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-
-function ConfigRow({
-  config,
-  isManagingKey,
-  onManageKey,
-  onSetDefault,
-  onDelete,
-}: {
-  config: ApiConfig
-  isManagingKey: boolean
-  onManageKey: () => void
-  onSetDefault: () => void
-  onDelete: () => void
-}) {
-  const hasCredential = configHasCredential(config)
-
-  return (
-    <li className="flex items-center justify-between gap-4 rounded-xl border border-line-soft bg-paper-card/60 px-4 py-3">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-ui text-sm text-ink">{config.name}</span>
-          <span className="rounded-full border border-ink/10 bg-paper-muted px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink-soft">
-            {config.provider}
-          </span>
-          <span
-            className={cn(
-              'rounded-full border px-2 py-0.5 text-[10px]',
-              hasCredential
-                ? 'border-highlight-green/40 bg-highlight-green/10 text-ink-muted'
-                : 'border-highlight-pink/40 bg-highlight-pink/10 text-ink-muted'
-            )}
-          >
-            {hasCredential ? '已存凭证' : '缺少凭证'}
-          </span>
-          <span className="rounded-full border border-ink/10 bg-paper-muted px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink-soft">
-            {config.authMode}
-          </span>
-          {config.isDefault && (
-            <span className="rounded-full border border-highlight-green/40 bg-highlight-green/10 px-2 py-0.5 text-[10px] text-ink-muted">
-              默认
-            </span>
-          )}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">每日复习上限</p>
+              <p className="text-xs text-ink-muted">控制每天复习卡片的数量</p>
+            </div>
+            <select className="px-3 py-2 bg-paper-muted/50 border border-line-soft/60 rounded-lg text-sm">
+              <option>50</option>
+              <option>100</option>
+              <option>200</option>
+              <option>无限制</option>
+            </select>
+          </div>
         </div>
-        {config.model && <p className="mt-0.5 text-xs text-ink-soft">{config.model}</p>}
-      </div>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          data-testid={`settings-manage-key-${config.id}`}
-          onClick={onManageKey}
-        >
-          {isManagingKey ? 'Editing Key' : hasCredential ? 'Update Key' : 'Add Key'}
-        </Button>
-        {!config.isDefault && (
-          <Button variant="ghost" size="sm" onClick={onSetDefault}>
-            设为默认
-          </Button>
-        )}
-        <Button variant="ghost" size="sm" onClick={onDelete}>
-          删除
-        </Button>
-      </div>
-    </li>
-  )
-}
+      </SketchCard>
 
-/* ------------------------------------------------------------------ */
-
-function AddConfigForm({
-  forcedOnboarding,
-  onCreated,
-  createConfig,
-  storeKey,
-  testConn,
-}: {
-  forcedOnboarding: boolean
-  onCreated: () => void
-  createConfig: ReturnType<typeof useCreateApiConfigMutation>
-  storeKey: ReturnType<typeof useStoreApiKeyMutation>
-  testConn: ReturnType<typeof useTestApiConnectionMutation>
-}) {
-  const [provider, setProvider] = useState<Provider>('openai')
-  const [name, setName] = useState('')
-  const [model, setModel] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
-  const [isTesting, setIsTesting] = useState(false)
-
-  const isOpenAiCompatible = provider === 'openai_compatible'
-
-  const handleProviderSelect = useCallback((nextProvider: Provider) => {
-    setProvider(nextProvider)
-
-    if (nextProvider !== 'openai_compatible') {
-      setBaseUrl('')
-      return
-    }
-
-    setBaseUrl((current) => current || '')
-  }, [])
-
-  const handleTestConnection = useCallback(async () => {
-    if (!apiKey) return
-    setIsTesting(true)
-    setTestResult(null)
-    try {
-      const result = await testConn.mutateAsync({
-        provider,
-        authMode: 'api_key',
-        apiKey,
-        baseUrl: baseUrl || null,
-      })
-      setTestResult(result)
-    } catch {
-      setTestResult({ success: false, message: '连接测试失败' })
-    } finally {
-      setIsTesting(false)
-    }
-  }, [apiKey, provider, baseUrl, testConn])
-
-  const handleSubmit = useCallback(async () => {
-    if (!name || !apiKey || (isOpenAiCompatible && !baseUrl)) return
-    try {
-      const config = await createConfig.mutateAsync({
-        provider,
-        authMode: 'api_key',
-        name,
-        model: model || null,
-        baseUrl: baseUrl || null,
-        budgetLimit: null,
-        isDefault: true,
-        isEnabled: true,
-      })
-      await storeKey.mutateAsync({ configId: config.id, apiKey })
-      setApiKey('')
-      onCreated()
-    } catch {
-      // mutation error handled by TanStack Query
-    }
-  }, [
-    name,
-    apiKey,
-    provider,
-    isOpenAiCompatible,
-    model,
-    baseUrl,
-    createConfig,
-    storeKey,
-    onCreated,
-  ])
-
-  return (
-    <div
-      className="space-y-3 rounded-xl border border-dashed border-line-soft bg-paper-muted/40 p-4"
-      data-testid="settings-add-config-form"
-    >
-      {forcedOnboarding ? (
-        <p className="text-xs leading-5 text-ink-soft">
-          Add one working model config first. The app will unlock as soon as the key is stored
-          locally.
-        </p>
-      ) : null}
-
-      {/* Provider */}
-      <div className="flex gap-2">
-        {PROVIDERS.map((p) => (
-          <button
-            key={p.value}
-            type="button"
-            onClick={() => handleProviderSelect(p.value)}
-            className={`rounded-lg border px-3 py-1.5 font-ui text-xs transition-colors ${
-              provider === p.value
-                ? 'border-ink/30 bg-paper-card text-ink'
-                : 'border-transparent text-ink-muted hover:bg-paper-card/60'
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Fields */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block font-ui text-xs text-ink-soft">配置名称</label>
-          <Input
-            data-testid="settings-add-config-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="如: My OpenAI"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block font-ui text-xs text-ink-soft">模型</label>
-          <Input
-            data-testid="settings-add-config-model"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="如: gpt-4o"
-          />
-        </div>
-      </div>
-
-      {isOpenAiCompatible && (
-        <div>
-          <label className="mb-1 block font-ui text-xs text-ink-soft">Base URL</label>
-          <Input
-            data-testid="settings-add-config-base-url"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://api.example.com/v1"
-          />
-          <p className="mt-1 text-[11px] text-ink-soft">
-            输入兼容 OpenAI Chat Completions 的服务基地址。当前不内置任何厂商定向预设。
-          </p>
-        </div>
-      )}
-
-      <div>
-        <label className="mb-1 block font-ui text-xs text-ink-soft">API Key</label>
-        <Input
-          data-testid="settings-add-config-key"
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-... / provider-issued key"
-          autoComplete="off"
-        />
-        <p className="mt-1 text-[11px] text-ink-soft">
-          Key 仅存储于本地 Stronghold 密钥库，不进入数据库或网络日志。
-        </p>
-      </div>
-
-      {/* Test result */}
-      {testResult && (
-        <div
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            testResult.success
-              ? 'border-highlight-green/40 bg-highlight-green/10 text-ink-muted'
-              : 'border-highlight-pink/40 bg-highlight-pink/10 text-ink-muted'
-          }`}
-        >
-          {testResult.message}
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex items-center gap-3 pt-1">
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid="settings-test-connection"
-          onClick={handleTestConnection}
-          disabled={!apiKey || isTesting}
-        >
-          {isTesting ? '测试中…' : '测试连接'}
-        </Button>
-        <Button
-          variant="default"
-          size="sm"
-          data-testid="settings-save-config"
-          onClick={handleSubmit}
-          disabled={!name || !apiKey || (isOpenAiCompatible && !baseUrl) || createConfig.isPending}
-        >
-          {createConfig.isPending ? '保存中…' : '保存配置'}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function UpdateApiKeyForm({
-  config,
-  storeKey,
-  testConn,
-  onSaved,
-  onCancel,
-}: {
-  config: ApiConfig
-  storeKey: ReturnType<typeof useStoreApiKeyMutation>
-  testConn: ReturnType<typeof useTestApiConnectionMutation>
-  onSaved: () => void
-  onCancel: () => void
-}) {
-  const [apiKey, setApiKey] = useState('')
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
-  const [isTesting, setIsTesting] = useState(false)
-
-  const handleTestConnection = useCallback(async () => {
-    if (!apiKey) return
-
-    setIsTesting(true)
-    setTestResult(null)
-
-    try {
-      const result = await testConn.mutateAsync({
-        provider: config.provider,
-        authMode: config.authMode,
-        apiKey,
-        baseUrl: config.baseUrl,
-      })
-      setTestResult(result)
-    } catch {
-      setTestResult({ success: false, message: 'Connection test failed' })
-    } finally {
-      setIsTesting(false)
-    }
-  }, [apiKey, config.baseUrl, config.provider, testConn])
-
-  const handleSubmit = useCallback(async () => {
-    if (!apiKey) return
-
-    try {
-      await storeKey.mutateAsync({ configId: config.id, apiKey })
-      setApiKey('')
-      onSaved()
-    } catch {
-      // mutation error handled by TanStack Query
-    }
-  }, [apiKey, config.id, onSaved, storeKey])
-
-  return (
-    <div
-      className="space-y-3 rounded-xl border border-dashed border-line-soft bg-paper-muted/40 p-4"
-      data-testid="settings-update-key-form"
-    >
-      <div className="space-y-1">
-        <p className="font-ui text-sm text-ink">{config.name}</p>
-        <p className="text-xs text-ink-soft">
-          为 {config.provider}
-          {config.model ? ` / ${config.model}` : ''} 更新本地保存的 API Key。
-        </p>
-      </div>
-
-      <div>
-        <label className="mb-1 block font-ui text-xs text-ink-soft">API Key</label>
-        <Input
-          data-testid="settings-update-config-key"
-          type="password"
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-          placeholder="sk-..."
-          autoComplete="off"
-        />
-      </div>
-
-      {testResult ? (
-        <div
-          className={cn(
-            'rounded-lg border px-3 py-2 text-xs',
-            testResult.success
-              ? 'border-highlight-green/40 bg-highlight-green/10 text-ink-muted'
-              : 'border-highlight-pink/40 bg-highlight-pink/10 text-ink-muted'
-          )}
-        >
-          {testResult.message}
-        </div>
-      ) : null}
-
-      <div className="flex items-center gap-3 pt-1">
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid="settings-update-test-connection"
-          onClick={handleTestConnection}
-          disabled={!apiKey || isTesting}
-        >
-          {isTesting ? '测试中…' : '测试连接'}
-        </Button>
-        <Button
-          variant="default"
-          size="sm"
-          data-testid="settings-update-save-key"
-          onClick={handleSubmit}
-          disabled={!apiKey || storeKey.isPending}
-        >
-          {storeKey.isPending ? '保存中…' : '保存 Key'}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          取消
-        </Button>
+      {/* 关于 */}
+      <div className="mt-8 text-center text-sm text-ink-muted">
+        <p>学笺 XueJian v1.0.0</p>
+        <p className="mt-1">智能学习，从心开始</p>
       </div>
     </div>
   )

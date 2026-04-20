@@ -67,14 +67,14 @@ impl HostHttpGateway {
 
     /// Start the gateway server in a background task.
     /// Returns the port the server is listening on.
-    pub async fn start(&self) -> Result<u16> {
+    pub fn start(&self) -> Result<u16> {
         let state = self.state.clone();
         let listener = TcpListener::bind(format!("127.0.0.1:{}", self.port))?;
         let actual_port = listener.local_addr()?.port();
 
         log::info!("Host HTTP gateway listening on 127.0.0.1:{actual_port}");
 
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             loop {
                 let (stream, _addr) = match listener.accept() {
                     Ok(conn) => conn,
@@ -221,9 +221,44 @@ fn route_request(
         // ── ToolGateway ───────────────────────────────────
         ("GET", path) if path.starts_with("/tool-gateway/documents/") => {
             let document_id = path.strip_prefix("/tool-gateway/documents/").unwrap_or("");
-            match get_document_json(&app_state, document_id) {
-                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
-                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+            // Check if this is a sub-route (status update or analysis)
+            if document_id.contains("/status") || document_id.contains("/analysis") {
+                GatewayResponse::NotFound(json!({"error": "use POST for status/analysis"}).to_string())
+            } else {
+                match get_document_json(&app_state, document_id) {
+                    Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                    Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                    Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                }
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/documents/") && path.ends_with("/status") => {
+            let document_id = path
+                .strip_prefix("/tool-gateway/documents/")
+                .and_then(|p| p.strip_suffix("/status"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match update_document_status_json(&app_state, document_id, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/documents/") && path.ends_with("/analysis") => {
+            let document_id = path
+                .strip_prefix("/tool-gateway/documents/")
+                .and_then(|p| p.strip_suffix("/analysis"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match save_document_analysis_json(&app_state, document_id, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
                 Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
             }
         }
@@ -271,6 +306,62 @@ fn route_request(
             };
             match search_chunks_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        // ── ToolGateway: cards (for export) ───────────────
+        ("GET", path) if path.starts_with("/tool-gateway/cards") => {
+            match list_cards_json(&app_state, path) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        // ── ToolGateway: run status & checkpoint ──────────
+        ("GET", path) if path.starts_with("/tool-gateway/runs/") && path.ends_with("/checkpoint") => {
+            let run_id = path
+                .strip_prefix("/tool-gateway/runs/")
+                .and_then(|p| p.strip_suffix("/checkpoint"))
+                .unwrap_or("");
+            match get_latest_checkpoint_json(&app_state, run_id) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "no_checkpoint"}).to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/runs/") && path.ends_with("/checkpoint") => {
+            let run_id = path
+                .strip_prefix("/tool-gateway/runs/")
+                .and_then(|p| p.strip_suffix("/checkpoint"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match save_checkpoint_json(&app_state, run_id, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/runs/") && path.ends_with("/cancel") => {
+            let run_id = path
+                .strip_prefix("/tool-gateway/runs/")
+                .and_then(|p| p.strip_suffix("/cancel"))
+                .unwrap_or("");
+            match cancel_run_json(&app_state, run_id) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", path) if path.starts_with("/tool-gateway/runs/") => {
+            let run_id = path.strip_prefix("/tool-gateway/runs/").unwrap_or("");
+            match get_run_json(&app_state, run_id) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
                 Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
             }
         }
@@ -331,6 +422,69 @@ fn get_document_json(state: &AppState, document_id: &str) -> Result<Option<Value
     }))
 }
 
+fn update_document_status_json(state: &AppState, document_id: &str, request: Value) -> Result<Value> {
+    let status = request["status"].as_str().unwrap_or("unknown");
+    let db = state.lock_db()?;
+    let repo = crate::db::DocumentRepository::new(&db);
+    repo.update_status(document_id, status)?;
+    Ok(json!({"ok": true, "status": status}))
+}
+
+fn save_document_analysis_json(state: &AppState, document_id: &str, request: Value) -> Result<Value> {
+    let page_count = request["pageCount"].as_i64().unwrap_or(0) as i32;
+    let anchors: Vec<crate::db::CreateDocumentAnchorRequest> = request["anchors"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .map(|a| crate::db::CreateDocumentAnchorRequest {
+            page: a["page"].as_i64().unwrap_or(1) as i32,
+            paragraph: a["paragraph"].as_i64().map(|v| v as i32),
+            text_quote: a["textQuote"].as_str().unwrap_or("").to_string(),
+            rects: a["rects"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|r| crate::db::DocumentAnchorRect {
+                    x: r["x"].as_f64().unwrap_or(0.0),
+                    y: r["y"].as_f64().unwrap_or(0.0),
+                    width: r["width"].as_f64().unwrap_or(0.0),
+                    height: r["height"].as_f64().unwrap_or(0.0),
+                })
+                .collect(),
+            hash: a["hash"].as_str().unwrap_or("").to_string(),
+            hierarchy_path: a["hierarchyPath"]
+                .as_array()
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()),
+            quote_hash: Some(a["hash"].as_str().unwrap_or("").to_string()),
+        })
+        .collect();
+    let chunks: Vec<crate::db::CreateDocumentChunkRequest> = request["chunks"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .map(|c| crate::db::CreateDocumentChunkRequest {
+            page_start: c["pageStart"].as_i64().map(|v| v as i32),
+            page_end: c["pageEnd"].as_i64().map(|v| v as i32),
+            chunk_index: c["chunkIndex"].as_i64().unwrap_or(0) as i32,
+            content: c["content"].as_str().unwrap_or("").to_string(),
+            token_count: c["tokenCount"].as_i64().map(|v| v as i32),
+            metadata: if c["metadata"].is_null() { None } else { Some(c["metadata"].clone()) },
+        })
+        .collect();
+
+    let db = state.lock_db()?;
+    let repo = crate::db::DocumentRepository::new(&db);
+    repo.replace_analysis(
+        document_id,
+        crate::db::ReplaceDocumentAnalysisRequest {
+            page_count,
+            anchors,
+            chunks,
+        },
+    )?;
+    Ok(json!({"ok": true}))
+}
+
 fn list_anchors_json(state: &AppState, document_id: &str) -> Result<Value> {
     let db = state.lock_db()?;
     let repo = crate::db::DocumentRepository::new(&db);
@@ -388,6 +542,8 @@ fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
             workflow_run_id: Some(run_id.to_string()),
             document_id: document_id.to_string(),
             anchor_id,
+            title: candidate["title"].as_str().map(String::from),
+            card_type: candidate["cardType"].as_str().map(String::from),
             front,
             back,
             tags,
@@ -448,4 +604,140 @@ fn search_chunks_json(state: &AppState, request: Value) -> Result<Value> {
             "snippet": r.snippet,
         })
     }).collect::<Vec<_>>().into())
+}
+
+/// Parse simple key=value query string (no URL decoding needed for our use).
+fn qs_param<'a>(qs: &'a str, key: &str) -> Option<&'a str> {
+    qs.split('&').find_map(|pair| {
+        let mut parts = pair.splitn(2, '=');
+        let k = parts.next()?;
+        if k == key { parts.next() } else { None }
+    })
+}
+
+fn list_cards_json(state: &AppState, path_with_qs: &str) -> Result<Value> {
+    let qs = path_with_qs.splitn(2, '?').nth(1).unwrap_or("");
+    let document_id = qs_param(qs, "documentId");
+    let limit: i64 = qs_param(qs, "limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1000);
+
+    let db = state.lock_db()?;
+    let repo = crate::db::CardRepository::new(&db);
+    let filters = crate::db::CardFilters {
+        document_id,
+        anchor_id: None,
+        page_number: None,
+        limit: Some(limit),
+    };
+    let cards = repo.list_cards(filters)?;
+    Ok(cards.into_iter().map(|c| {
+        json!({
+            "id": c.id,
+            "groupId": c.group_id,
+            "title": c.title,
+            "cardType": c.card_type,
+            "clusterId": c.cluster_id,
+            "exportGuid": c.export_guid,
+            "front": c.front,
+            "back": c.back,
+            "documentId": c.document_id,
+            "anchorId": c.anchor_id,
+            "sourcePage": c.source_page,
+            "tags": c.tags,
+        })
+    }).collect::<Vec<_>>().into())
+}
+
+// ── Run / Checkpoint / Cancel helpers ─────────────────────
+
+fn get_run_json(state: &AppState, run_id: &str) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = crate::db::WorkflowRepository::new(&db);
+    let run = repo.get_run(run_id)?;
+    Ok(run.map(|r| {
+        json!({
+            "id": r.id,
+            "workflowType": r.workflow_type,
+            "presetId": r.preset_id,
+            "status": r.status,
+            "threadId": r.thread_id,
+            "checkpointRef": r.checkpoint_ref,
+            "costUsd": r.cost_usd,
+            "errorMessage": r.error_message,
+            "startedAt": r.started_at,
+            "finishedAt": r.finished_at,
+            "createdAt": r.created_at,
+            "updatedAt": r.updated_at,
+        })
+    }))
+}
+
+fn get_latest_checkpoint_json(state: &AppState, run_id: &str) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = crate::db::WorkflowRepository::new(&db);
+    let cp = repo.get_latest_checkpoint(run_id)?;
+    Ok(cp.map(|c| {
+        json!({
+            "id": c.id,
+            "runId": c.run_id,
+            "checkpointRef": c.checkpoint_ref,
+            "stepKey": c.step_key,
+            "payload": c.payload,
+            "createdAt": c.created_at,
+            "updatedAt": c.updated_at,
+        })
+    }))
+}
+
+fn save_checkpoint_json(state: &AppState, run_id: &str, request: Value) -> Result<Value> {
+    let checkpoint_ref = request["checkpointRef"]
+        .as_str()
+        .unwrap_or("latest")
+        .to_string();
+    let step_key = request["stepKey"].as_str().map(String::from);
+    let payload = if request["payload"].is_null() {
+        request.clone()
+    } else {
+        request["payload"].clone()
+    };
+
+    let db = state.lock_db()?;
+    let repo = crate::db::WorkflowRepository::new(&db);
+    let cp = repo.upsert_checkpoint(crate::db::UpsertWorkflowCheckpointRequest {
+        run_id: run_id.to_string(),
+        checkpoint_ref,
+        step_key,
+        payload,
+    })?;
+    Ok(json!({
+        "id": cp.id,
+        "runId": cp.run_id,
+        "checkpointRef": cp.checkpoint_ref,
+        "stepKey": cp.step_key,
+        "createdAt": cp.created_at,
+        "updatedAt": cp.updated_at,
+    }))
+}
+
+fn cancel_run_json(state: &AppState, run_id: &str) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::WorkflowRepository::new(&db);
+    let now = chrono::Utc::now().to_rfc3339();
+    let run = repo.update_run(
+        run_id,
+        crate::db::UpdateWorkflowRunRequest {
+            status: Some("cancelled".to_string()),
+            checkpoint_ref: None,
+            approval_payload: None,
+            cost_usd: None,
+            error_message: Some("Cancelled by user".to_string()),
+            started_at: None,
+            finished_at: Some(now),
+        },
+    )?;
+    match run {
+        Some(r) => Ok(json!({"id": r.id, "status": r.status})),
+        None => Ok(json!({"error": "not_found"})),
+    }
 }

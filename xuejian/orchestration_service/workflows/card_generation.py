@@ -8,6 +8,7 @@ import re
 from typing import TYPE_CHECKING
 
 from ..providers.runtime import build_langchain_chat_model
+from ..schemas.card_draft import CardDraftBatch
 
 if TYPE_CHECKING:
     from ..clients.host_gateway import HostGatewayClient
@@ -34,6 +35,16 @@ Source quote: {quote}
 
 Generate flashcard candidates from this passage. Output a JSON array only.
 """
+
+
+class WorkflowCancelled(Exception):
+    """Raised when the host signals cancellation."""
+
+
+def _check_cancelled(host: HostGatewayClient, run_id: str) -> None:
+    """Poll host for cancellation; raise WorkflowCancelled if so."""
+    if host.is_run_cancelled(run_id):
+        raise WorkflowCancelled(run_id)
 
 
 def _compute_dedupe_key(document_id: str, anchor_id: str | None, front: str, back: str) -> str:
@@ -95,6 +106,8 @@ def _try_langchain_generation(
         if total_persisted >= max_candidates:
             break
 
+        _check_cancelled(host, run_id)
+
         anchor = None
         metadata = chunk.get("metadata") or {}
         anchor_hashes = metadata.get("anchorHashes", []) if isinstance(metadata, dict) else []
@@ -127,32 +140,13 @@ def _try_langchain_generation(
             logger.error("LLM invocation failed for chunk %s: %s", chunk.get("chunkIndex"), exc)
             continue
 
-        candidates = []
-        for item in items[:max_candidates - total_persisted]:
-            front = str(item.get("front", "")).strip()
-            back = str(item.get("back", "")).strip()
-            if len(front) < 8 or len(back) < 12:
-                continue
-            confidence = float(item.get("confidence", 0.7))
-            confidence = max(0.0, min(1.0, confidence))
-            tags = item.get("tags", [])
-            if isinstance(tags, str):
-                tags = [t.strip() for t in tags.split(",") if t.strip()]
-            tags = [str(t) for t in tags][:8]
-            if anchor:
-                tags.append(f"page-{anchor.get('page', '?')}")
-
-            dedupe_key = _compute_dedupe_key(
-                document["id"], anchor.get("id") if anchor else None, front, back,
-            )
-            candidates.append({
-                "anchorId": anchor.get("id") if anchor else None,
-                "front": front,
-                "back": back,
-                "confidence": round(confidence, 3),
-                "tags": tags,
-                "dedupeKey": dedupe_key,
-            })
+        batch = CardDraftBatch.from_llm_json(
+            items, anchor.get("id") if anchor else None, document["id"]
+        )
+        candidates = [
+            d.to_persist_payload(run_id, document["id"])
+            for d in batch.drafts[:max_candidates - total_persisted]
+        ]
 
         if candidates:
             result = host.persist_candidates(run_id, document["id"], candidates)
@@ -178,6 +172,8 @@ def _rule_based_generation(
     for chunk in chunks:
         if total_persisted >= max_candidates:
             break
+
+        _check_cancelled(host, run_id)
 
         metadata = chunk.get("metadata") or {}
         anchor_hashes = metadata.get("anchorHashes", []) if isinstance(metadata, dict) else []
@@ -237,25 +233,54 @@ def run_card_generation_workflow(
     if not chunks:
         return {"status": "failed", "error": "Document has no parsed chunks"}
 
-    config_with_key = host.get_default_config_with_key()
-    ai_count = 0
-    if config_with_key:
-        config, api_key = config_with_key
-        logger.info(
-            "Using AI model %s (%s) for card generation",
-            config.get("model", "default"),
-            config.get("provider", "openai"),
-        )
-        try:
-            ai_count = _try_langchain_generation(
-                config, api_key, chunks, anchors, document, run_id, max_candidates, host,
-            )
-        except Exception as exc:
-            logger.error("AI generation failed, falling back to rules: %s", exc)
+    # Try to resume from checkpoint
+    checkpoint = host.load_checkpoint(run_id)
+    start_chunk = 0
+    if checkpoint and isinstance(checkpoint, dict):
+        payload = checkpoint.get("payload")
+        if isinstance(payload, dict):
+            start_chunk = payload.get("chunkCursor", 0)
+            logger.info("Resuming from checkpoint: chunk_cursor=%d", start_chunk)
 
-    if ai_count == 0:
-        logger.info("Using rule-based generation (AI unavailable or produced 0 candidates)")
-        ai_count = _rule_based_generation(chunks, anchors, document, run_id, max_candidates, host)
+    if start_chunk > 0 and start_chunk < len(chunks):
+        chunks = chunks[start_chunk:]
+        logger.info("Skipping %d already-processed chunks", start_chunk)
+
+    try:
+        config_with_key = host.get_default_config_with_key()
+        ai_count = 0
+        if config_with_key:
+            config, api_key = config_with_key
+            logger.info(
+                "Using AI model %s (%s) for card generation",
+                config.get("model", "default"),
+                config.get("provider", "openai"),
+            )
+            try:
+                ai_count = _try_langchain_generation(
+                    config, api_key, chunks, anchors, document, run_id, max_candidates, host,
+                )
+            except WorkflowCancelled:
+                raise
+            except Exception as exc:
+                logger.error("AI generation failed, falling back to rules: %s", exc)
+
+        if ai_count == 0:
+            logger.info("Using rule-based generation (AI unavailable or produced 0 candidates)")
+            ai_count = _rule_based_generation(chunks, anchors, document, run_id, max_candidates, host)
+
+        # Save final checkpoint
+        _save_progress_checkpoint(host, run_id, document_id, len(chunks), ai_count)
+
+    except WorkflowCancelled:
+        logger.info("Workflow %s cancelled by user", run_id)
+        counts = host.count_candidates(run_id)
+        return {
+            "status": "cancelled",
+            "generatedCount": counts.get("total", 0),
+            "totalCandidates": counts.get("total", 0),
+            "pendingCount": counts.get("pending", 0),
+        }
 
     counts = host.count_candidates(run_id)
     return {
@@ -264,3 +289,22 @@ def run_card_generation_workflow(
         "totalCandidates": counts.get("total", 0),
         "pendingCount": counts.get("pending", 0),
     }
+
+
+def _save_progress_checkpoint(
+    host: HostGatewayClient, run_id: str, document_id: str,
+    total_chunks: int, generated_count: int,
+) -> None:
+    """Persist a lightweight progress checkpoint to the host."""
+    try:
+        host.save_checkpoint(run_id, {
+            "checkpointRef": "python-progress",
+            "stepKey": "card-generation",
+            "payload": {
+                "documentId": document_id,
+                "chunkCursor": total_chunks,
+                "generatedCount": generated_count,
+            },
+        })
+    except Exception as exc:
+        logger.warning("Failed to save checkpoint: %s", exc)

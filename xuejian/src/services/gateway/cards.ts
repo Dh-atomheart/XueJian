@@ -191,7 +191,47 @@ export const cardsGateway = {
     })
   },
 
-  async getDailyStats(): Promise<{ newCards: number; reviewCards: number }> {
-    return invoke<{ newCards: number; reviewCards: number }>('get_daily_stats')
+  async getDailyStats(): Promise<{
+    newCards: number
+    reviewCards: number
+    correctRate: number | null
+  }> {
+    return invoke<{ newCards: number; reviewCards: number; correctRate: number | null }>(
+      'get_daily_stats'
+    )
+  },
+
+  async exportCardsCsv(
+    outputPath: string,
+    documentId?: string | null
+  ): Promise<{ cardCount: number; outputPath: string }> {
+    return invoke<{ cardCount: number; outputPath: string }>('export_cards_csv', {
+      data: { outputPath, documentId: documentId ?? null },
+    })
+  },
+
+  async exportCardsApkg(
+    outputPath: string,
+    deckName?: string,
+    documentId?: string | null
+  ): Promise<{ deckName: string; cardCount: number; outputPath: string; exportedAt: string }> {
+    return invoke<{ deckName: string; cardCount: number; outputPath: string; exportedAt: string }>(
+      'export_cards_apkg',
+      {
+        data: {
+          outputPath,
+          deckName: deckName ?? 'XueJian Export',
+          documentId: documentId ?? null,
+        },
+      }
+    )
+  },
+
+  async pickAndExportCsv(
+    documentId?: string | null
+  ): Promise<{ cardCount: number; outputPath: string } | null> {
+    return invoke<{ cardCount: number; outputPath: string } | null>('pick_and_export_csv', {
+      data: { documentId: documentId ?? null },
+    })
   },
 }

@@ -39,14 +39,20 @@ export const themeTokens = {
     thin: '1px solid',
     sketch: '2px',
   },
+  radii: {
+    panel: '20px',
+    card: '16px',
+    item: '12px',
+    sketch: '2px',
+  },
   shadows: {
     paper: '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)',
     sticky: '0 2px 8px rgba(0,0,0,0.06)',
     card: '0 1px 4px rgba(0,0,0,0.05)',
   },
   textures: {
-    paperGrain: '/textures/paper-grain.png',
-    scribbleOverlay: '/textures/scribble-overlay.png',
+    paperGrain: '/textures/paper-grain.svg',
+    scribbleOverlay: '/textures/scribble-overlay.svg',
   },
   iconStyle: 'hand-drawn-monoline' as const,
 }
@@ -75,12 +81,16 @@ export type PageShellVariant = 'dashboard' | 'library' | 'reader' | 'review' | '
 /**
  * Surface样式配置
  */
-export const surfaceStyles: Record<SurfaceVariant, {
-  bg: string
-  border?: string
-  shadow?: string
-  padding?: string
-}> = {
+export const surfaceStyles: Record<
+  SurfaceVariant,
+  {
+    bg: string
+    border?: string
+    shadow?: string
+    padding?: string
+    rounded?: string
+  }
+> = {
   canvas: {
     bg: 'bg-paper-base',
     padding: 'p-4',
@@ -90,18 +100,21 @@ export const surfaceStyles: Record<SurfaceVariant, {
     border: 'border border-line-soft',
     shadow: 'shadow-paper',
     padding: 'p-4',
+    rounded: 'rounded-panel',
   },
   paperCard: {
     bg: 'bg-paper-card',
     border: 'border border-line-soft',
     shadow: 'shadow-card',
     padding: 'p-4',
+    rounded: 'rounded-panel',
   },
   stickyNote: {
     bg: 'bg-highlight-yellow/30',
     border: 'border border-ink-soft/20',
     shadow: 'shadow-sticky',
     padding: 'p-3',
+    rounded: 'rounded-card',
   },
   toolbar: {
     bg: 'bg-paper-muted',
@@ -113,5 +126,6 @@ export const surfaceStyles: Record<SurfaceVariant, {
     border: 'border border-line-soft',
     shadow: 'shadow-lg',
     padding: 'p-6',
+    rounded: 'rounded-panel',
   },
 }

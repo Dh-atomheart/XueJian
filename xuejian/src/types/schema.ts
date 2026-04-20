@@ -154,13 +154,14 @@ export const appSettingsSchema = z.object({
   reviewTimeLimit: z.number().int().nonnegative(),
 }) as z.ZodType<AppSettings>
 
-export const apiProviderSchema = z.enum(['openai', 'anthropic', 'google', 'openai_compatible'])
+export const apiProviderSchema = z.enum(['openai', 'anthropic', 'custom'])
 
 export const apiAuthModeSchema = z.enum(['api_key', 'adc'])
 
 export const apiConfigSchema = z.object({
   id: z.string().uuid(),
   provider: apiProviderSchema,
+  protocol: z.enum(['native', 'openai-compatible']).nullable(),
   authMode: apiAuthModeSchema,
   name: z.string().min(1),
   model: z.string().nullable(),
@@ -206,6 +207,8 @@ export const documentAnchorSchema = z.object({
   textQuote: z.string().min(1),
   rects: z.array(documentAnchorRectSchema),
   hash: z.string().min(1),
+  hierarchyPath: z.array(z.string()),
+  quoteHash: z.string().nullable(),
   createdAt: dateValueSchema,
 }) as z.ZodType<DocumentAnchor>
 
@@ -231,6 +234,10 @@ export const cardSourceCoordinatesSchema = z.object({
 export const cardSchema = z.object({
   id: z.string().uuid(),
   groupId: z.string().uuid().nullable(),
+  title: z.string().nullable(),
+  cardType: z.enum(['qa', 'cloze', 'fact']),
+  clusterId: z.string().nullable(),
+  exportGuid: z.string().nullable(),
   documentId: z.string().uuid().nullable(),
   anchorId: z.string().uuid().nullable(),
   front: z.string().min(1),
@@ -253,6 +260,8 @@ export const cardCandidateSchema = z.object({
   workflowRunId: z.string().uuid().nullable(),
   documentId: z.string().uuid(),
   anchorId: z.string().uuid().nullable(),
+  title: z.string().nullable(),
+  cardType: z.enum(['qa', 'cloze', 'fact']),
   sourcePage: z.number().int().positive().nullable(),
   sourceParagraph: z.number().int().positive().nullable(),
   sourceQuote: z.string().nullable(),

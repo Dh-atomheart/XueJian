@@ -1,6 +1,9 @@
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
 import { documentCache } from '@/lib/cache/documentCache'
+import { isTauriEnvironment } from '@/services/gateway'
 import { buildDocumentAnalysis, type AnchorSourceTextItem } from './document-analysis'
+
+export type PdfDocumentSource = Uint8Array | string
 
 type PdfTextContentItem = {
   str?: string
@@ -11,7 +14,11 @@ type PdfTextContentItem = {
 }
 
 let pdfWorkerConfigured = false
-const pdfDocumentCache = new WeakMap<Uint8Array, Promise<Awaited<ReturnType<typeof getDocument>['promise']>>>()
+const pdfDocumentByteCache = new WeakMap<
+  Uint8Array,
+  Promise<Awaited<ReturnType<typeof getDocument>['promise']>>
+>()
+const pdfDocumentUrlCache = new Map<string, Promise<Awaited<ReturnType<typeof getDocument>['promise']>>>()
 
 function ensurePdfWorkerConfigured() {
   if (pdfWorkerConfigured) {
@@ -25,8 +32,8 @@ function ensurePdfWorkerConfigured() {
   pdfWorkerConfigured = true
 }
 
-export async function parsePdfDocument(documentId: string, bytes: Uint8Array) {
-  const pdf = await loadPdfDocument(bytes)
+export async function parsePdfDocument(documentId: string, source: PdfDocumentSource) {
+  const pdf = await loadPdfDocument(source)
   const pages = []
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
@@ -47,7 +54,9 @@ export async function parsePdfDocument(documentId: string, bytes: Uint8Array) {
     page.cleanup()
   }
 
-  const analysis = buildDocumentAnalysis(pages, { fileSize: bytes.byteLength })
+  const analysis = buildDocumentAnalysis(pages, {
+    fileSize: typeof source === 'string' ? null : source.byteLength,
+  })
 
   await Promise.all(
     analysis.pages.map((page) =>
@@ -59,13 +68,13 @@ export async function parsePdfDocument(documentId: string, bytes: Uint8Array) {
 }
 
 export async function renderPdfPageToCanvas(
-  bytes: Uint8Array,
+  source: PdfDocumentSource,
   pageNumber: number,
   canvas: HTMLCanvasElement,
   scale = 1.25,
   signal?: AbortSignal
 ) {
-  const pdf = await loadPdfDocument(bytes)
+  const pdf = await loadPdfDocument(source)
 
   if (signal?.aborted) {
     throw new DOMException('PDF render aborted', 'AbortError')
@@ -108,20 +117,51 @@ export async function renderPdfPageToCanvas(
   }
 }
 
-async function loadPdfDocument(bytes: Uint8Array) {
+export async function resolvePdfDocumentSource(
+  filePath: string,
+  fallback?: () => Promise<Uint8Array>
+): Promise<PdfDocumentSource> {
+  if (isTauriEnvironment() && !filePath.startsWith('mock://')) {
+    const { convertFileSrc } = await import('@tauri-apps/api/core')
+    return convertFileSrc(filePath)
+  }
+
+  if (fallback) {
+    return fallback()
+  }
+
+  return filePath
+}
+
+async function loadPdfDocument(source: PdfDocumentSource) {
   ensurePdfWorkerConfigured()
 
-  const cachedPromise = pdfDocumentCache.get(bytes)
+  if (typeof source === 'string') {
+    const cachedPromise = pdfDocumentUrlCache.get(source)
+    if (cachedPromise) {
+      return cachedPromise
+    }
+
+    const nextPromise = getDocument({ url: source }).promise.catch((error) => {
+      pdfDocumentUrlCache.delete(source)
+      throw error
+    })
+
+    pdfDocumentUrlCache.set(source, nextPromise)
+    return nextPromise
+  }
+
+  const cachedPromise = pdfDocumentByteCache.get(source)
   if (cachedPromise) {
     return cachedPromise
   }
 
-  const nextPromise = getDocument({ data: bytes }).promise.catch((error) => {
-    pdfDocumentCache.delete(bytes)
+  const nextPromise = getDocument({ data: source }).promise.catch((error) => {
+    pdfDocumentByteCache.delete(source)
     throw error
   })
 
-  pdfDocumentCache.set(bytes, nextPromise)
+  pdfDocumentByteCache.set(source, nextPromise)
   return nextPromise
 }
 

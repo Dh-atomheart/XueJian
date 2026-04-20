@@ -113,7 +113,10 @@ export interface DocumentAnchor {
     width: number
     height: number
   }>
+  /** @deprecated Use quoteHash instead */
   hash: string
+  hierarchyPath: string[]
+  quoteHash: string | null
   createdAt: Date
 }
 
@@ -136,6 +139,8 @@ export interface CardCandidate {
   workflowRunId: string | null
   documentId: string
   anchorId: string | null
+  title: string | null
+  cardType: 'qa' | 'cloze' | 'fact'
   sourcePage: number | null
   sourceParagraph: number | null
   sourceQuote: string | null
@@ -158,6 +163,10 @@ export interface FinalizeCardGenerationResult {
 export interface Card {
   id: string
   groupId: string | null
+  title: string | null
+  cardType: 'qa' | 'cloze' | 'fact'
+  clusterId: string | null
+  exportGuid: string | null
   documentId: string | null
   anchorId: string | null
   front: string
@@ -233,7 +242,7 @@ export interface DailyStats {
 
 export type AppThemeId = 'default' | 'comic-sketch' | 'contrast-paper'
 
-export type ApiProvider = 'openai' | 'anthropic' | 'google' | 'openai_compatible'
+export type ApiProvider = 'openai' | 'anthropic' | 'custom'
 
 export type ApiAuthMode = 'api_key' | 'adc'
 
@@ -247,6 +256,7 @@ export interface AppSettings {
 export interface ApiConfig {
   id: string
   provider: ApiProvider
+  protocol: 'native' | 'openai-compatible' | null
   authMode: ApiAuthMode
   name: string
   model: string | null

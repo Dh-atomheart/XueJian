@@ -38,14 +38,14 @@ canonical: true
 
 ## Tests
 
-| ID | 验收点 | 状态 |
-|----|--------|------|
-| mvp-w1-a1 | V10 迁移：cards 新增 title/card_type/cluster_id/export_guid，card_candidates 新增 title/card_type | ⏳ |
-| mvp-w1-a2 | V11 迁移：document_anchors 新增 hierarchy_path/quote_hash | ⏳ |
-| mvp-w1-a3 | TS Card/CardCandidate/DocumentAnchor 类型与 Zod schema 对齐 spec §4.2 | ⏳ |
-| mvp-w1-a4 | Rust CardRepository 读写新字段，exportGuid 稳定生成 | ⏳ |
-| mvp-w1-a5 | Python normalize_provider 支持 openai/anthropic/custom | ⏳ |
-| mvp-w1-a6 | Rough.js SketchBorder 组件可渲染 | ⏳ |
+| ID        | 验收点                                                                                            | 状态 |
+| --------- | ------------------------------------------------------------------------------------------------- | ---- |
+| mvp-w1-a1 | V10 迁移：cards 新增 title/card_type/cluster_id/export_guid，card_candidates 新增 title/card_type | ✅   |
+| mvp-w1-a2 | V11 迁移：document_anchors 新增 hierarchy_path/quote_hash                                         | ✅   |
+| mvp-w1-a3 | TS Card/CardCandidate/DocumentAnchor 类型与 Zod schema 对齐 spec §4.2                             | ✅   |
+| mvp-w1-a4 | Rust CardRepository 读写新字段，exportGuid 稳定生成                                               | ✅   |
+| mvp-w1-a5 | Python normalize_provider 支持 openai/anthropic/custom                                            | ✅   |
+| mvp-w1-a6 | Rough.js SketchBorder 组件可渲染                                                                  | ✅   |
 
 ## Relevant Files
 

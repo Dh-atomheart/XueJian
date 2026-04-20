@@ -85,6 +85,7 @@ export function useTestApiConnectionMutation() {
       authMode: ApiConfig['authMode']
       apiKey: string
       baseUrl?: string | null
+      model?: string | null
     }) => apiConfigGateway.testConnection(data),
   })
 }

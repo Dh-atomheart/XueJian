@@ -21,6 +21,7 @@ export function Panel({ children, variant = 'panel', className, ...props }: Pane
         styles.border,
         styles.shadow,
         styles.padding,
+        styles.rounded,
         className
       )}
     >

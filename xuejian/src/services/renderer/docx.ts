@@ -77,7 +77,7 @@ async function decompressDocxDocument(bytes: Uint8Array): Promise<Map<string, st
 
 async function decompressDeflate(data: Uint8Array): Promise<Uint8Array> {
   const stream = new Blob([data]).stream()
-  const decompressed = stream.pipeThrough(new DecompressionStream('raw'))
+  const decompressed = stream.pipeThrough(new DecompressionStream('deflate-raw'))
   const reader = decompressed.getReader()
   const chunks: Uint8Array[] = []
 

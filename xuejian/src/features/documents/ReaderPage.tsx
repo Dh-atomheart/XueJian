@@ -1,16 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { HighlightLayer, PdfPageCanvas, PdfToolbar } from '@/components/documents'
+import { useShallow } from 'zustand/react/shallow'
+import {
+  HighlightColorPicker,
+  HighlightLayer,
+  PdfPageCanvas,
+  PdfToolbar,
+} from '@/components/documents'
+import type { HighlightColor } from '@/components/documents'
 import { Button, Panel } from '@/components/ui'
 import { reportAppError } from '@/lib/appFeedback'
 import { resolveReaderRect, type ReaderRect, type ReaderViewport } from '@/lib/readerGeometry'
 import { cn } from '@/lib/utils'
 import {
   useCardsQuery,
+  useCreateHighlightMutation,
   useDocumentAnchorsQuery,
   useDocumentQuery,
   useHighlightsQuery,
 } from '@/queries'
 import { documentGateway } from '@/services/gateway/documents'
+import { resolvePdfDocumentSource, type PdfDocumentSource } from '@/services/renderer/pdf'
 import { useAppUiStore } from '@/store'
 import type { Highlight } from '@/types'
 
@@ -26,14 +35,27 @@ type FocusRect = {
 }
 
 export function ReaderPage({ documentId }: ReaderPageProps) {
-  const reader = useAppUiStore((state) => state.reader)
-  const closeReader = useAppUiStore((state) => state.closeReader)
-  const setContextRailOpen = useAppUiStore((state) => state.setContextRailOpen)
-  const setReaderPage = useAppUiStore((state) => state.setReaderPage)
-  const setReaderScale = useAppUiStore((state) => state.setReaderScale)
-  const setReaderTotalPages = useAppUiStore((state) => state.setReaderTotalPages)
-  const selectCard = useAppUiStore((state) => state.selectCard)
-  const isContextRailOpen = useAppUiStore((state) => state.isContextRailOpen)
+  const {
+    reader,
+    closeReader,
+    setContextRailOpen,
+    setReaderPage,
+    setReaderScale,
+    setReaderTotalPages,
+    selectCard,
+    isContextRailOpen,
+  } = useAppUiStore(
+    useShallow((state) => ({
+      reader: state.reader,
+      closeReader: state.closeReader,
+      setContextRailOpen: state.setContextRailOpen,
+      setReaderPage: state.setReaderPage,
+      setReaderScale: state.setReaderScale,
+      setReaderTotalPages: state.setReaderTotalPages,
+      selectCard: state.selectCard,
+      isContextRailOpen: state.isContextRailOpen,
+    }))
+  )
   const { data: document, isLoading: isLoadingDocument } = useDocumentQuery(documentId)
   const { data: anchors = [] } = useDocumentAnchorsQuery(documentId)
   const { data: pageCards = [] } = useCardsQuery(
@@ -45,16 +67,18 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
     { enabled: Boolean(documentId) }
   )
 
-  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
+  const [pdfSource, setPdfSource] = useState<PdfDocumentSource | null>(null)
   const [isLoadingBinary, setIsLoadingBinary] = useState(false)
   const [binaryError, setBinaryError] = useState<string | null>(null)
   const [pageRenderError, setPageRenderError] = useState<string | null>(null)
   const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null)
   const [selectionText, setSelectionText] = useState('')
+  const [selectionColor, setSelectionColor] = useState<HighlightColor>('#F8E16C')
   const [readerNotice, setReaderNotice] = useState<string | null>(null)
   const [showSelectionSaved, setShowSelectionSaved] = useState(false)
   const [pageViewport, setPageViewport] = useState<ReaderViewport | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const createHighlight = useCreateHighlightMutation()
 
   useEffect(() => {
     if (document?.pageCount) {
@@ -65,22 +89,39 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
   useEffect(() => {
     let cancelled = false
 
+    if (!document) {
+      setPdfSource(null)
+      setBinaryError(null)
+      setIsLoadingBinary(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    if (document.fileType !== 'pdf') {
+      setPdfSource(null)
+      setBinaryError('当前阅读器仅支持 PDF 文档。')
+      setIsLoadingBinary(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
     setIsLoadingBinary(true)
     setBinaryError(null)
 
-    void documentGateway
-      .readBinary(documentId)
-      .then((bytes) => {
+    void resolvePdfDocumentSource(document.filePath, () => documentGateway.readBinary(document.id))
+      .then((nextSource) => {
         if (!cancelled) {
-          setPdfBytes(bytes)
+          setPdfSource(nextSource)
         }
       })
       .catch((error) => {
         if (!cancelled) {
-          setPdfBytes(null)
+          setPdfSource(null)
           setBinaryError(
             reportAppError('阅读器', error, {
-              title: '读取文档二进制内容失败',
+              title: '准备 PDF 数据源失败',
               showToast: true,
             })
           )
@@ -95,7 +136,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
     return () => {
       cancelled = true
     }
-  }, [documentId])
+  }, [document])
 
   useEffect(() => {
     setActiveHighlightId(null)
@@ -107,6 +148,37 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
     setPageViewport(null)
     setPageRenderError(null)
   }, [documentId, reader.currentPage, reader.scale])
+
+  // Keyboard shortcuts: Left/Right for page nav, Escape to close
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+        return
+
+      const totalPages = Math.max(reader.totalPages, document?.pageCount ?? 1, 1)
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        if (reader.currentPage > 1) setReaderPage(reader.currentPage - 1)
+        return
+      }
+
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault()
+        if (reader.currentPage < totalPages) setReaderPage(reader.currentPage + 1)
+        return
+      }
+
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeReader()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [reader.currentPage, reader.totalPages, document?.pageCount, setReaderPage, closeReader])
 
   const currentPageAnchors = useMemo(
     () => anchors.filter((anchor) => anchor.page === reader.currentPage),
@@ -156,7 +228,14 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
       activeHighlight?.rectangles[0]
 
     return activeHighlightRect ? resolveReaderRect(activeHighlightRect, pageViewport) : null
-  }, [activeHighlightId, anchorRectsById, highlightRectOverrides, highlights, pageViewport, selectedCard])
+  }, [
+    activeHighlightId,
+    anchorRectsById,
+    highlightRectOverrides,
+    highlights,
+    pageViewport,
+    selectedCard,
+  ])
 
   useEffect(() => {
     if (!focusRect || !scrollContainerRef.current) {
@@ -225,7 +304,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
         <div className="space-y-4 bg-[radial-gradient(circle_at_top_left,rgb(var(--highlight-yellow)/0.18),transparent_34%),linear-gradient(180deg,rgb(var(--paper-base)/0.92),rgb(var(--paper-soft)/0.92))] px-4 py-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_280px]">
             <div className="space-y-3">
-              <div className="inline-flex items-center rounded-full border border-ink/10 bg-white/70 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-ink-soft">
+              <div className="inline-flex items-center rounded-full border border-ink/10 bg-paper-card/70 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-ink-soft">
                 阅读工作台
               </div>
               <div className="space-y-2">
@@ -243,13 +322,17 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-ink/10 bg-white/75 px-4 py-4 shadow-card">
+            <div className="rounded-[24px] border border-ink/10 bg-paper-card/75 px-4 py-4 shadow-card">
               <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">本页操作</p>
               <div className="mt-3 space-y-3 text-sm leading-6 text-ink-muted">
                 <p>高亮会短暂聚焦，不会长期遮挡正文。</p>
                 <p>选中文本后可直接创建贴笺草稿，再回到卡片工坊深化。</p>
                 {!isContextRailOpen ? (
-                  <Button variant="sketch" className="w-full justify-center" onClick={() => setContextRailOpen(true)}>
+                  <Button
+                    variant="sketch"
+                    className="w-full justify-center"
+                    onClick={() => setContextRailOpen(true)}
+                  >
                     打开当前页贴笺 ({pageCards.length})
                   </Button>
                 ) : null}
@@ -289,17 +372,19 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                 <div className="flex min-h-[420px] items-center justify-center px-6 text-center text-sm text-ink-muted">
                   <div className="space-y-3">
                     <p>{pageRenderError}</p>
-                    <p className="text-xs text-ink-soft">可以尝试切换页码、调整缩放，或重新打开文档。</p>
+                    <p className="text-xs text-ink-soft">
+                      可以尝试切换页码、调整缩放，或重新打开文档。
+                    </p>
                   </div>
                 </div>
-              ) : isLoadingBinary || !pdfBytes ? (
+              ) : isLoadingBinary || !pdfSource ? (
                 <div className="flex min-h-[420px] items-center justify-center text-center text-sm text-ink-soft">
                   正在铺开 PDF 纸面...
                 </div>
               ) : (
                 <div className="relative inline-block rounded-[12px] bg-paper-card shadow-paper">
                   <PdfPageCanvas
-                    pdfBytes={pdfBytes}
+                    pdfSource={pdfSource}
                     pageNumber={reader.currentPage}
                     scale={reader.scale}
                     className="block"
@@ -377,26 +462,39 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
 
                 {selectionText ? (
                   <div className="absolute bottom-4 right-4 flex items-center gap-2 rounded-full border border-ink/10 bg-paper-base/90 px-3 py-2 shadow-card">
+                    <HighlightColorPicker value={selectionColor} onChange={setSelectionColor} />
                     <span className="text-xs text-ink-muted">已选 {selectionText.length} 字</span>
                     <Button
                       variant="sketch"
                       size="sm"
+                      disabled={createHighlight.isPending}
                       onClick={() => {
-                        setSelectionText('')
-                        setShowSelectionSaved(true)
-                        window.getSelection()?.removeAllRanges()
+                        createHighlight.mutate(
+                          {
+                            documentId,
+                            pageNumber: reader.currentPage,
+                            rectangles: [],
+                            textContent: selectionText,
+                            color: selectionColor,
+                          },
+                          {
+                            onSuccess: () => {
+                              setSelectionText('')
+                              setShowSelectionSaved(true)
+                              window.getSelection()?.removeAllRanges()
+                            },
+                          }
+                        )
                       }}
                     >
-                      创建贴笺草稿
+                      {createHighlight.isPending ? '保存中…' : '创建高亮'}
                     </Button>
                   </div>
                 ) : null}
               </Panel>
 
               <Panel variant="panel" className="rounded-[28px]">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">
-                  阅读提示
-                </p>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">阅读提示</p>
                 <div className="mt-3 space-y-3 text-sm leading-6 text-ink-muted">
                   <p>点击高亮会在右侧贴笺栏定位对应卡片。</p>
                   <p>点击右侧贴笺会滚动到原文坐标，不会长期污染正文。</p>

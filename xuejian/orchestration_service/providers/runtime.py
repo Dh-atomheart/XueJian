@@ -6,23 +6,27 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Supported providers: openai | anthropic | custom
+# 'custom' routes to an OpenAI-compatible endpoint (user-supplied baseUrl).
+_VALID_PROVIDERS = {"openai", "anthropic", "custom"}
+
 
 def normalize_provider(provider: Any) -> str:
-    value = str(provider or "openai").strip()
-    if value == "custom":
-        return "openai_compatible"
-    if value in {"openai", "anthropic", "google", "openai_compatible"}:
+    """Normalise a raw provider value to one of: openai | anthropic | custom."""
+    value = str(provider or "openai").strip().lower()
+    if value in _VALID_PROVIDERS:
         return value
+    # Legacy aliases from V9 migration (openai_compatible) and old google config
+    if value in {"openai_compatible", "google", "adc"}:
+        logger.warning("Deprecated provider value %r normalised to 'custom'", value)
+        return "custom"
     return "openai"
 
 
 def default_model_for_provider(provider: str) -> str:
-    if provider in {"openai", "openai_compatible"}:
-        return "gpt-4o-mini"
     if provider == "anthropic":
         return "claude-3-5-haiku-20241022"
-    if provider == "google":
-        return "gemini-2.5-flash"
+    # openai and custom (openai-compatible) both default to gpt-4o-mini
     return "gpt-4o-mini"
 
 
@@ -66,7 +70,5 @@ def build_langchain_chat_model(config: dict, api_key: str, temperature: float):
             logger.warning("langchain-anthropic not installed, using OpenAI-compatible endpoint")
             return ChatOpenAI(**llm_kwargs)
 
-    if provider == "google":
-        raise RuntimeError("Google provider is not yet wired into the Python orchestration client")
-
+    # openai and custom (openai-compatible) both use ChatOpenAI
     return ChatOpenAI(**llm_kwargs)

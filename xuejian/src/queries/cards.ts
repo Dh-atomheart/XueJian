@@ -1,8 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   cardsGateway,
   type CardCandidateFilters,
   type CardFilters,
+  type CreateHighlightInput,
   type HighlightFilters,
 } from '@/services/gateway/cards'
 
@@ -62,5 +63,15 @@ export function useHighlightsQuery(filters: HighlightFilters, options?: { enable
     queryKey: cardsQueryKeys.highlights(filters),
     queryFn: () => cardsGateway.listHighlights(filters),
     enabled: options?.enabled ?? Boolean(filters.documentId || filters.cardId),
+  })
+}
+
+export function useCreateHighlightMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateHighlightInput) => cardsGateway.createHighlight(data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+    },
   })
 }

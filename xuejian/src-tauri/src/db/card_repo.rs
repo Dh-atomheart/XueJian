@@ -7,6 +7,10 @@ use uuid::Uuid;
 pub struct Card {
     pub id: String,
     pub group_id: Option<String>,
+    pub title: Option<String>,
+    pub card_type: String,
+    pub cluster_id: Option<String>,
+    pub export_guid: Option<String>,
     pub front: String,
     pub back: String,
     pub document_id: Option<String>,
@@ -52,6 +56,8 @@ pub struct CardCandidate {
     pub workflow_run_id: Option<String>,
     pub document_id: String,
     pub anchor_id: Option<String>,
+    pub title: Option<String>,
+    pub card_type: String,
     pub source_page: Option<i32>,
     pub source_paragraph: Option<i32>,
     pub source_quote: Option<String>,
@@ -69,6 +75,8 @@ pub struct CreateCardCandidateRequest {
     pub workflow_run_id: Option<String>,
     pub document_id: String,
     pub anchor_id: Option<String>,
+    pub title: Option<String>,
+    pub card_type: Option<String>,
     pub front: String,
     pub back: String,
     pub tags: Vec<String>,
@@ -188,7 +196,8 @@ impl<'a> CardRepository<'a> {
 
     pub fn get_card_by_id(&self, id: &str) -> Result<Option<Card>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT id, group_id, front, back, document_id, anchor_id, source_page, source_paragraph,
+            "SELECT id, group_id, title, card_type, cluster_id, export_guid,
+                    front, back, document_id, anchor_id, source_page, source_paragraph,
                     source_coordinates, tags, difficulty, stability, retrievability, state,
                     next_review, dedupe_key, created_at, updated_at
              FROM cards WHERE id = ?1",
@@ -256,7 +265,7 @@ impl<'a> CardRepository<'a> {
             .map_err(Into::into)
     }
 
-    pub fn get_daily_stats(&self, date: &str) -> Result<(i64, i64)> {
+    pub fn get_daily_stats(&self, date: &str) -> Result<(i64, i64, Option<f64>)> {
         let new_count: i64 = self.db.connection().query_row(
             "SELECT COUNT(*) FROM cards WHERE state = 'new' AND (next_review IS NULL OR next_review <= ?1)",
             params![date],
@@ -269,7 +278,25 @@ impl<'a> CardRepository<'a> {
             |row| row.get(0),
         )?;
 
-        Ok((new_count, review_count))
+        // Correct rate: (good + easy) / total reviews today
+        let correct_rate: Option<f64> = {
+            let (correct, total): (i64, i64) = self.db.connection().query_row(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN rating IN ('good', 'easy') THEN 1 ELSE 0 END), 0),
+                    COUNT(*)
+                 FROM review_logs
+                 WHERE DATE(reviewed_at) = ?1",
+                params![date],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            if total > 0 {
+                Some(correct as f64 / total as f64)
+            } else {
+                None
+            }
+        };
+
+        Ok((new_count, review_count, correct_rate))
     }
 
     pub fn create(&self, req: CreateCardRequest) -> Result<Card> {
@@ -281,14 +308,15 @@ impl<'a> CardRepository<'a> {
             .map(|coordinates| serde_json::to_value(coordinates))
             .transpose()
             .map_err(json_encode_error)?;
+        let export_guid = Uuid::new_v5(&Uuid::NAMESPACE_URL, id.as_bytes()).to_string();
 
         self.db.connection().execute(
             "INSERT INTO cards (
-                id, front, back, document_id, anchor_id, source_page, source_paragraph,
-                source_coordinates, tags, state, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'new', ?10, ?11)",
+                id, title, card_type, export_guid, front, back, document_id, anchor_id,
+                source_page, source_paragraph, source_coordinates, tags, state, created_at, updated_at
+             ) VALUES (?1, NULL, 'qa', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'new', ?11, ?12)",
             params![
-                &id, &req.front, &req.back, req.document_id, req.anchor_id,
+                &id, &export_guid, &req.front, &req.back, req.document_id, req.anchor_id,
                 req.source_page, req.source_paragraph, source_coordinates, tags_json,
                 &now, &now
             ],
@@ -297,6 +325,10 @@ impl<'a> CardRepository<'a> {
         Ok(Card {
             id,
             group_id: None,
+            title: None,
+            card_type: "qa".to_string(),
+            cluster_id: None,
+            export_guid: Some(export_guid),
             front: req.front,
             back: req.back,
             document_id: req.document_id,
@@ -321,7 +353,8 @@ impl<'a> CardRepository<'a> {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
         let mut stmt = self.db.connection().prepare(
-            "SELECT id, group_id, front, back, document_id, anchor_id, source_page, source_paragraph,
+            "SELECT id, group_id, title, card_type, cluster_id, export_guid,
+                    front, back, document_id, anchor_id, source_page, source_paragraph,
                     source_coordinates, tags, difficulty, stability, retrievability, state,
                     next_review, dedupe_key, created_at, updated_at
              FROM cards
@@ -341,7 +374,8 @@ impl<'a> CardRepository<'a> {
     pub fn list_cards(&self, filters: CardFilters<'_>) -> Result<Vec<Card>> {
         let limit = filters.limit.unwrap_or(300);
         let mut stmt = self.db.connection().prepare(
-            "SELECT id, group_id, front, back, document_id, anchor_id, source_page, source_paragraph,
+            "SELECT id, group_id, title, card_type, cluster_id, export_guid,
+                    front, back, document_id, anchor_id, source_page, source_paragraph,
                     source_coordinates, tags, difficulty, stability, retrievability, state,
                     next_review, dedupe_key, created_at, updated_at
              FROM cards
@@ -397,7 +431,8 @@ impl<'a> CardRepository<'a> {
     ) -> Result<Vec<CardCandidate>> {
         let limit = limit.unwrap_or(200);
         let mut stmt = self.db.connection().prepare(
-            "SELECT c.id, c.workflow_run_id, c.document_id, c.anchor_id, c.front, c.back,
+            "SELECT c.id, c.workflow_run_id, c.document_id, c.anchor_id,
+                    c.title, c.card_type, c.front, c.back,
                     c.tags, c.confidence, c.dedupe_key, c.status, c.created_at,
                     a.page, a.paragraph, a.text_quote
              FROM card_candidates c
@@ -421,7 +456,8 @@ impl<'a> CardRepository<'a> {
 
     pub fn get_candidate(&self, id: &str) -> Result<Option<CardCandidate>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT c.id, c.workflow_run_id, c.document_id, c.anchor_id, c.front, c.back,
+            "SELECT c.id, c.workflow_run_id, c.document_id, c.anchor_id,
+                    c.title, c.card_type, c.front, c.back,
                     c.tags, c.confidence, c.dedupe_key, c.status, c.created_at,
                     a.page, a.paragraph, a.text_quote
              FROM card_candidates c
@@ -469,16 +505,19 @@ impl<'a> CardRepository<'a> {
             }
 
             let tags_json = serde_json::to_string(&request.tags).map_err(json_encode_error)?;
+            let card_type = request.card_type.unwrap_or_else(|| "qa".to_string());
             transaction.execute(
                 "INSERT INTO card_candidates (
-                    id, workflow_run_id, document_id, anchor_id, front, back,
-                    tags, confidence, dedupe_key, status, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10)",
+                    id, workflow_run_id, document_id, anchor_id, title, card_type,
+                    front, back, tags, confidence, dedupe_key, status, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending', ?12)",
                 params![
                     Uuid::new_v4().to_string(),
                     request.workflow_run_id,
                     request.document_id,
                     request.anchor_id,
+                    request.title,
+                    card_type,
                     request.front,
                     request.back,
                     tags_json,
@@ -581,7 +620,8 @@ impl<'a> CardRepository<'a> {
 
         let accepted_candidates = {
             let mut stmt = transaction.prepare(
-                "SELECT c.id, c.document_id, c.anchor_id, c.front, c.back, c.tags,
+                "SELECT c.id, c.document_id, c.anchor_id, c.title, c.card_type,
+                        c.front, c.back, c.tags,
                         c.dedupe_key, a.page, a.paragraph, a.rects
                  FROM card_candidates c
                  LEFT JOIN document_anchors a ON a.id = c.anchor_id
@@ -594,13 +634,15 @@ impl<'a> CardRepository<'a> {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(3)?,
                     row.get::<_, String>(4)?,
-                    decode_tags(row.get(5)?)?,
+                    row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
-                    row.get::<_, Option<i32>>(7)?,
-                    row.get::<_, Option<i32>>(8)?,
-                    decode_rectangles(row.get(9)?)?,
+                    decode_tags(row.get(7)?)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, Option<i32>>(9)?,
+                    row.get::<_, Option<i32>>(10)?,
+                    decode_rectangles(row.get(11)?)?,
                 ))
             })?;
 
@@ -611,6 +653,8 @@ impl<'a> CardRepository<'a> {
             _candidate_id,
             document_id,
             anchor_id,
+            title,
+            card_type,
             front,
             back,
             tags,
@@ -640,15 +684,21 @@ impl<'a> CardRepository<'a> {
                 .map(|rect| serde_json::to_string(&rect))
                 .transpose()
                 .map_err(json_encode_error)?;
+            let new_card_id = Uuid::new_v4().to_string();
+            let export_guid = Uuid::new_v5(&Uuid::NAMESPACE_URL, new_card_id.as_bytes()).to_string();
             transaction.execute(
                 "INSERT INTO cards (
-                    id, group_id, document_id, anchor_id, front, back, source_page,
-                    source_paragraph, source_coordinates, tags, difficulty, stability,
-                    retrievability, state, next_review, dedupe_key, created_at, updated_at
-                 ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0.3, 1.0,
-                           NULL, 'new', NULL, ?10, ?11, ?12)",
+                    id, group_id, title, card_type, export_guid, document_id, anchor_id,
+                    front, back, source_page, source_paragraph, source_coordinates, tags,
+                    difficulty, stability, retrievability, state, next_review, dedupe_key,
+                    created_at, updated_at
+                 ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0.3, 1.0,
+                           NULL, 'new', NULL, ?13, ?14, ?15)",
                 params![
-                    Uuid::new_v4().to_string(),
+                    new_card_id,
+                    title,
+                    card_type,
+                    export_guid,
                     document_id,
                     anchor_id,
                     front,
@@ -794,22 +844,26 @@ fn map_card_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Card> {
     Ok(Card {
         id: row.get(0)?,
         group_id: row.get(1)?,
-        front: row.get(2)?,
-        back: row.get(3)?,
-        document_id: row.get(4)?,
-        anchor_id: row.get(5)?,
-        source_page: row.get(6)?,
-        source_paragraph: row.get(7)?,
-        source_coordinates: row.get(8)?,
-        tags: row.get(9)?,
-        difficulty: row.get(10)?,
-        stability: row.get(11)?,
-        retrievability: row.get(12)?,
-        state: row.get(13)?,
-        next_review: row.get(14)?,
-        dedupe_key: row.get(15)?,
-        created_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        title: row.get(2)?,
+        card_type: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "qa".to_string()),
+        cluster_id: row.get(4)?,
+        export_guid: row.get(5)?,
+        front: row.get(6)?,
+        back: row.get(7)?,
+        document_id: row.get(8)?,
+        anchor_id: row.get(9)?,
+        source_page: row.get(10)?,
+        source_paragraph: row.get(11)?,
+        source_coordinates: row.get(12)?,
+        tags: row.get(13)?,
+        difficulty: row.get(14)?,
+        stability: row.get(15)?,
+        retrievability: row.get(16)?,
+        state: row.get(17)?,
+        next_review: row.get(18)?,
+        dedupe_key: row.get(19)?,
+        created_at: row.get(20)?,
+        updated_at: row.get(21)?,
     })
 }
 
@@ -819,16 +873,18 @@ fn map_card_candidate_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CardCandi
         workflow_run_id: row.get(1)?,
         document_id: row.get(2)?,
         anchor_id: row.get(3)?,
-        front: row.get(4)?,
-        back: row.get(5)?,
-        tags: decode_tags(row.get(6)?)?,
-        confidence: row.get::<_, Option<f64>>(7)?.unwrap_or(0.0),
-        dedupe_key: row.get(8)?,
-        status: row.get(9)?,
-        created_at: row.get(10)?,
-        source_page: row.get(11)?,
-        source_paragraph: row.get(12)?,
-        source_quote: row.get(13)?,
+        title: row.get(4)?,
+        card_type: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "qa".to_string()),
+        front: row.get(6)?,
+        back: row.get(7)?,
+        tags: decode_tags(row.get(8)?)?,
+        confidence: row.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
+        dedupe_key: row.get(10)?,
+        status: row.get(11)?,
+        created_at: row.get(12)?,
+        source_page: row.get(13)?,
+        source_paragraph: row.get(14)?,
+        source_quote: row.get(15)?,
     })
 }
 

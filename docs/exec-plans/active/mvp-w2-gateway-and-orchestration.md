@@ -14,7 +14,7 @@ canonical: true
 
 ## Depends On
 
-- [mvp-w1-foundation-and-data-layer.md](./mvp-w1-foundation-and-data-layer.md) ⏳
+- [mvp-w1-foundation-and-data-layer.md](./mvp-w1-foundation-and-data-layer.md) ✅
 - [../../references/ai-orchestration.md](../../references/ai-orchestration.md)
 
 ## Scope
@@ -38,13 +38,13 @@ canonical: true
 
 ## Tests
 
-| ID | 验收点 | 状态 |
-|----|--------|------|
-| mvp-w2-a1 | LiteLLM provider 路由：openai→openai, anthropic→anthropic, custom→openai-compatible+baseUrl | ⏳ |
-| mvp-w2-a2 | PydanticAI CardDraft 校验：合法输出通过，非法输出重试 ≤2 次后降级 | ⏳ |
-| mvp-w2-a3 | Host export_apkg 端点返回 .apkg 文件路径 | ⏳ |
-| mvp-w2-a4 | WorkflowCheckpoint 持久化与恢复：中断后从最近 checkpoint 继续 | ⏳ |
-| mvp-w2-a5 | 任务取消：Python 停止生成，Host 标记 cancelled | ⏳ |
+| ID        | 验收点                                                                                      | 状态 |
+| --------- | ------------------------------------------------------------------------------------------- | ---- |
+| mvp-w2-a1 | LiteLLM provider 路由：openai→openai, anthropic→anthropic, custom→openai-compatible+baseUrl | ✅   |
+| mvp-w2-a2 | PydanticAI CardDraft 校验：合法输出通过，非法输出重试 ≤2 次后降级                           | ✅   |
+| mvp-w2-a3 | Host export_apkg 端点返回 .apkg 文件路径                                                    | ✅   |
+| mvp-w2-a4 | WorkflowCheckpoint 持久化与恢复：中断后从最近 checkpoint 继续                               | ✅   |
+| mvp-w2-a5 | 任务取消：Python 停止生成，Host 标记 cancelled                                              | ✅   |
 
 ## Relevant Files
 

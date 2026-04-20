@@ -170,7 +170,13 @@ describe('DocumentIR v1 schemas', () => {
     pageNumber: 1,
     content: 'Chapter 1: Introduction',
     spans: [
-      { spanId: 'sp-001', start: 0, end: 23, page: 1, rect: { x: 72, y: 700, width: 400, height: 24 } },
+      {
+        spanId: 'sp-001',
+        start: 0,
+        end: 23,
+        page: 1,
+        rect: { x: 72, y: 700, width: 400, height: 24 },
+      },
     ],
     anchorId: null,
     parentBlockId: null,
@@ -235,8 +241,18 @@ describe('DocumentIR v1 schemas', () => {
 
   it('parses blocks with all blockType variants', () => {
     const types = [
-      'heading', 'paragraph', 'list', 'list_item', 'table', 'figure',
-      'code_block', 'formula', 'blockquote', 'page_header', 'page_footer', 'unknown',
+      'heading',
+      'paragraph',
+      'list',
+      'list_item',
+      'table',
+      'figure',
+      'code_block',
+      'formula',
+      'blockquote',
+      'page_header',
+      'page_footer',
+      'unknown',
     ] as const
 
     for (const bt of types) {

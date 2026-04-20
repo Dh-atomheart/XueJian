@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 
-export type NavItemId = 'home' | 'library' | 'cards' | 'learning' | 'knowledge' | 'settings'
+export type NavItemId =
+  | 'home'
+  | 'library'
+  | 'cards'
+  | 'learning'
+  | 'knowledge'
+  | 'settings'
+  | 'profile'
+  | 'podcast'
+  | 'graph'
 
 export type AppFeedbackLevel = 'info' | 'warning' | 'error'
 
@@ -132,8 +141,7 @@ export const useAppUiStore = create<AppUiState>((set) => ({
       reader: { ...state.reader, selectedCardId, selectedHighlightId: null },
     })),
   setFeedbackPanelOpen: (isFeedbackPanelOpen) => set({ isFeedbackPanelOpen }),
-  toggleFeedbackPanel: () =>
-    set((state) => ({ isFeedbackPanelOpen: !state.isFeedbackPanelOpen })),
+  toggleFeedbackPanel: () => set((state) => ({ isFeedbackPanelOpen: !state.isFeedbackPanelOpen })),
   reportFeedback: ({ level, scope, title, detail, showToast = true }) => {
     const entry = createFeedbackEntry({ level, scope, title, detail })
     set((state) => ({

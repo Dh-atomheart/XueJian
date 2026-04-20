@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
   await page.getByTestId('sidebar-nav-library').click()
   await page.getByRole('button', { name: '进入阅读' }).click()
 })
@@ -32,5 +33,5 @@ test('allows leaving the reader through the sidebar navigation rail', async ({ p
   await page.getByTestId('sidebar-nav-home').click()
 
   await expect(page.getByTestId('reader-layout')).toHaveCount(0)
-  await expect(page.getByText('今日学习')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '今日学习中心' })).toBeVisible()
 })

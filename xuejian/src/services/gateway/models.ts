@@ -38,6 +38,7 @@ export const apiConfigGateway = {
     authMode: ApiAuthMode
     apiKey: string
     baseUrl?: string | null
+    model?: string | null
   }): Promise<ApiConnectionTestResult> {
     return invokeWithSchema('test_api_connection', apiConnectionTestResultSchema, { data })
   },
@@ -62,6 +63,7 @@ export const modelGateway: {
     authMode: ApiAuthMode
     apiKey: string
     baseUrl?: string | null
+    model?: string | null
   }) => Promise<ApiConnectionTestResult>
   setDefault: (id: string) => Promise<void>
   storeApiKey: (configId: string, apiKey: string) => Promise<void>

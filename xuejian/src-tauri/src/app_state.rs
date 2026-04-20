@@ -1,4 +1,4 @@
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::db::{Database, DbError};
 use crate::secrets::{SecretError, SecretStore};
@@ -41,7 +41,7 @@ pub type AppResult<T> = std::result::Result<T, AppError>;
 pub struct AppState {
     pub db: Mutex<Database>,
     pub secrets: Mutex<SecretStore>,
-    pub orchestration: OrchestrationService,
+    pub orchestration: Arc<OrchestrationService>,
 }
 
 impl AppState {
@@ -49,7 +49,7 @@ impl AppState {
         Self {
             db: Mutex::new(db),
             secrets: Mutex::new(secrets),
-            orchestration,
+            orchestration: Arc::new(orchestration),
         }
     }
 

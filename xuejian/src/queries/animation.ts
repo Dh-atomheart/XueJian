@@ -14,7 +14,12 @@ export const animationQueryKeys = {
 /** Fetch the current animation record for a card. */
 export function useCardAnimationQuery(
   cardId: string,
-  options?: { refetchInterval?: number | false }
+  options?: {
+    refetchInterval?:
+      | number
+      | false
+      | ((query: { state: { data: unknown } }) => number | false | undefined)
+  }
 ) {
   return useQuery({
     queryKey: animationQueryKeys.byCard(cardId),

@@ -20,6 +20,7 @@ export function StudyStatsCard({ className }: StudyStatsCardProps) {
 
   const newCards = stats?.newCards ?? 0
   const reviewCards = stats?.reviewCards ?? 0
+  const correctRate = stats?.correctRate ?? null
   const total = newCards + reviewCards
 
   return (
@@ -36,6 +37,11 @@ export function StudyStatsCard({ className }: StudyStatsCardProps) {
           <span>
             复习 <span className="tabular-nums text-ink">{reviewCards}</span>
           </span>
+          {correctRate !== null && (
+            <span>
+              正确率 <span className="tabular-nums text-ink">{Math.round(correctRate * 100)}%</span>
+            </span>
+          )}
         </div>
       </div>
     </div>

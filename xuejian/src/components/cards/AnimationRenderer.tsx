@@ -12,7 +12,9 @@ const PALETTES: Record<AnimPalette, { bg: string; text: string; accent: string; 
 
 // ───── Shared step variants ─────
 
-const fadeUp = {
+// Custom variant - function form supported at runtime; cast to satisfy framer-motion v12 strict Variants type
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fadeUp: any = {
   hidden: { opacity: 0, y: 16 },
   visible: (delay_ms = 0) => ({
     opacity: 1,
@@ -28,7 +30,7 @@ function FlashcardRevealRenderer({
   palette,
 }: {
   script: AnimationScript
-  palette: ReturnType<(typeof PALETTES)[AnimPalette]>
+  palette: (typeof PALETTES)[AnimPalette]
 }) {
   return (
     <div
@@ -81,7 +83,7 @@ function KeywordEmphasisRenderer({
   palette,
 }: {
   script: AnimationScript
-  palette: ReturnType<(typeof PALETTES)[AnimPalette]>
+  palette: (typeof PALETTES)[AnimPalette]
 }) {
   return (
     <div

@@ -1,6 +1,7 @@
 export { DocumentList } from './DocumentList'
 export { DocumentPreviewPane } from './DocumentPreviewPane'
 export { DocumentStatusBadge } from './DocumentStatusBadge'
+export { HighlightColorPicker, type HighlightColor, HIGHLIGHT_COLORS } from './HighlightColorPicker'
 export { ImportDocumentButton } from './ImportDocumentButton'
 export { HighlightLayer } from './PdfViewer/HighlightLayer'
 export { PdfPageCanvas } from './PdfViewer/PdfPageCanvas'

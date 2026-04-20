@@ -28,7 +28,7 @@ export function DocumentList({ documents, selectedDocumentId, onSelect }: Docume
 
   if (documents.length === 0) {
     return (
-      <div className="rounded-[28px] border border-dashed border-line-soft bg-white/80 px-6 py-10 text-center">
+      <div className="rounded-[28px] border border-dashed border-line-soft bg-paper-card/80 px-6 py-10 text-center">
         <p className="font-ui text-sm text-ink">还没有文档</p>
         <p className="mt-2 text-sm text-ink-soft">
           从左侧导入第一份文档，系统会自动完成解析，并启动卡片候选生成。
@@ -47,7 +47,7 @@ export function DocumentList({ documents, selectedDocumentId, onSelect }: Docume
 
       <div
         ref={scrollElementRef}
-        className="h-[560px] overflow-auto rounded-[28px] border border-line-soft bg-white/80"
+        className="h-[560px] overflow-auto rounded-[28px] border border-line-soft bg-paper-card/80"
       >
         <div
           className="relative"
@@ -76,7 +76,7 @@ export function DocumentList({ documents, selectedDocumentId, onSelect }: Docume
                   className={`rounded-[22px] border px-4 py-4 ${
                     isSelected
                       ? 'border-ink/20 bg-paper-base shadow-card'
-                      : 'border-line-soft bg-white/90'
+                      : 'border-line-soft bg-paper-card/90'
                   }`}
                 >
                   <div className="mb-3 flex items-start justify-between gap-3">
@@ -106,7 +106,7 @@ export function DocumentList({ documents, selectedDocumentId, onSelect }: Docume
 
 function StatTile({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-[24px] border border-line-soft bg-white/80 px-4 py-4">
+    <div className="rounded-[24px] border border-line-soft bg-paper-card/80 px-4 py-4">
       <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">{label}</p>
       <p className="mt-3 font-display text-2xl text-ink">{value}</p>
     </div>

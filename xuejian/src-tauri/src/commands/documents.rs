@@ -305,6 +305,8 @@ pub fn save_document_analysis(
                 text_quote: anchor.text_quote,
                 rects: anchor.rects.into_iter().map(Into::into).collect(),
                 hash: anchor.hash,
+                hierarchy_path: None,
+                quote_hash: None,
             })
             .collect(),
         chunks: data

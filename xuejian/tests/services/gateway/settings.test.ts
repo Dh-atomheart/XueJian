@@ -41,7 +41,7 @@ describe('gateway mocks', () => {
   // @acceptance:v4-5-a1
   it('persists an openai-compatible API config across mock create, store key, and list calls', async () => {
     const created = await apiConfigGateway.create({
-      provider: 'openai_compatible',
+      provider: 'custom',
       authMode: 'api_key',
       name: 'Local OpenAI Compatible',
       model: 'qwen2.5-14b-instruct',
@@ -51,7 +51,8 @@ describe('gateway mocks', () => {
       isEnabled: true,
     })
 
-    expect(created.provider).toBe('openai_compatible')
+    expect(created.provider).toBe('custom')
+    expect(created.protocol).toBe('openai-compatible')
     expect(created.authMode).toBe('api_key')
     expect(created.baseUrl).toBe('http://localhost:11434/v1')
     expect(created.hasStoredCredential).toBe(false)
@@ -64,7 +65,8 @@ describe('gateway mocks', () => {
     expect(configs).toHaveLength(1)
     expect(configs[0]).toMatchObject({
       id: created.id,
-      provider: 'openai_compatible',
+      provider: 'custom',
+      protocol: 'openai-compatible',
       authMode: 'api_key',
       name: 'Local OpenAI Compatible',
       model: 'qwen2.5-14b-instruct',
@@ -74,6 +76,23 @@ describe('gateway mocks', () => {
       isDefault: true,
       isEnabled: true,
     })
+  })
+
+  it('assigns openai-compatible protocol to qianfan configs outside Tauri', async () => {
+    const created = await apiConfigGateway.create({
+      provider: 'qianfan',
+      authMode: 'api_key',
+      name: 'Baidu Qianfan',
+      model: 'ernie-speed',
+      baseUrl: 'https://qianfan.baidubce.com/v2',
+      budgetLimit: null,
+      isDefault: true,
+      isEnabled: true,
+      protocol: null,
+    })
+
+    expect(created.provider).toBe('qianfan')
+    expect(created.protocol).toBe('openai-compatible')
   })
 
   it('returns orchestration health and manifest mocks outside Tauri', async () => {

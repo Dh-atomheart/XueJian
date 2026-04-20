@@ -1,371 +1,242 @@
-import { useMemo } from 'react'
-import { Button, Panel, SketchEmptyState } from '@/components/ui'
-import { HeatmapCalendar, StudyTotalsCard, type HeatmapEntry } from '@/components/stats'
-import { DocumentStatusBadge, ImportDocumentButton } from '@/components/documents'
-import {
-  useDailyStatsQuery,
-  useRecentDocumentsQuery,
-  useApiConfigsQuery,
-  useReviewLogsQuery,
-} from '@/queries'
-import { usePointsSummaryQuery } from '@/queries/points'
+﻿import { useState, useEffect, useMemo } from 'react'
+import { SketchButton, SketchCircle, SketchDivider, SketchProgress } from '@/components/ui/Sketch'
+import { useAppStore, generateMockData } from '@/lib/store'
 import { useAppUiStore } from '@/store'
-import type { ReviewLog } from '@/types'
+import { cn } from '@/lib/utils'
 
 export function DashboardPage() {
+  const [isHovered, setIsHovered] = useState(false)
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
-  const openReader = useAppUiStore((state) => state.openReader)
-  const { data: recentDocuments = [], isLoading: isLoadingDocuments } = useRecentDocumentsQuery(5)
-  const { data: dailyStats } = useDailyStatsQuery()
-  const { data: apiConfigs = [] } = useApiConfigsQuery()
-  const { data: pointsSummary } = usePointsSummaryQuery()
-  const { data: reviewLogs = [] } = useReviewLogsQuery({ limit: 500 })
+  const { flashcards, studyRecords, documents, setDocuments, setFlashcards } = useAppStore()
 
-  const totalDue = (dailyStats?.newCards ?? 0) + (dailyStats?.reviewCards ?? 0)
-  const hasApiConfig = apiConfigs.length > 0
-  const hasDocuments = recentDocuments.length > 0
+  // Initialize mock data if empty
+  useEffect(() => {
+    if (documents.length === 0) {
+      const mock = generateMockData()
+      useAppStore.setState(mock)
+    }
+  }, [documents.length])
 
-  const heatmapEntries = useMemo(() => buildHeatmapEntries(reviewLogs), [reviewLogs])
-  const studyTotals = useMemo(() => computeStudyTotals(reviewLogs), [reviewLogs])
-
-  // First-use: no API config yet
-  if (!hasApiConfig && !hasDocuments) {
-    return <FirstUseView onGoSettings={() => setActiveNavItem('settings')} />
-  }
-
-  // Empty: has config but no documents
-  if (hasApiConfig && !hasDocuments) {
-    return (
-      <EmptyWorkspaceView
-        onGoLibrary={() => setActiveNavItem('library')}
-        onImported={() => setActiveNavItem('library')}
-      />
-    )
-  }
+  const todayCards = flashcards.filter((c) => c.status !== 'mastered').length
+  const reviewCards = flashcards.filter((c) => c.status === 'review').length
+  const newCards = flashcards.filter((c) => c.status === 'new').length
+  const masteredCards = flashcards.filter((c) => c.status === 'mastered').length
+  const memoryProgress =
+    flashcards.length > 0 ? Math.round((masteredCards / flashcards.length) * 100) : 0
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      {/* 今日学习任务 — 最重要的信息 */}
-      <Panel variant="paperCard" className="rounded-[24px] p-6">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <p className="font-ui text-xs uppercase tracking-[0.24em] text-ink-soft">今日学习</p>
-            <div className="flex items-end gap-3">
-              <span className="font-display text-5xl tabular-nums leading-none text-ink">
-                {totalDue}
-              </span>
-              <span className="mb-1 font-body text-sm text-ink-muted">张卡片待复习</span>
-            </div>
-            {dailyStats && (
-              <div className="mt-1 flex gap-4 text-sm text-ink-muted">
-                <span>
-                  新卡 <span className="tabular-nums text-ink">{dailyStats.newCards}</span>
-                </span>
-                <span>
-                  复习 <span className="tabular-nums text-ink">{dailyStats.reviewCards}</span>
-                </span>
-                {(pointsSummary?.todayPoints ?? 0) > 0 && (
-                  <span>
-                    积分{' '}
-                    <span className="tabular-nums text-ink">+{pointsSummary!.todayPoints}</span>
-                  </span>
-                )}
-              </div>
-            )}
+    <div className="flex flex-col items-center px-6 py-8 max-w-md mx-auto animate-fade-in">
+      {/* 头部 */}
+      <header className="w-full flex items-center justify-between mb-12">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-ink/5 flex items-center justify-center">
+            <span className="text-base font-display font-semibold">笺</span>
           </div>
-          <Button
-            variant="default"
-            size="lg"
-            className="shrink-0"
-            onClick={() => setActiveNavItem('learning')}
-            disabled={totalDue === 0}
-          >
-            {totalDue > 0 ? '开始学习' : '今日已完成'}
-          </Button>
+          <span className="text-lg font-display font-semibold tracking-tight">学笺</span>
         </div>
-      </Panel>
+        <div className="text-sm text-ink-muted tracking-wider uppercase font-ui">Study Desk</div>
+      </header>
 
-      {/* 快速动作 + 最近文档 */}
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.6fr)]">
-        {/* 最近文档 */}
-        <Panel variant="paperCard" className="rounded-[24px] p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-ui text-base text-ink">最近文档</h2>
-            <Button variant="ghost" size="sm" onClick={() => setActiveNavItem('library')}>
-              查看全部
-            </Button>
-          </div>
+      {/* Study Center 标题 */}
+      <div className="text-center mb-12">
+        <p className="text-xs tracking-[0.3em] text-ink-muted uppercase mb-3 font-ui">
+          Study Center
+        </p>
+        <h1 className="text-2xl font-display font-semibold mb-2">今日学习中心</h1>
+        <p className="text-sm text-ink-muted">欢迎回来，今日宜格物致知。</p>
+      </div>
 
-          {isLoadingDocuments ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="flex animate-pulse items-center gap-3 rounded-xl bg-paper-muted p-3"
-                >
-                  <div className="h-4 w-32 rounded bg-paper-soft" />
-                  <div className="ml-auto h-4 w-16 rounded bg-paper-soft" />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <ul className="space-y-2">
-              {recentDocuments.map((doc) => (
-                <li key={doc.id}>
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-transparent px-3 py-3 text-left transition hover:border-line-soft hover:bg-paper-muted/60"
-                    onClick={() => {
-                      if (doc.status === 'ready') {
-                        openReader(doc.id, doc.pageCount ?? 1)
-                      } else {
-                        setActiveNavItem('library')
-                      }
-                    }}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-ui text-sm text-ink">{doc.title}</p>
-                      <p className="mt-0.5 text-xs text-ink-soft">
-                        {doc.fileType.toUpperCase()} · {doc.pageCount ?? '--'} 页
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <DocumentStatusBadge status={doc.status} />
-                      {doc.status === 'ready' && (
-                        <span className="font-ui text-xs text-ink-muted">继续阅读 →</span>
-                      )}
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
+      {/* Task Overview */}
+      <div className="text-center mb-10">
+        <p className="text-xs tracking-[0.3em] text-ink-muted uppercase mb-3 font-ui">
+          Task Overview
+        </p>
+        <h2 className="text-3xl font-display font-semibold mb-1">今日任务</h2>
+        <p className="text-sm text-ink-muted tracking-wide">{todayCards} Cards Total</p>
+      </div>
 
-        {/* 快速开始侧栏 */}
-        <div className="space-y-4">
-          <Panel variant="paperCard" className="rounded-[24px] p-5">
-            <h3 className="mb-3 font-ui text-sm text-ink">快速开始</h3>
-            <div className="space-y-2">
-              <Button
-                variant="sketch"
-                className="w-full justify-start"
-                onClick={() => setActiveNavItem('learning')}
-              >
-                <LearnIcon className="mr-2 h-4 w-4" />
-                进入学习
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => setActiveNavItem('library')}
-              >
-                <BookIcon className="mr-2 h-4 w-4" />
-                文档库
-              </Button>
-              <ImportDocumentButton
-                onImported={() => setActiveNavItem('library')}
-                showFeedback
-                idleLabel="导入文档"
-                buttonProps={{
-                  variant: 'outline',
-                  className: 'w-full justify-start',
-                }}
-              />
-            </div>
-          </Panel>
+      {/* 统计圆圈 */}
+      <div className="flex items-center justify-center gap-8 mb-12">
+        <div className="flex flex-col items-center">
+          <p className="text-xs text-ink-muted mb-2">待复习</p>
+          <SketchCircle size={72} className="text-ink/70">
+            <span className="text-xl font-semibold">{reviewCards}</span>
+          </SketchCircle>
+        </div>
 
-          <Panel variant="paperCard" className="rounded-[24px] p-5">
-            <h3 className="mb-3 font-ui text-sm text-ink">学习概览</h3>
-            <StudyTotalsCard
-              todayMinutes={studyTotals.todayMinutes}
-              weekMinutes={studyTotals.weekMinutes}
-              totalMinutes={studyTotals.totalMinutes}
-              streakDays={studyTotals.streakDays}
-              className="grid-cols-2 sm:grid-cols-2 lg:grid-cols-2"
-            />
-          </Panel>
+        <div className="h-16 w-px bg-line-soft" />
+
+        <div className="flex flex-col items-center">
+          <p className="text-xs text-ink-muted mb-2">新知识</p>
+          <SketchCircle size={72} className="text-ink/70">
+            <span className="text-xl font-semibold">{newCards}</span>
+          </SketchCircle>
         </div>
       </div>
 
-      {/* 学习热力图 */}
-      <Panel variant="paperCard" className="rounded-[24px] p-6">
-        <HeatmapCalendar entries={heatmapEntries} weeks={16} />
-      </Panel>
+      {/* 开始学习按钮 */}
+      <div className="mb-16">
+        <SketchButton
+          variant="outline"
+          className="group"
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          onClick={() => setActiveNavItem('learning')}
+        >
+          <span>开始学习</span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={cn('transition-transform duration-300', isHovered && 'translate-x-1')}
+          >
+            <path d="M5 12h14" />
+            <path d="m12 5 7 7-7 7" />
+          </svg>
+        </SketchButton>
+      </div>
+
+      {/* 继续上次会话 */}
+      <div className="w-full mb-8">
+        <p className="text-xs text-ink-muted mb-4 sketch-underline inline-block">继续上次会话</p>
+        <SketchDivider className="mt-2" />
+      </div>
+
+      {/* 记忆存储进度 */}
+      <div className="w-full">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-medium">学习进度 (Learning Progress)</h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveNavItem('profile')}
+            className="text-ink-muted hover:text-ink transition-colors"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M7 17l9.2-9.2M17 17V7H7" />
+            </svg>
+          </button>
+        </div>
+        <SketchProgress value={memoryProgress} />
+        <p className="text-xs text-ink-muted mt-2 text-right">{memoryProgress}%</p>
+      </div>
+
+      {/* 快捷入口 */}
+      <div className="w-full mt-12 grid grid-cols-2 gap-4">
+        <button
+          type="button"
+          onClick={() => setActiveNavItem('library')}
+          className="flex items-center gap-3 p-4 rounded-lg border border-line-soft/60 hover:bg-paper-muted/50 transition-colors text-left"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-ink-muted"
+          >
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+            <path d="M12 18v-6" />
+            <path d="m9 15 3-3 3 3" />
+          </svg>
+          <span className="text-sm font-medium">上传文档</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveNavItem('knowledge')}
+          className="flex items-center gap-3 p-4 rounded-lg border border-line-soft/60 hover:bg-paper-muted/50 transition-colors text-left"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-ink-muted"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          <span className="text-sm font-medium">AI 问答</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveNavItem('podcast')}
+          className="flex items-center gap-3 p-4 rounded-lg border border-line-soft/60 hover:bg-paper-muted/50 transition-colors text-left"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-ink-muted"
+          >
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" x2="12" y1="19" y2="23" />
+            <line x1="8" x2="16" y1="23" y2="23" />
+          </svg>
+          <span className="text-sm font-medium">AI 播客</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveNavItem('graph')}
+          className="flex items-center gap-3 p-4 rounded-lg border border-line-soft/60 hover:bg-paper-muted/50 transition-colors text-left"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-ink-muted"
+          >
+            <circle cx="12" cy="12" r="2" />
+            <circle cx="6" cy="6" r="2" />
+            <circle cx="18" cy="6" r="2" />
+            <circle cx="6" cy="18" r="2" />
+            <circle cx="18" cy="18" r="2" />
+            <line x1="12" y1="10" x2="12" y2="8" />
+            <line x1="6" y1="8" x2="6" y2="16" />
+            <line x1="18" y1="8" x2="18" y2="16" />
+            <line x1="10" y1="12" x2="8" y2="12" />
+            <line x1="14" y1="12" x2="16" y2="12" />
+          </svg>
+          <span className="text-sm font-medium">知识图谱</span>
+        </button>
+      </div>
     </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* Heatmap + totals derivation                                        */
-/* ------------------------------------------------------------------ */
-
-const MINUTES_PER_REVIEW = 0.5
-
-function buildHeatmapEntries(logs: ReviewLog[]): HeatmapEntry[] {
-  const counts = new Map<string, number>()
-  for (const log of logs) {
-    const iso = toIsoLocalDate(log.reviewedAt)
-    counts.set(iso, (counts.get(iso) ?? 0) + 1)
-  }
-  return Array.from(counts.entries()).map(([date, count]) => ({ date, count }))
-}
-
-interface StudyTotals {
-  todayMinutes: number | null
-  weekMinutes: number | null
-  totalMinutes: number | null
-  streakDays: number | null
-}
-
-function computeStudyTotals(logs: ReviewLog[]): StudyTotals {
-  if (logs.length === 0) {
-    return { todayMinutes: null, weekMinutes: null, totalMinutes: null, streakDays: null }
-  }
-
-  const today = startOfLocalDay(new Date())
-  const todayIso = toIsoLocalDate(today)
-  const weekStart = new Date(today)
-  weekStart.setDate(today.getDate() - 6)
-
-  let todayCount = 0
-  let weekCount = 0
-  const activeDays = new Set<string>()
-
-  for (const log of logs) {
-    const iso = toIsoLocalDate(log.reviewedAt)
-    activeDays.add(iso)
-    if (iso === todayIso) todayCount += 1
-    const logDay = startOfLocalDay(log.reviewedAt)
-    if (logDay >= weekStart && logDay <= today) weekCount += 1
-  }
-
-  return {
-    todayMinutes: Math.round(todayCount * MINUTES_PER_REVIEW),
-    weekMinutes: Math.round(weekCount * MINUTES_PER_REVIEW),
-    totalMinutes: Math.round(logs.length * MINUTES_PER_REVIEW),
-    streakDays: computeStreak(activeDays, today),
-  }
-}
-
-function computeStreak(activeDays: Set<string>, today: Date): number {
-  let streak = 0
-  const cursor = new Date(today)
-  while (activeDays.has(toIsoLocalDate(cursor))) {
-    streak += 1
-    cursor.setDate(cursor.getDate() - 1)
-  }
-  return streak
-}
-
-function startOfLocalDay(input: Date): Date {
-  const d = new Date(input)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function toIsoLocalDate(input: Date): string {
-  const d = startOfLocalDay(input)
-  const y = d.getFullYear()
-  const m = `${d.getMonth() + 1}`.padStart(2, '0')
-  const day = `${d.getDate()}`.padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-/* ------------------------------------------------------------------ */
-/* 首次使用视图 */
-/* ------------------------------------------------------------------ */
-
-function FirstUseView({ onGoSettings }: { onGoSettings: () => void }) {
-  return (
-    <div className="flex h-full items-center justify-center px-4">
-      <SketchEmptyState
-        illustration="book"
-        title="欢迎使用学笺"
-        description="这是你的本地学习工作台。开始之前请先配置一个 AI 模型，所有 API Key 只会保存在本地密钥库里，不会上云。"
-        className="max-w-md"
-        size="lg"
-        action={
-          <Button variant="default" onClick={onGoSettings}>
-            前往设置，配置模型
-          </Button>
-        }
-        secondaryAction={
-          <span className="font-ui text-xs text-ink-soft">
-            配置完成后即可导入 PDF 开始学习
-          </span>
-        }
-      />
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* 空工作台视图 */
-/* ------------------------------------------------------------------ */
-
-function EmptyWorkspaceView({
-  onGoLibrary,
-  onImported,
-}: {
-  onGoLibrary: () => void
-  onImported: () => void
-}) {
-  return (
-    <div className="flex h-full items-center justify-center px-4">
-      <SketchEmptyState
-        illustration="note"
-        title="准备开始"
-        description="模型已配置好。导入第一份文档，系统会自动解析并生成学习卡片。"
-        className="max-w-md"
-        size="lg"
-        action={
-          <ImportDocumentButton
-            onImported={onImported}
-            showFeedback
-            buttonProps={{ variant: 'default' }}
-          />
-        }
-        secondaryAction={
-          <Button variant="ghost" size="sm" onClick={onGoLibrary}>
-            前往文档库
-          </Button>
-        }
-      />
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* 小图标 */
-/* ------------------------------------------------------------------ */
-
-function LearnIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-    >
-      <rect x="2" y="4" width="20" height="16" rx="2" />
-      <path d="M12 8v8M8 12h8" />
-    </svg>
-  )
-}
-
-function BookIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-    >
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    </svg>
   )
 }

@@ -1,7 +1,5 @@
-import { cn } from '@/lib/utils'
+﻿import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
-import { useApiConfigsQuery, hasUsableApiConfig } from '@/queries'
-import { isTauriEnvironment } from '@/services/gateway'
 import { useAppUiStore, type NavItemId } from '@/store'
 
 interface NavItem {
@@ -14,184 +12,253 @@ const navItems: NavItem[] = [
   {
     id: 'home',
     label: '首页',
-    icon: <HomeIcon />,
-  },
-  {
-    id: 'library',
-    label: '文档库',
-    icon: <LibraryIcon />,
-  },
-  {
-    id: 'cards',
-    label: '卡片工坊',
-    icon: <CardsIcon />,
-  },
-  {
-    id: 'learning',
-    label: '学习',
-    icon: <LearningIcon />,
+    icon: (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
   },
   {
     id: 'knowledge',
-    label: '知识问答',
-    icon: <KnowledgeIcon />,
+    label: '问答',
+    icon: (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
   },
   {
-    id: 'settings',
-    label: '设置',
-    icon: <SettingsIcon />,
+    id: 'cards',
+    label: '牌库',
+    icon: (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+        <path d="M16 3H8l-2 4h12l-2-4z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'library',
+    label: '资源',
+    icon: (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'podcast',
+    label: '播客',
+    icon: (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <line x1="12" x2="12" y1="19" y2="23" />
+        <line x1="8" x2="16" y1="23" y2="23" />
+      </svg>
+    ),
+  },
+  {
+    id: 'graph',
+    label: '图谱',
+    icon: (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="2" />
+        <circle cx="6" cy="6" r="2" />
+        <circle cx="18" cy="6" r="2" />
+        <circle cx="6" cy="18" r="2" />
+        <circle cx="18" cy="18" r="2" />
+        <line x1="12" y1="10" x2="12" y2="8" />
+        <line x1="6" y1="8" x2="6" y2="16" />
+        <line x1="18" y1="8" x2="18" y2="16" />
+        <line x1="10" y1="12" x2="8" y2="12" />
+        <line x1="14" y1="12" x2="16" y2="12" />
+      </svg>
+    ),
+  },
+  {
+    id: 'profile',
+    label: '我的',
+    icon: (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    ),
   },
 ]
 
-export function SidebarRail() {
+export function SideNavigation() {
   const activeItem = useAppUiStore((state) => state.activeNavItem)
   const setActiveItem = useAppUiStore((state) => state.setActiveNavItem)
-  const { data: apiConfigs = [], isLoading } = useApiConfigsQuery()
-
-  const needsModelSetup = isTauriEnvironment() && !isLoading && !hasUsableApiConfig(apiConfigs)
 
   return (
-    <nav className="app-sidebar-rail flex w-16 flex-col items-center border-r border-line-soft bg-paper-muted py-4">
-      {/* Logo */}
-      <div className="app-sidebar-logo mb-6 flex h-10 w-10 items-center justify-center font-display text-xl text-ink select-none">
-        笺
-      </div>
-
-      {/* 导航项 */}
-      <div className="flex flex-1 flex-col gap-1.5">
-        {navItems.map((item) => (
-          <NavButton
-            key={item.id}
-            item={item}
-            activeItem={activeItem}
-            showSetupCue={needsModelSetup && AI_DEPENDENT_NAV_IDS.has(item.id)}
-            onClick={() => setActiveItem(item.id)}
-          />
-        ))}
-      </div>
-
-      {needsModelSetup ? (
+    <aside className="sticky top-0 hidden h-screen w-64 flex-col border-r border-line-soft bg-paper-muted md:flex">
+      <div className="border-b border-line-soft p-6">
         <button
           type="button"
-          className="mt-3 rounded-[14px] border border-amber-200 bg-amber-50 px-2 py-2 text-center text-[10px] leading-4 text-amber-900 transition-colors hover:border-amber-300 hover:bg-amber-100"
-          onClick={() => setActiveItem('settings')}
-          title="卡片生成与知识问答需要先配置模型"
+          onClick={() => setActiveItem('home')}
+          className="flex items-center gap-3"
         >
-          AI 功能需先配置模型
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-ink/5">
+            <span className="font-display text-lg font-semibold">笺</span>
+          </div>
+          <span className="font-display text-xl font-semibold tracking-tight">学笺</span>
         </button>
-      ) : null}
+      </div>
+
+      <nav className="flex-1 space-y-1 p-4">
+        {navItems.map((item) => {
+          const isActive = activeItem === item.id
+          return (
+            <button
+              type="button"
+              key={item.id}
+              onClick={() => setActiveItem(item.id)}
+              className={cn(
+                'flex w-full items-center gap-3 rounded-lg px-4 py-3 transition-all duration-200',
+                isActive
+                  ? 'bg-paper-soft text-ink'
+                  : 'text-ink/70 hover:bg-paper-soft/50 hover:text-ink'
+              )}
+              data-testid={`sidebar-nav-${item.id}`}
+            >
+              {item.icon}
+              <span className="font-medium">{item.label}</span>
+            </button>
+          )
+        })}
+      </nav>
+
+      <div className="border-t border-line-soft p-4">
+        <button
+          type="button"
+          onClick={() => setActiveItem('settings')}
+          className={cn(
+            'flex w-full items-center gap-3 rounded-lg px-4 py-3 transition-all duration-200',
+            activeItem === 'settings'
+              ? 'bg-paper-soft text-ink'
+              : 'text-ink/70 hover:bg-paper-soft/50 hover:text-ink'
+          )}
+          data-testid="sidebar-nav-settings"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span className="font-medium">设置</span>
+        </button>
+      </div>
+    </aside>
+  )
+}
+
+export function BottomNavigation() {
+  const activeItem = useAppUiStore((state) => state.activeNavItem)
+  const setActiveItem = useAppUiStore((state) => state.setActiveNavItem)
+
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-line-soft bg-paper-base/95 backdrop-blur-sm md:hidden">
+      <div className="mx-auto max-w-lg px-4">
+        <div className="flex items-center justify-around py-2">
+          {navItems.map((item) => {
+            const isActive = activeItem === item.id
+            return (
+              <button
+                type="button"
+                key={item.id}
+                onClick={() => setActiveItem(item.id)}
+                className={cn(
+                  'flex flex-col items-center gap-1 rounded-lg px-4 py-2 transition-all duration-200',
+                  isActive ? 'text-ink' : 'text-ink-muted hover:text-ink'
+                )}
+              >
+                <div className={cn('transition-transform duration-200', isActive && 'scale-110')}>
+                  {item.icon}
+                </div>
+                <span className="text-xs font-medium">{item.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
     </nav>
   )
 }
 
-const AI_DEPENDENT_NAV_IDS = new Set<NavItemId>(['cards', 'learning', 'knowledge'])
-
-function NavButton({
-  item,
-  activeItem,
-  showSetupCue,
-  onClick,
-}: {
-  item: NavItem
-  activeItem: NavItemId
-  showSetupCue: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rail-nav-button relative flex h-11 w-11 items-center justify-center rounded-lg transition-colors',
-        activeItem === item.id
-          ? 'rail-nav-button-active bg-ink/10 text-ink'
-          : 'text-ink-muted hover:bg-ink/5 hover:text-ink'
-      )}
-      title={showSetupCue ? `${item.label}（当前会提示你先配置模型）` : item.label}
-      aria-label={item.label}
-      data-testid={`sidebar-nav-${item.id}`}
-    >
-      {item.icon}
-      {showSetupCue ? (
-        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full border border-paper-base bg-amber-500" />
-      ) : null}
-    </button>
-  )
-}
-
-function IconBase({ children }: { children: ReactNode }) {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  )
-}
-
-function HomeIcon() {
-  return (
-    <IconBase>
-      <path d="M3 10.5 12 3l9 7.5" />
-      <path d="M5.5 9.5V20a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1V9.5" />
-    </IconBase>
-  )
-}
-
-function LibraryIcon() {
-  return (
-    <IconBase>
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    </IconBase>
-  )
-}
-
-function LearningIcon() {
-  return (
-    <IconBase>
-      <rect x="3" y="4" width="18" height="14" rx="2.5" />
-      <path d="M8 20h8" />
-      <path d="M12 8v6" />
-      <path d="M9 11h6" />
-    </IconBase>
-  )
-}
-
-function CardsIcon() {
-  return (
-    <IconBase>
-      <path d="M8 5.5h10.5a2 2 0 0 1 2 2V17" />
-      <path d="M6.5 3H17a2 2 0 0 1 2 2v11.5a2 2 0 0 1-2 2H6.5a2.5 2.5 0 0 1-2.5-2.5v-11A2.5 2.5 0 0 1 6.5 3z" />
-      <path d="M8 8h7" />
-      <path d="M8 12h5" />
-    </IconBase>
-  )
-}
-
-function KnowledgeIcon() {
-  return (
-    <IconBase>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </IconBase>
-  )
-}
-
-function SettingsIcon() {
-  return (
-    <IconBase>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </IconBase>
-  )
-}
+// Backward-compatible exports
+export { SideNavigation as SidebarRail }

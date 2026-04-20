@@ -1,6 +1,6 @@
 ---
 title: MVP W4 Integration And Testing
-status: draft
+status: done
 owner: platform
 last_reviewed: 2026-04-19
 canonical: true
@@ -44,16 +44,16 @@ canonical: true
 
 ## Tests
 
-| ID | 验收点 | 状态 |
-|----|--------|------|
-| mvp-w4-a1 | BYOK 配置：API Key 存 Stronghold，查询接口不回传明文 | ⏳ |
-| mvp-w4-a2 | 连接测试：真实 completion 请求返回成功/失败 | ⏳ |
-| mvp-w4-a3 | 导出：CSV + .apkg 均可用 | ⏳ |
-| mvp-w4-a4 | 任务恢复：从 checkpoint 继续，无重复卡片 | ⏳ |
-| mvp-w4-a5 | V10/V11 迁移：空库 + 既有库数据完整 | ⏳ |
-| mvp-w4-a6 | Rough.js 视觉验收：空状态/边框/分隔线 | ⏳ |
-| mvp-w4-a7 | E2E：上传→生成→确认→阅读→复习闭环 | ⏳ |
-| mvp-w4-a8 | 打包：tauri:build 成功 | ⏳ |
+| ID        | 验收点                                               | 状态 |
+| --------- | ---------------------------------------------------- | ---- |
+| mvp-w4-a1 | BYOK 配置：API Key 存 Stronghold，查询接口不回传明文 | ✅   |
+| mvp-w4-a2 | 连接测试：真实 completion 请求返回成功/失败          | ✅   |
+| mvp-w4-a3 | 导出：CSV + .apkg 均可用                             | ✅   |
+| mvp-w4-a4 | 任务恢复：从 checkpoint 继续，无重复卡片             | ✅   |
+| mvp-w4-a5 | V10/V11 迁移：空库 + 既有库数据完整                  | ✅   |
+| mvp-w4-a6 | Rough.js 视觉验收：空状态/边框/分隔线                | ✅   |
+| mvp-w4-a7 | E2E：上传→生成→确认→阅读→复习闭环                    | ✅   |
+| mvp-w4-a8 | 打包：tauri:build 成功                               | ✅   |
 
 ## Relevant Files
 
