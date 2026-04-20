@@ -34,6 +34,7 @@ export interface CardCandidateFilters {
 export interface CreateCardInput {
   front: string
   back: string
+  cardType?: Card['cardType']
   documentId?: string | null
   anchorId?: string | null
   sourcePage?: number | null

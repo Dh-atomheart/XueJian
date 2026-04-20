@@ -33,6 +33,7 @@ pub struct Card {
 pub struct CreateCardRequest {
     pub front: String,
     pub back: String,
+    pub card_type: Option<String>,
     pub document_id: Option<String>,
     pub anchor_id: Option<String>,
     pub source_page: Option<i32>,
@@ -309,14 +310,15 @@ impl<'a> CardRepository<'a> {
             .transpose()
             .map_err(json_encode_error)?;
         let export_guid = Uuid::new_v5(&Uuid::NAMESPACE_URL, id.as_bytes()).to_string();
+        let card_type = req.card_type.unwrap_or_else(|| "qa".to_string());
 
         self.db.connection().execute(
             "INSERT INTO cards (
                 id, title, card_type, export_guid, front, back, document_id, anchor_id,
                 source_page, source_paragraph, source_coordinates, tags, state, created_at, updated_at
-             ) VALUES (?1, NULL, 'qa', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'new', ?11, ?12)",
+             ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'new', ?12, ?13)",
             params![
-                &id, &export_guid, &req.front, &req.back, req.document_id, req.anchor_id,
+                &id, &card_type, &export_guid, &req.front, &req.back, req.document_id, req.anchor_id,
                 req.source_page, req.source_paragraph, source_coordinates, tags_json,
                 &now, &now
             ],
@@ -326,7 +328,7 @@ impl<'a> CardRepository<'a> {
             id,
             group_id: None,
             title: None,
-            card_type: "qa".to_string(),
+            card_type,
             cluster_id: None,
             export_guid: Some(export_guid),
             front: req.front,

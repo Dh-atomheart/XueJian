@@ -140,7 +140,7 @@ export interface CardCandidate {
   documentId: string
   anchorId: string | null
   title: string | null
-  cardType: 'qa' | 'cloze' | 'fact'
+  cardType: 'qa' | 'cloze' | 'fact' | 'choice'
   sourcePage: number | null
   sourceParagraph: number | null
   sourceQuote: string | null
@@ -164,7 +164,7 @@ export interface Card {
   id: string
   groupId: string | null
   title: string | null
-  cardType: 'qa' | 'cloze' | 'fact'
+  cardType: 'qa' | 'cloze' | 'fact' | 'choice'
   clusterId: string | null
   exportGuid: string | null
   documentId: string | null

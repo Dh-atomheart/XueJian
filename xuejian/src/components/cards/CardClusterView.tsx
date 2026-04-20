@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { Panel } from '@/components/ui'
+import { CardContentRenderer } from './CardContentRenderer'
 import { cn } from '@/lib/utils'
 import type { Card } from '@/types'
 
@@ -73,9 +74,7 @@ export function CardClusterView({
               >
                 {bucket.label}
               </h3>
-              <span className="font-latin text-[11px] text-ink-soft">
-                {bucket.cards.length} 张
-              </span>
+              <span className="font-latin text-[11px] text-ink-soft">{bucket.cards.length} 张</span>
             </header>
           )}
 
@@ -132,8 +131,12 @@ function CardItem({ card, mode, stackSize, isActive, onSelect }: CardItemProps) 
             <span className="font-latin text-[11px] text-ink-soft">P.{card.sourcePage}</span>
           )}
         </div>
-        <p className="line-clamp-3 font-ui text-sm text-ink">{card.front}</p>
-        <p className="line-clamp-3 font-body text-xs leading-5 text-ink-muted">{card.back}</p>
+        <p className="line-clamp-3 font-ui text-sm text-ink">
+          <CardContentRenderer content={card.front} compact />
+        </p>
+        <p className="line-clamp-3 font-body text-xs leading-5 text-ink-muted">
+          <CardContentRenderer content={card.back} compact />
+        </p>
         {card.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 pt-1">
             {card.tags.slice(0, 3).map((tag) => (

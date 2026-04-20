@@ -3,6 +3,7 @@ import {
   cardsGateway,
   type CardCandidateFilters,
   type CardFilters,
+  type CreateCardInput,
   type CreateHighlightInput,
   type HighlightFilters,
 } from '@/services/gateway/cards'
@@ -70,6 +71,16 @@ export function useCreateHighlightMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: CreateHighlightInput) => cardsGateway.createHighlight(data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+    },
+  })
+}
+
+export function useCreateCardMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateCardInput) => cardsGateway.create(data),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
     },

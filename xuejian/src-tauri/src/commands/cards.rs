@@ -28,6 +28,10 @@ const DEFAULT_HIGHLIGHT_COLOR: &str = "#F8E16C";
 pub struct CardDto {
     pub id: String,
     pub group_id: Option<String>,
+    pub title: Option<String>,
+    pub card_type: String,
+    pub cluster_id: Option<String>,
+    pub export_guid: Option<String>,
     pub front: String,
     pub back: String,
     pub document_id: Option<String>,
@@ -50,6 +54,10 @@ impl From<Card> for CardDto {
         Self {
             id: card.id,
             group_id: card.group_id,
+            title: card.title,
+            card_type: card.card_type,
+            cluster_id: card.cluster_id,
+            export_guid: card.export_guid,
             front: card.front,
             back: card.back,
             document_id: card.document_id,
@@ -153,6 +161,7 @@ pub struct FinalizeCardGenerationResultDto {
 pub struct CreateCardDto {
     pub front: String,
     pub back: String,
+    pub card_type: Option<String>,
     pub document_id: Option<String>,
     pub anchor_id: Option<String>,
     pub source_page: Option<i32>,
@@ -301,6 +310,7 @@ pub fn create_card(state: State<'_, AppState>, data: CreateCardDto) -> CommandRe
     let request = CreateCardRequest {
         front: data.front,
         back: data.back,
+        card_type: data.card_type,
         document_id: data.document_id,
         anchor_id: data.anchor_id,
         source_page: data.source_page,
