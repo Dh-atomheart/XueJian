@@ -16,10 +16,13 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .clients.host_gateway import HostGatewayClient
+from .exports.annotated_pdf_exporter import export_annotated_pdf
 from .exports.genanki_exporter import export_cards_to_apkg
+from .exports.apkg_importer import import_apkg
 from .parsing.docling_pipeline import run_document_parse_workflow
 from .workflows.card_animation import run_card_animation_workflow
 from .workflows.card_generation import run_card_generation_workflow
+from .workflows.document_embedding import run_document_embedding_workflow
 from .workflows.knowledge_graph import run_knowledge_graph_workflow
 from .workflows.knowledge_qa import run_knowledge_qa_workflow
 from .workflows.podcast import run_podcast_workflow
@@ -81,11 +84,14 @@ def build_handler(start_time: float):
                             "preset-workflows",
                             "card-generation",
                             "document-parse",
+                            "document-embedding",
                             "knowledge-qa",
                             "card-animation",
                             "podcast",
                             "knowledge-graph",
                             "anki-export",
+                            "anki-import",
+                            "annotated-pdf-export",
                         ],
                     },
                 )
@@ -100,6 +106,10 @@ def build_handler(start_time: float):
 
             if self.path == "/workflows/document-parse":
                 self._handle_document_parse()
+                return
+
+            if self.path == "/workflows/document-embedding":
+                self._handle_document_embedding()
                 return
 
             if self.path == "/workflows/knowledge-qa":
@@ -120,6 +130,14 @@ def build_handler(start_time: float):
 
             if self.path == "/exports/apkg":
                 self._handle_export_apkg()
+                return
+
+            if self.path == "/exports/annotated-pdf":
+                self._handle_export_annotated_pdf()
+                return
+
+            if self.path == "/imports/apkg":
+                self._handle_import_apkg()
                 return
 
             self._write_json(404, {"error": "not_found"})
@@ -185,6 +203,37 @@ def build_handler(start_time: float):
                 self._write_json(200, result)
             except Exception as exc:
                 logger.error("Document parse workflow failed: %s", exc, exc_info=True)
+                self._write_json(500, {"error": str(exc)})
+
+        def _handle_document_embedding(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"error": "host_gateway_unavailable"})
+                return
+
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"error": "invalid_json"})
+                return
+
+            run_id = body.get("runId", "")
+            document_id = body.get("documentId")
+
+            if not document_id:
+                self._write_json(400, {"error": "missing documentId"})
+                return
+
+            logger.info(
+                "Starting document embedding: run=%s doc=%s",
+                run_id[:8] if run_id else "none", document_id[:8],
+            )
+            try:
+                result = run_document_embedding_workflow(
+                    run_id, document_id, _host_gateway,
+                )
+                self._write_json(200, result)
+            except Exception as exc:
+                logger.error("Document embedding workflow failed: %s", exc, exc_info=True)
                 self._write_json(500, {"error": str(exc)})
 
         def _handle_knowledge_qa(self) -> None:
@@ -374,6 +423,89 @@ def build_handler(start_time: float):
                 self._write_json(400, {"error": str(exc)})
             except Exception as exc:
                 logger.error("Anki export failed: %s", exc, exc_info=True)
+                self._write_json(500, {"error": str(exc)})
+
+        def _handle_export_annotated_pdf(self) -> None:
+            """POST /exports/annotated-pdf — export annotated PDF copy.
+
+            Request body:
+              filePath    str   required — source PDF absolute path
+              outputPath  str   required — destination PDF absolute path
+              highlights  list  optional — highlight payloads from Rust host
+
+            Response:
+              200 { outputPath, highlightCount }
+              400 invalid/missing inputs
+              500 export failure
+            """
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"error": "invalid_json"})
+                return
+
+            file_path = (body.get("filePath") or "").strip()
+            output_path = (body.get("outputPath") or "").strip()
+            highlights = body.get("highlights") or []
+
+            if not file_path or not output_path:
+                self._write_json(400, {"error": "missing filePath or outputPath"})
+                return
+
+            logger.info(
+                "Export annotated pdf: source=%s highlights=%d -> %s",
+                file_path,
+                len(highlights),
+                output_path,
+            )
+
+            try:
+                result = export_annotated_pdf(file_path, output_path, highlights)
+                self._write_json(200, result)
+            except ImportError as exc:
+                logger.error("PyMuPDF not installed: %s", exc)
+                self._write_json(500, {"error": "pymupdf_not_installed", "detail": str(exc)})
+            except FileNotFoundError as exc:
+                self._write_json(400, {"error": str(exc)})
+            except ValueError as exc:
+                self._write_json(400, {"error": str(exc)})
+            except Exception as exc:
+                logger.error("Annotated PDF export failed: %s", exc, exc_info=True)
+                self._write_json(500, {"error": str(exc)})
+
+        def _handle_import_apkg(self) -> None:
+            """POST /imports/apkg — import cards from an Anki .apkg file.
+
+            Request body:
+              filePath  str  required — absolute path to the .apkg file
+
+            Response:
+              200 { deckName, cards, cardCount }
+              400 missing filePath or invalid file
+              500 parse error
+            """
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"error": "invalid_json"})
+                return
+
+            file_path = (body.get("filePath") or "").strip()
+            if not file_path:
+                self._write_json(400, {"error": "missing filePath"})
+                return
+
+            logger.info("Import apkg: %s", file_path)
+
+            try:
+                result = import_apkg(file_path)
+                self._write_json(200, result)
+            except FileNotFoundError as exc:
+                self._write_json(400, {"error": str(exc)})
+            except ValueError as exc:
+                self._write_json(400, {"error": str(exc)})
+            except Exception as exc:
+                logger.error("Anki import failed: %s", exc, exc_info=True)
                 self._write_json(500, {"error": str(exc)})
 
     return Handler

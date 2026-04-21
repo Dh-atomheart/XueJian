@@ -16,7 +16,9 @@ def _build_litellm_model_str(provider: str, model_name: str, base_url: str | Non
     """Return the litellm model string for a given provider + model."""
     if provider == "anthropic":
         return f"anthropic/{model_name}"
-    if provider == "custom" and base_url:
+    if provider == "google":
+        return f"gemini/{model_name}"
+    if provider == "openai_compatible" and base_url:
         # openai-compatible endpoint — use "openai/" prefix with custom base
         return f"openai/{model_name}"
     # openai
@@ -76,3 +78,40 @@ def litellm_completion(
 
     response = litellm.completion(**kwargs)
     return response.choices[0].message.content or ""
+
+
+def litellm_embedding(
+    config: dict,
+    api_key: str,
+    texts: list[str],
+) -> list[list[float]]:
+    """Call litellm.embedding() and return embedding vectors in order."""
+    try:
+        import litellm  # type: ignore[import]
+    except ImportError as exc:
+        raise ImportError(
+            "litellm is not installed. Add 'litellm' to requirements.txt."
+        ) from exc
+
+    from ..providers.runtime import normalize_provider, resolve_model_runtime
+
+    provider = normalize_provider(config.get("provider", "openai"))
+    _, model_name, base_url = resolve_model_runtime(config)
+    model_str = _build_litellm_model_str(provider, model_name, base_url)
+
+    kwargs: dict[str, Any] = {
+        "model": model_str,
+        "input": texts,
+        "api_key": api_key,
+    }
+
+    if provider == "google":
+        kwargs["api_key"] = api_key
+    elif base_url:
+        kwargs["api_base"] = base_url
+
+    logger.debug("litellm_embedding: model=%s provider=%s base_url=%s", model_str, provider, base_url)
+
+    response = litellm.embedding(**kwargs)
+    items = getattr(response, "data", None) or response.get("data", [])
+    return [list(item["embedding"]) for item in items]

@@ -96,9 +96,32 @@ export interface Document {
   fileSize: number | null
   pageCount: number | null
   contentHash: string | null
-  status: 'uploading' | 'parsed' | 'indexing' | 'generating' | 'ready' | 'error'
+  status:
+    | 'uploading'
+    | 'parsed'
+    | 'embedding'
+    | 'ready'
+    | 'embedding_failed'
+    | 'embedding_stale'
+    | 'error'
   createdAt: Date
   updatedAt: Date
+}
+
+export interface DocumentSection {
+  id: string
+  documentId: string
+  sectionIndex: number
+  heading: string | null
+  hierarchyPath: string[]
+  pageStart: number | null
+  pageEnd: number | null
+  anchorStartId: string | null
+  anchorEndId: string | null
+  content: string
+  tokenCount: number | null
+  metadata: Record<string, unknown> | null
+  createdAt: Date
 }
 
 export interface DocumentAnchor {
@@ -123,9 +146,12 @@ export interface DocumentAnchor {
 export interface DocumentChunk {
   id: string
   documentId: string
+  sectionId: string | null
+  anchorId: string | null
   pageStart: number | null
   pageEnd: number | null
   chunkIndex: number
+  chunkKind: 'parent' | 'child' | 'semantic' | 'fallback'
   content: string
   tokenCount: number | null
   metadata: Record<string, unknown> | null
@@ -138,6 +164,7 @@ export interface CardCandidate {
   id: string
   workflowRunId: string | null
   documentId: string
+  sectionId: string | null
   anchorId: string | null
   title: string | null
   cardType: 'qa' | 'cloze' | 'fact' | 'choice'
@@ -150,6 +177,13 @@ export interface CardCandidate {
   confidence: number
   dedupeKey: string
   status: 'pending' | 'accepted' | 'rejected'
+  scoreOverall: number | null
+  scoreDetails: Record<string, unknown> | null
+  visibilityBucket: 'default' | 'expanded' | 'hidden_low_quality' | null
+  generationMode: 'llm' | 'fallback_rule' | 'fallback_fts5_only'
+  fallbackReason: string | null
+  evaluationSummary: string | null
+  sourceChunkIds: string[] | null
   createdAt: Date
 }
 
@@ -164,7 +198,7 @@ export interface Card {
   id: string
   groupId: string | null
   title: string | null
-  cardType: 'qa' | 'cloze' | 'fact' | 'choice'
+  cardType: 'qa' | 'cloze' | 'fact' | 'choice' | 'image_occlusion'
   clusterId: string | null
   exportGuid: string | null
   documentId: string | null
@@ -211,7 +245,36 @@ export interface Highlight {
   }>
   textContent: string
   color: string
+  note: string | null
+  pageCardIndex: number | null
   createdAt: Date
+}
+
+// ==================== 卡片媒体 ====================
+
+export interface CardMedia {
+  id: string
+  cardId: string
+  fileName: string
+  mimeType: string
+  fileSize: number | null
+  storageKey: string
+  createdAt: string
+}
+
+// ==================== APKG 导入导出 ====================
+
+export interface ImportApkgResult {
+  importedCount: number
+  skippedDuplicates: number
+  deckName: string
+}
+
+export interface ExportApkgResult {
+  deckName: string
+  cardCount: number
+  outputPath: string
+  exportedAt: string
 }
 
 // ==================== 学习相关 ====================
@@ -242,7 +305,7 @@ export interface DailyStats {
 
 export type AppThemeId = 'default' | 'comic-sketch' | 'contrast-paper'
 
-export type ApiProvider = 'openai' | 'anthropic' | 'custom'
+export type ApiProvider = 'openai' | 'anthropic' | 'google' | 'openai_compatible'
 
 export type ApiAuthMode = 'api_key' | 'adc'
 
@@ -266,6 +329,17 @@ export interface ApiConfig {
   isEnabled: boolean
   hasStoredCredential: boolean
   hasStoredKey: boolean
+  createdAt: Date
+}
+
+export interface EmbeddingProfile {
+  id: string
+  provider: ApiProvider
+  model: string
+  dimensions: number
+  distanceMetric: 'cosine'
+  isActive: boolean
+  revision: number
   createdAt: Date
 }
 
@@ -317,7 +391,12 @@ export interface AgentRun {
 
 export interface WorkflowRun {
   id: string
-  workflowType: 'card_generation' | 'knowledge_qa' | 'podcast_generation' | 'knowledge_graph'
+  workflowType:
+    | 'card_generation'
+    | 'document_embedding'
+    | 'knowledge_qa'
+    | 'podcast_generation'
+    | 'knowledge_graph'
   presetId: string | null
   status: 'queued' | 'running' | 'waiting_confirmation' | 'completed' | 'failed' | 'cancelled'
   threadId: string
@@ -389,6 +468,8 @@ export interface CardGenerationCandidate {
 
 export interface Citation {
   documentId: string
+  sectionId: string | null
+  chunkId: string | null
   anchorId: string | null
   page: number | null
   quote: string

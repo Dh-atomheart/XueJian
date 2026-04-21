@@ -6,6 +6,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from ..providers.embedding_runtime import embed_texts
 from ..providers.runtime import build_langchain_chat_model
 
 if TYPE_CHECKING:
@@ -21,10 +22,11 @@ Rules:
 - Base your answer ONLY on the provided passages. If the passages don't contain
   enough information, say so clearly.
 - After your answer, list the citations used: for each one, output a JSON object
-  with keys "chunkId" (string), "documentId" (string), and "snippet" (string,
-  the relevant excerpt from that passage, max 120 chars).
+    with keys "chunkId" (string), "documentId" (string), optional "sectionId"
+    (string), and "snippet" (string, the relevant excerpt from that passage,
+    max 120 chars).
 - Output your response in this JSON format:
-  {"answer": "...", "citations": [{"chunkId": "...", "documentId": "...", "snippet": "..."}]}
+    {"answer": "...", "citations": [{"chunkId": "...", "documentId": "...", "sectionId": "...", "snippet": "..."}]}
 """
 
 KNOWLEDGE_QA_USER_TEMPLATE = """\
@@ -71,16 +73,35 @@ def run_knowledge_qa_workflow(
     run_id: str, question: str, document_ids: list[str],
     host: HostGatewayClient,
 ) -> dict:
-    """Execute the knowledge_qa preset workflow using FTS5 search + LLM."""
-    # Step 1: Retrieve relevant chunks via FTS5
-    chunks = host.search_chunks(question, document_ids if document_ids else None, limit=8)
+    """Execute the knowledge_qa preset workflow using hybrid retrieval + LLM."""
+    retrieval_mode = "fts5"
+    chunks: list[dict] = []
+
+    active_profile = host.get_active_embedding_profile()
+    if active_profile is not None:
+        try:
+            query_embedding = embed_texts(host, active_profile, [question])[0]
+            chunks = host.search_hybrid(
+                question,
+                query_embedding=query_embedding,
+                document_ids=document_ids if document_ids else None,
+                limit=8,
+            )
+            retrieval_mode = "hybrid_rrf"
+        except Exception as exc:
+            logger.warning("Hybrid retrieval unavailable, falling back to FTS5: %s", exc)
+
+    if not chunks:
+        chunks = host.search_chunks(question, document_ids if document_ids else None, limit=8)
+        retrieval_mode = "fts5"
+
     if not chunks:
         return {
             "status": "completed",
             "answer": {
                 "answer": "在当前选定文档里，没有检索到足够相关的内容来回答这个问题。你可以换一个问法、扩大文档范围，或先确认文档已经完成解析。",
                 "answerMode": "no_relevant_content",
-                "retrievalMode": "fts5",
+                "retrievalMode": retrieval_mode,
                 "citations": [],
             },
         }
@@ -107,7 +128,7 @@ def run_knowledge_qa_workflow(
                 "answer": {
                     "answer": answer_data.get("answer", ""),
                     "answerMode": "grounded",
-                    "retrievalMode": "fts5",
+                    "retrievalMode": retrieval_mode,
                     "citations": answer_data.get("citations", []),
                 },
             }
@@ -125,10 +146,11 @@ def run_knowledge_qa_workflow(
         "answer": {
             "answer": f"{fallback_intro}\n\n{excerpt}",
             "answerMode": "excerpt_fallback",
-            "retrievalMode": "fts5",
+            "retrievalMode": retrieval_mode,
             "citations": [{
                 "chunkId": top_chunk.get("id", ""),
                 "documentId": top_chunk.get("documentId", ""),
+                "sectionId": top_chunk.get("sectionId"),
                 "page": top_chunk.get("pageStart"),
                 "snippet": excerpt[:120],
             }],

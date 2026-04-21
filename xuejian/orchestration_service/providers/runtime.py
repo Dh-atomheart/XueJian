@@ -6,27 +6,27 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Supported providers: openai | anthropic | custom
-# 'custom' routes to an OpenAI-compatible endpoint (user-supplied baseUrl).
-_VALID_PROVIDERS = {"openai", "anthropic", "custom"}
+# Supported providers: openai | anthropic | google | openai_compatible
+_VALID_PROVIDERS = {"openai", "anthropic", "google", "openai_compatible"}
 
 
 def normalize_provider(provider: Any) -> str:
-    """Normalise a raw provider value to one of: openai | anthropic | custom."""
+    """Normalise a raw provider value to one of: openai | anthropic | google | openai_compatible."""
     value = str(provider or "openai").strip().lower()
     if value in _VALID_PROVIDERS:
         return value
-    # Legacy aliases from V9 migration (openai_compatible) and old google config
-    if value in {"openai_compatible", "google", "adc"}:
-        logger.warning("Deprecated provider value %r normalised to 'custom'", value)
-        return "custom"
+    if value in {"custom", "qianfan"}:
+        logger.warning("Deprecated provider value %r normalised to 'openai_compatible'", value)
+        return "openai_compatible"
     return "openai"
 
 
 def default_model_for_provider(provider: str) -> str:
     if provider == "anthropic":
         return "claude-3-5-haiku-20241022"
-    # openai and custom (openai-compatible) both default to gpt-4o-mini
+    if provider == "google":
+        return "gemini-2.0-flash"
+    # openai and openai-compatible both default to gpt-4o-mini
     return "gpt-4o-mini"
 
 
@@ -70,5 +70,18 @@ def build_langchain_chat_model(config: dict, api_key: str, temperature: float):
             logger.warning("langchain-anthropic not installed, using OpenAI-compatible endpoint")
             return ChatOpenAI(**llm_kwargs)
 
-    # openai and custom (openai-compatible) both use ChatOpenAI
+    if provider == "google":
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+
+            return ChatGoogleGenerativeAI(
+                model=model_name,
+                google_api_key=api_key,
+                temperature=temperature,
+            )
+        except ImportError:
+            logger.warning("langchain-google-genai not installed, falling back to OpenAI-compatible client")
+            return ChatOpenAI(**llm_kwargs)
+
+    # openai and openai-compatible both use ChatOpenAI
     return ChatOpenAI(**llm_kwargs)

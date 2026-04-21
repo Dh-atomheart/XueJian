@@ -6,7 +6,10 @@ import {
   type CreateCardInput,
   type CreateHighlightInput,
   type HighlightFilters,
+  type UpdateCardInput,
+  type UpdateHighlightInput,
 } from '@/services/gateway/cards'
+import { orchestrationQueryKeys } from './orchestration'
 
 export const cardsQueryKeys = {
   all: ['cards'] as const,
@@ -77,12 +80,102 @@ export function useCreateHighlightMutation() {
   })
 }
 
+export function useUpdateHighlightMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateHighlightInput }) =>
+      cardsGateway.updateHighlight(id, data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+    },
+  })
+}
+
 export function useCreateCardMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: CreateCardInput) => cardsGateway.create(data),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+    },
+  })
+}
+
+export function useUpdateCardMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateCardInput }) =>
+      cardsGateway.update(id, data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+    },
+  })
+}
+
+export function useDeleteCardMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => cardsGateway.delete(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+    },
+  })
+}
+
+export function useUpdateCardCandidateMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string
+      data: Parameters<typeof cardsGateway.updateCandidate>[1]
+    }) => cardsGateway.updateCandidate(id, data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+      void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all })
+    },
+  })
+}
+
+export function useBulkUpdateCardCandidateStatusesMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      workflowRunId,
+      ids,
+      status,
+    }: {
+      workflowRunId: string
+      ids: string[]
+      status: 'accepted' | 'rejected' | 'pending'
+    }) => cardsGateway.bulkUpdateCandidateStatuses(workflowRunId, ids, status),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+      void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all })
+    },
+  })
+}
+
+export function useResumeCardGenerationMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (runId: string) => cardsGateway.resumeGeneration(runId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+      void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all })
+    },
+  })
+}
+
+export function useFinalizeCardGenerationMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (runId: string) => cardsGateway.finalizeGeneration(runId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+      void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all })
     },
   })
 }

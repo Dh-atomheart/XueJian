@@ -7,7 +7,7 @@ const appRoot = resolve(fileURLToPath(new URL('.', import.meta.url)))
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30_000,
-  fullyParallel: true,
+  fullyParallel: false,
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',

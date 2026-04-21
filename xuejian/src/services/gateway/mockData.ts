@@ -2,10 +2,14 @@ import type {
   ApiConfig,
   AppSettings,
   Card,
+  CardCandidate,
+  CardMedia,
   Document,
   DocumentAnchor,
   DocumentChunk,
   Highlight,
+  WorkflowEvent,
+  WorkflowRun,
 } from '@/types'
 
 const MOCK_NOW = '2026-04-17T09:00:00.000Z'
@@ -23,6 +27,7 @@ const MOCK_HIGHLIGHT_IDS = [
   '77777777-7777-4777-8777-777777777777',
   '88888888-8888-4888-8888-888888888888',
 ] as const
+const MOCK_WORKFLOW_RUN_ID = '11111111-1111-4111-8111-111111111111'
 
 const normalizedRect = (x: number, y: number, width: number, height: number) => ({
   x: x / 612,
@@ -75,9 +80,12 @@ const mockChunks: DocumentChunk[] = [
   {
     id: '99999999-9999-4999-8999-999999999991',
     documentId: MOCK_DOCUMENT_ID,
+    sectionId: null,
+    anchorId: MOCK_ANCHOR_IDS[0],
     pageStart: 1,
     pageEnd: 1,
     chunkIndex: 0,
+    chunkKind: 'semantic',
     content:
       "Chunking keeps the page readable while stable anchors hold the user's place. Sticky notes should sit beside the paper instead of covering the text itself.",
     tokenCount: 32,
@@ -86,54 +94,162 @@ const mockChunks: DocumentChunk[] = [
   },
 ]
 
-const mockCards: Card[] = [
-  {
-    id: MOCK_CARD_IDS[0],
-    groupId: null,
-    documentId: MOCK_DOCUMENT_ID,
-    anchorId: MOCK_ANCHOR_IDS[0],
-    front: '为什么阅读区要保留稳定锚点？',
-    back: '因为卡片与原文的双向跳转必须建立在稳定位置之上，否则定位会漂移。',
-    title: null,
-    cardType: 'qa' as const,
-    clusterId: null,
-    exportGuid: null,
-    sourcePage: 1,
-    sourceParagraph: 1,
-    sourceCoordinates: normalizedRect(72, 118, 356, 18),
-    tags: ['m4', 'reader'],
-    difficulty: 0.28,
-    stability: 2.1,
-    retrievability: null,
-    state: 'new',
-    nextReview: null,
+function createInitialMockCards(): Card[] {
+  return [
+    {
+      id: MOCK_CARD_IDS[0],
+      groupId: null,
+      documentId: MOCK_DOCUMENT_ID,
+      anchorId: MOCK_ANCHOR_IDS[0],
+      front: '为什么阅读区要保留稳定锚点？',
+      back: '因为卡片与原文的双向跳转必须建立在稳定位置之上，否则定位会漂移。',
+      title: null,
+      cardType: 'qa' as const,
+      clusterId: null,
+      exportGuid: null,
+      sourcePage: 1,
+      sourceParagraph: 1,
+      sourceCoordinates: normalizedRect(72, 118, 356, 18),
+      tags: ['m4', 'reader'],
+      difficulty: 0.28,
+      stability: 2.1,
+      retrievability: null,
+      state: 'new',
+      nextReview: null,
+      createdAt: new Date(MOCK_NOW),
+      updatedAt: new Date(MOCK_NOW),
+    },
+    {
+      id: MOCK_CARD_IDS[1],
+      groupId: null,
+      documentId: MOCK_DOCUMENT_ID,
+      anchorId: MOCK_ANCHOR_IDS[1],
+      front: '贴笺栏为什么应独立于正文？',
+      back: '右侧贴笺栏可以保持上下文可见，同时避免遮挡正文与文本选择。',
+      title: null,
+      cardType: 'qa' as const,
+      clusterId: null,
+      exportGuid: null,
+      sourcePage: 1,
+      sourceParagraph: 2,
+      sourceCoordinates: normalizedRect(72, 186, 372, 18),
+      tags: ['m4', 'layout'],
+      difficulty: 0.32,
+      stability: 2.4,
+      retrievability: null,
+      state: 'learning',
+      nextReview: null,
+      createdAt: new Date(MOCK_NOW),
+      updatedAt: new Date(MOCK_NOW),
+    },
+  ]
+}
+
+function createInitialMockCardCandidates(): CardCandidate[] {
+  return [
+    {
+      id: '12121212-1212-4212-8212-121212121212',
+      workflowRunId: MOCK_WORKFLOW_RUN_ID,
+      documentId: MOCK_DOCUMENT_ID,
+      sectionId: null,
+      anchorId: MOCK_ANCHOR_IDS[0],
+      title: '稳定锚点',
+      cardType: 'qa',
+      sourcePage: 1,
+      sourceParagraph: 1,
+      sourceQuote: mockAnchors[0].textQuote,
+      front: '为什么文档卡片工作流强调稳定锚点？',
+      back: '因为候选卡片必须能回到原文定位，否则人工审阅和后续复习都无法可靠追溯。',
+      tags: ['workflow', 'anchor'],
+      confidence: 0.93,
+      dedupeKey: 'mock-candidate-anchor',
+      status: 'pending',
+      scoreOverall: 93,
+      scoreDetails: { clarity: 0.91, traceability: 0.96 },
+      visibilityBucket: 'default',
+      generationMode: 'llm',
+      fallbackReason: null,
+      evaluationSummary: '问题清晰，来源锚点稳定，适合直接进入人工确认。',
+      sourceChunkIds: [mockChunks[0].id],
+      createdAt: new Date(MOCK_NOW),
+    },
+    {
+      id: '34343434-3434-4434-8434-343434343434',
+      workflowRunId: MOCK_WORKFLOW_RUN_ID,
+      documentId: MOCK_DOCUMENT_ID,
+      sectionId: null,
+      anchorId: MOCK_ANCHOR_IDS[1],
+      title: '贴笺布局',
+      cardType: 'fact',
+      sourcePage: 1,
+      sourceParagraph: 2,
+      sourceQuote: mockAnchors[1].textQuote,
+      front: '贴笺不应覆盖正文',
+      back: '贴笺栏应独立于正文，既保留上下文又不影响阅读与选区。',
+      tags: ['layout'],
+      confidence: 0.56,
+      dedupeKey: 'mock-candidate-layout',
+      status: 'pending',
+      scoreOverall: 54,
+      scoreDetails: { density: 0.52, clarity: 0.58 },
+      visibilityBucket: 'hidden_low_quality',
+      generationMode: 'fallback_rule',
+      fallbackReason: 'mock_browser_preview',
+      evaluationSummary: '信息准确但表达偏平，可在需要时展开查看。',
+      sourceChunkIds: [mockChunks[0].id],
+      createdAt: new Date(MOCK_NOW),
+    },
+  ]
+}
+
+function createInitialMockWorkflowRun(): WorkflowRun {
+  return {
+    id: MOCK_WORKFLOW_RUN_ID,
+    workflowType: 'card_generation',
+    presetId: 'm3-card-production-line',
+    status: 'waiting_confirmation',
+    threadId: 'card-generation:mock',
+    checkpointRef: 'waiting_confirmation',
+    approvalPayload: {
+      documentTitle: mockDocument.title,
+      phase: 'waiting_confirmation',
+      generationMode: 'llm',
+      fallbackReason: null,
+      chunkCursor: 1,
+      totalChunks: 1,
+      generatedCount: 2,
+      duplicateCount: 0,
+      pendingCount: 2,
+      acceptedCount: 0,
+      rejectedCount: 0,
+    },
+    costUsd: null,
+    errorMessage: null,
+    startedAt: new Date(MOCK_NOW),
+    finishedAt: null,
     createdAt: new Date(MOCK_NOW),
     updatedAt: new Date(MOCK_NOW),
-  },
-  {
-    id: MOCK_CARD_IDS[1],
-    groupId: null,
-    documentId: MOCK_DOCUMENT_ID,
-    anchorId: MOCK_ANCHOR_IDS[1],
-    front: '贴笺栏为什么应独立于正文？',
-    back: '右侧贴笺栏可以保持上下文可见，同时避免遮挡正文与文本选择。',
-    title: null,
-    cardType: 'qa' as const,
-    clusterId: null,
-    exportGuid: null,
-    sourcePage: 1,
-    sourceParagraph: 2,
-    sourceCoordinates: normalizedRect(72, 186, 372, 18),
-    tags: ['m4', 'layout'],
-    difficulty: 0.32,
-    stability: 2.4,
-    retrievability: null,
-    state: 'learning',
-    nextReview: null,
-    createdAt: new Date(MOCK_NOW),
-    updatedAt: new Date(MOCK_NOW),
-  },
-]
+  }
+}
+
+function createInitialMockWorkflowEvents(): WorkflowEvent[] {
+  return [
+    {
+      runId: MOCK_WORKFLOW_RUN_ID,
+      eventType: 'waiting_confirmation',
+      message: '候选已生成，等待人工确认',
+      progress: 1,
+      payload: null,
+      createdAt: new Date(MOCK_NOW),
+    },
+  ]
+}
+
+const mockCards: Card[] = createInitialMockCards()
+const mockCardMedia: CardMedia[] = []
+const mockCardCandidates: CardCandidate[] = createInitialMockCardCandidates()
+const mockWorkflowRuns: WorkflowRun[] = [createInitialMockWorkflowRun()]
+const mockWorkflowEvents: WorkflowEvent[] = createInitialMockWorkflowEvents()
 
 const mockHighlights: Highlight[] = [
   {
@@ -145,6 +261,8 @@ const mockHighlights: Highlight[] = [
     rectangles: [normalizedRect(72, 118, 356, 18)],
     textContent: mockAnchors[0].textQuote,
     color: '#F8E16C',
+    note: null,
+    pageCardIndex: 0,
     createdAt: new Date(MOCK_NOW),
   },
   {
@@ -156,6 +274,8 @@ const mockHighlights: Highlight[] = [
     rectangles: [normalizedRect(72, 186, 372, 18)],
     textContent: mockAnchors[1].textQuote,
     color: '#C8E6C9',
+    note: null,
+    pageCardIndex: 1,
     createdAt: new Date(MOCK_NOW),
   },
 ]
@@ -179,6 +299,41 @@ export function resetMockGatewayState() {
   mockAppSettings = { ...defaultMockAppSettings }
   mockApiConfigCounter = 1
   mockApiConfigs = []
+  mockCards.splice(0, mockCards.length, ...createInitialMockCards())
+  mockCardMedia.splice(0, mockCardMedia.length)
+  mockCardCandidates.splice(0, mockCardCandidates.length, ...createInitialMockCardCandidates())
+  mockWorkflowRuns.splice(0, mockWorkflowRuns.length, createInitialMockWorkflowRun())
+  mockWorkflowEvents.splice(0, mockWorkflowEvents.length, ...createInitialMockWorkflowEvents())
+  mockHighlights.splice(
+    0,
+    mockHighlights.length,
+    {
+      id: MOCK_HIGHLIGHT_IDS[0],
+      cardId: MOCK_CARD_IDS[0],
+      documentId: MOCK_DOCUMENT_ID,
+      anchorId: MOCK_ANCHOR_IDS[0],
+      pageNumber: 1,
+      rectangles: [normalizedRect(72, 118, 356, 18)],
+      textContent: mockAnchors[0].textQuote,
+      color: '#F8E16C',
+      note: null,
+      pageCardIndex: 0,
+      createdAt: new Date(MOCK_NOW),
+    },
+    {
+      id: MOCK_HIGHLIGHT_IDS[1],
+      cardId: MOCK_CARD_IDS[1],
+      documentId: MOCK_DOCUMENT_ID,
+      anchorId: MOCK_ANCHOR_IDS[1],
+      pageNumber: 1,
+      rectangles: [normalizedRect(72, 186, 372, 18)],
+      textContent: mockAnchors[1].textQuote,
+      color: '#C8E6C9',
+      note: null,
+      pageCardIndex: 1,
+      createdAt: new Date(MOCK_NOW),
+    }
+  )
 }
 
 const mockPdfBinary = Array.from(
@@ -194,11 +349,578 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   const limit = getNumber(args?.limit) ?? getNumber(filters?.limit)
   const documentId =
     getString(args?.documentId) ?? getString(filters?.documentId) ?? getString(args?.id)
+  const workflowRunId = getString(args?.runId) ?? getString(args?.workflowRunId)
   const pageNumber = getNumber(filters?.pageNumber)
   const anchorId = getString(filters?.anchorId)
   const cardId = getString(filters?.cardId)
+  const candidateStatus = getCandidateStatus(args?.status) ?? getCandidateStatus(filters?.status)
   const pointsData = getRecord(args?.data)
   const reviewLogId = getString(pointsData?.reviewLogId)
+
+  if (cmd === 'list_workflow_runs') {
+    const workflowType =
+      getWorkflowType(args?.workflowType) ?? getWorkflowType(filters?.workflowType)
+    const status = getWorkflowRunStatus(args?.status) ?? getWorkflowRunStatus(filters?.status)
+    const items = mockWorkflowRuns.filter((run) => {
+      if (workflowType && run.workflowType !== workflowType) {
+        return false
+      }
+      if (status && run.status !== status) {
+        return false
+      }
+      return true
+    })
+
+    return limitItems(items.map(serializeWorkflowRun), limit) as T
+  }
+
+  if (cmd === 'list_workflow_events') {
+    const items = mockWorkflowEvents.filter(
+      (event) => !workflowRunId || event.runId === workflowRunId
+    )
+    return limitItems(items.map(serializeWorkflowEvent), limit) as T
+  }
+
+  if (cmd === 'list_card_candidates') {
+    const items = mockCardCandidates.filter((candidate) => {
+      if (documentId && candidate.documentId !== documentId) {
+        return false
+      }
+      if (workflowRunId && candidate.workflowRunId !== workflowRunId) {
+        return false
+      }
+      if (candidateStatus && candidate.status !== candidateStatus) {
+        return false
+      }
+      return true
+    })
+
+    return limitItems(items.map(serializeCardCandidate), limit) as T
+  }
+
+  if (cmd === 'update_card_candidate') {
+    const candidateId = getString(args?.id)
+    const data = getRecord(args?.data)
+    const target = candidateId ? mockCardCandidates.find((item) => item.id === candidateId) : null
+    if (!target || !data) {
+      return null as T
+    }
+
+    const nextFront = getString(data.front)?.trim()
+    const nextBack = getString(data.back)?.trim()
+    if (nextFront) target.front = nextFront
+    if (nextBack) target.back = nextBack
+
+    if (isCandidateCardType(data.cardType)) {
+      target.cardType = data.cardType
+    }
+
+    if (Array.isArray(data.tags)) {
+      target.tags = data.tags.filter((value): value is string => typeof value === 'string')
+    }
+
+    const nextStatus = getCandidateStatus(data.status)
+    if (nextStatus) {
+      target.status = nextStatus
+    }
+
+    const nextConfidence = getNumber(data.confidence)
+    if (typeof nextConfidence === 'number') {
+      target.confidence = nextConfidence
+    }
+
+    const nextScoreOverall = getNullableNumber(data.scoreOverall)
+    if (typeof nextScoreOverall === 'number' || nextScoreOverall === null) {
+      target.scoreOverall = nextScoreOverall
+    }
+
+    const nextScoreDetails = getRecord(data.scoreDetails)
+    if (nextScoreDetails || data.scoreDetails === null) {
+      target.scoreDetails = nextScoreDetails ?? null
+    }
+
+    const nextVisibilityBucket = getVisibilityBucket(data.visibilityBucket)
+    if (typeof data.visibilityBucket !== 'undefined') {
+      target.visibilityBucket = nextVisibilityBucket ?? null
+    }
+
+    const nextGenerationMode = getGenerationMode(data.generationMode)
+    if (nextGenerationMode) {
+      target.generationMode = nextGenerationMode
+    }
+
+    const nextFallbackReason = getNullableString(data.fallbackReason)
+    if (typeof nextFallbackReason === 'string' || data.fallbackReason === null) {
+      target.fallbackReason = nextFallbackReason
+    }
+
+    const nextEvaluationSummary = getNullableString(data.evaluationSummary)
+    if (typeof nextEvaluationSummary === 'string' || data.evaluationSummary === null) {
+      target.evaluationSummary = nextEvaluationSummary
+    }
+
+    if (Array.isArray(data.sourceChunkIds)) {
+      target.sourceChunkIds = data.sourceChunkIds.filter(
+        (value): value is string => typeof value === 'string'
+      )
+    }
+
+    if (target.workflowRunId) {
+      syncMockWorkflowRunSummary(target.workflowRunId)
+      appendMockWorkflowEvent(target.workflowRunId, 'progress', '候选内容已更新', {
+        candidateId: target.id,
+        status: target.status,
+      })
+    }
+
+    return serializeCardCandidate(target) as T
+  }
+
+  if (cmd === 'bulk_update_card_candidate_statuses') {
+    const data = getRecord(args?.data)
+    const targetRunId = getString(data?.workflowRunId)
+    const nextStatus = getCandidateStatus(data?.status)
+    if (!targetRunId || !nextStatus) {
+      return 0 as T
+    }
+
+    const targetIds = Array.isArray(data?.candidateIds)
+      ? new Set(data.candidateIds.filter((value): value is string => typeof value === 'string'))
+      : null
+
+    let updated = 0
+    for (const candidate of mockCardCandidates) {
+      if (candidate.workflowRunId !== targetRunId) {
+        continue
+      }
+      if (targetIds && !targetIds.has(candidate.id)) {
+        continue
+      }
+
+      candidate.status = nextStatus
+      updated += 1
+    }
+
+    if (updated > 0) {
+      syncMockWorkflowRunSummary(targetRunId)
+      appendMockWorkflowEvent(targetRunId, 'progress', '候选状态已批量更新', {
+        status: nextStatus,
+        count: updated,
+      })
+    }
+
+    return updated as T
+  }
+
+  if (cmd === 'resume_card_generation_workflow') {
+    const run = workflowRunId ? mockWorkflowRuns.find((item) => item.id === workflowRunId) : null
+    if (!run) {
+      return null as T
+    }
+
+    run.status = 'running'
+    run.checkpointRef = 'resumed'
+    run.finishedAt = null
+    run.updatedAt = new Date()
+    syncMockWorkflowRunSummary(run.id)
+    appendMockWorkflowEvent(run.id, 'started', '工作流已恢复，继续处理剩余候选', { mode: 'mock' })
+
+    return serializeWorkflowRun(run) as T
+  }
+
+  if (cmd === 'finalize_card_generation_workflow') {
+    const run = workflowRunId ? mockWorkflowRuns.find((item) => item.id === workflowRunId) : null
+    if (!run) {
+      return null as T
+    }
+
+    const now = new Date()
+    let created = 0
+
+    for (const candidate of mockCardCandidates) {
+      if (candidate.workflowRunId !== run.id || candidate.status !== 'accepted') {
+        continue
+      }
+
+      const alreadyExists = mockCards.some(
+        (card) => card.front === candidate.front && card.back === candidate.back
+      )
+      if (alreadyExists) {
+        continue
+      }
+
+      mockCards.unshift({
+        id: crypto.randomUUID(),
+        groupId: null,
+        title: candidate.title,
+        cardType: candidate.cardType,
+        clusterId: null,
+        exportGuid: crypto.randomUUID(),
+        documentId: candidate.documentId,
+        anchorId: candidate.anchorId,
+        front: candidate.front,
+        back: candidate.back,
+        sourcePage: candidate.sourcePage,
+        sourceParagraph: candidate.sourceParagraph,
+        sourceCoordinates: null,
+        tags: [...candidate.tags],
+        difficulty: 0.35,
+        stability: 1,
+        retrievability: null,
+        state: 'new',
+        nextReview: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      created += 1
+    }
+
+    run.status = 'completed'
+    run.checkpointRef = 'completed'
+    run.finishedAt = now
+    run.updatedAt = now
+    syncMockWorkflowRunSummary(run.id)
+    appendMockWorkflowEvent(run.id, 'completed', `已完成入库，新增 ${created} 张卡片`, {
+      createdCount: created,
+    })
+
+    return serializeWorkflowRun(run) as T
+  }
+
+  if (cmd === 'create_card') {
+    const data = getRecord(args?.data)
+    const front = getString(data?.front)?.trim()
+    const back = getString(data?.back)?.trim()
+    if (!front || !back) {
+      throw new Error('Mock create_card requires non-empty front and back')
+    }
+
+    const now = new Date()
+    const card: Card = {
+      id: crypto.randomUUID(),
+      groupId: null,
+      title: null,
+      cardType: isCardType(data?.cardType) ? data.cardType : 'qa',
+      clusterId: null,
+      exportGuid: crypto.randomUUID(),
+      documentId: getString(data?.documentId) ?? null,
+      anchorId: getString(data?.anchorId) ?? null,
+      front,
+      back,
+      sourcePage: getNumber(data?.sourcePage) ?? null,
+      sourceParagraph: getNumber(data?.sourceParagraph) ?? null,
+      sourceCoordinates: getRecord(data?.sourceCoordinates)
+        ? {
+            x: getNumber(getRecord(data?.sourceCoordinates)?.x) ?? 0,
+            y: getNumber(getRecord(data?.sourceCoordinates)?.y) ?? 0,
+            width: getNumber(getRecord(data?.sourceCoordinates)?.width) ?? 0,
+            height: getNumber(getRecord(data?.sourceCoordinates)?.height) ?? 0,
+          }
+        : null,
+      tags: Array.isArray(data?.tags)
+        ? data.tags.filter((value): value is string => typeof value === 'string')
+        : [],
+      difficulty: 0.3,
+      stability: 1,
+      retrievability: null,
+      state: 'new',
+      nextReview: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    mockCards.unshift(card)
+    return serializeCard(card) as T
+  }
+
+  if (cmd === 'create_highlight') {
+    const data = getRecord(args?.data)
+    const documentIdValue = getString(data?.documentId)
+    const pageValue = getNumber(data?.pageNumber)
+    const textValue = getString(data?.textContent)?.trim()
+    const rectangles = Array.isArray(data?.rectangles)
+      ? data.rectangles
+          .map((value) => getRecord(value))
+          .filter((value): value is Record<string, unknown> => Boolean(value))
+          .map((value) => ({
+            x: getNumber(value.x) ?? 0,
+            y: getNumber(value.y) ?? 0,
+            width: getNumber(value.width) ?? 0,
+            height: getNumber(value.height) ?? 0,
+          }))
+      : []
+
+    if (!documentIdValue || !pageValue || !textValue || rectangles.length === 0) {
+      throw new Error('Mock create_highlight requires documentId, pageNumber, rectangles and textContent')
+    }
+
+    const highlight: Highlight = {
+      id: crypto.randomUUID(),
+      cardId: getString(data?.cardId) ?? null,
+      documentId: documentIdValue,
+      anchorId: getString(data?.anchorId) ?? null,
+      pageNumber: pageValue,
+      rectangles,
+      textContent: textValue,
+      color: getString(data?.color) ?? '#F8E16C',
+      note: getString(data?.note) ?? null,
+      pageCardIndex: getNumber(data?.pageCardIndex) ?? null,
+      createdAt: new Date(),
+    }
+
+    mockHighlights.push(highlight)
+    return serializeHighlight(highlight) as T
+  }
+
+  if (cmd === 'update_card') {
+    const data = getRecord(args?.data)
+    const id = getString(args?.id)
+    const target = id ? mockCards.find((item) => item.id === id) : null
+    if (!target || !data) {
+      return null as T
+    }
+
+    const nextFront = getString(data.front)?.trim()
+    const nextBack = getString(data.back)?.trim()
+    if (!nextFront || !nextBack) {
+      throw new Error('Mock update_card requires non-empty front and back')
+    }
+
+    target.front = nextFront
+    target.back = nextBack
+    if (isCardType(data.cardType)) {
+      target.cardType = data.cardType
+    }
+    if (Array.isArray(data.tags)) {
+      target.tags = data.tags.filter((value): value is string => typeof value === 'string')
+    }
+    target.updatedAt = new Date()
+
+    return serializeCard(target) as T
+  }
+
+  if (cmd === 'delete_card') {
+    const id = getString(args?.id)
+    if (id) {
+      const cardIndex = mockCards.findIndex((item) => item.id === id)
+      if (cardIndex >= 0) {
+        mockCards.splice(cardIndex, 1)
+      }
+
+      for (let index = mockHighlights.length - 1; index >= 0; index -= 1) {
+        if (mockHighlights[index]?.cardId === id) {
+          mockHighlights.splice(index, 1)
+        }
+      }
+    }
+    return undefined as T
+  }
+
+  if (cmd === 'update_highlight') {
+    const data = getRecord(args?.data)
+    const id = getString(args?.id)
+    const target = id ? mockHighlights.find((item) => item.id === id) : null
+
+    if (!target || !data) {
+      return null as T
+    }
+
+    if (data.cardId !== undefined) {
+      target.cardId = getString(data.cardId) ?? null
+    }
+    if (data.anchorId !== undefined) {
+      target.anchorId = getString(data.anchorId) ?? null
+    }
+    if (data.textContent !== undefined) {
+      target.textContent = getString(data.textContent) ?? target.textContent
+    }
+    if (data.color !== undefined) {
+      target.color = getString(data.color) ?? target.color
+    }
+    if (data.note !== undefined) {
+      target.note = getString(data.note) ?? null
+    }
+    if (data.pageCardIndex !== undefined) {
+      target.pageCardIndex = getNumber(data.pageCardIndex) ?? null
+    }
+    if (Array.isArray(data.rectangles)) {
+      target.rectangles = data.rectangles
+        .map((value) => getRecord(value))
+        .filter((value): value is Record<string, unknown> => Boolean(value))
+        .map((value) => ({
+          x: getNumber(value.x) ?? 0,
+          y: getNumber(value.y) ?? 0,
+          width: getNumber(value.width) ?? 0,
+          height: getNumber(value.height) ?? 0,
+        }))
+    }
+
+    return serializeHighlight(target) as T
+  }
+
+  if (cmd === 'delete_highlight') {
+    const id = getString(args?.id)
+    if (id) {
+      const index = mockHighlights.findIndex((item) => item.id === id)
+      if (index >= 0) {
+        mockHighlights.splice(index, 1)
+      }
+    }
+    return undefined as T
+  }
+
+  if (cmd === 'batch_create_highlights_for_cards') {
+    const data = getRecord(args?.data)
+    const targetDocumentId = getString(data?.documentId)
+    if (!targetDocumentId) {
+      throw new Error('Mock batch_create_highlights_for_cards requires documentId')
+    }
+
+    const palette = ['#F8E16C', '#BBDEFB', '#C8E6C9', '#F8BBD9']
+    const pageBuckets = new Map<number, Card[]>()
+    let created = 0
+    let skipped = 0
+    let unlinked = 0
+
+    for (const card of mockCards.filter((item) => item.documentId === targetDocumentId)) {
+      if (mockHighlights.some((highlight) => highlight.cardId === card.id)) {
+        skipped += 1
+        continue
+      }
+
+      const page = card.sourcePage ?? 1
+      const bucket = pageBuckets.get(page) ?? []
+      bucket.push(card)
+      pageBuckets.set(page, bucket)
+    }
+
+    for (const [page, bucket] of pageBuckets) {
+      bucket.forEach((card, index) => {
+        const anchor = card.anchorId ? mockAnchors.find((item) => item.id === card.anchorId) : null
+        const rectangles = anchor?.rects.length ? anchor.rects : card.sourceCoordinates ? [card.sourceCoordinates] : []
+
+        if (rectangles.length === 0) {
+          unlinked += 1
+          return
+        }
+
+        const highlight: Highlight = {
+          id: crypto.randomUUID(),
+          cardId: card.id,
+          documentId: targetDocumentId,
+          anchorId: card.anchorId,
+          pageNumber: page,
+          rectangles,
+          textContent: anchor?.textQuote ?? card.front,
+          color: palette[index % palette.length],
+          note: null,
+          pageCardIndex: index,
+          createdAt: new Date(),
+        }
+
+        mockHighlights.push(highlight)
+        created += 1
+      })
+    }
+
+    return { created, skipped, unlinked } as T
+  }
+
+  if (cmd === 'export_annotated_pdf') {
+    return {
+      outputPath: 'mock://exports/xuejian-annotated.pdf',
+      highlightCount: mockHighlights.length,
+    } as T
+  }
+
+  if (cmd === 'upload_card_media') {
+    const data = getRecord(args?.data)
+    const targetCardId = getString(data?.cardId)
+    const filePath = getString(data?.filePath)
+    if (!targetCardId || !filePath) {
+      throw new Error('Mock upload_card_media requires cardId and filePath')
+    }
+
+    const media: CardMedia = {
+      id: crypto.randomUUID(),
+      cardId: targetCardId,
+      fileName: filePath.split(/[/\\]/).pop() ?? filePath,
+      mimeType: inferMimeType(filePath),
+      fileSize: null,
+      storageKey: filePath,
+      createdAt: new Date().toISOString(),
+    }
+
+    mockCardMedia.push(media)
+    return media as T
+  }
+
+  if (cmd === 'list_card_media') {
+    const targetCardId = getString(args?.cardId)
+    return mockCardMedia.filter((item) => (targetCardId ? item.cardId === targetCardId : true)) as T
+  }
+
+  if (cmd === 'delete_card_media') {
+    const id = getString(args?.id)
+    if (id) {
+      const index = mockCardMedia.findIndex((item) => item.id === id)
+      if (index >= 0) {
+        mockCardMedia.splice(index, 1)
+      }
+    }
+    return undefined as T
+  }
+
+  if (cmd === 'import_cards_apkg') {
+    const now = new Date()
+    const importedCard: Card = {
+      id: crypto.randomUUID(),
+      groupId: null,
+      title: 'Imported Mock Card',
+      cardType: 'qa',
+      clusterId: null,
+      exportGuid: crypto.randomUUID(),
+      documentId: null,
+      anchorId: null,
+      front: '导入的 mock APKG 卡片是什么？',
+      back: '这是用于验证导入流程的 mock 数据。',
+      sourcePage: null,
+      sourceParagraph: null,
+      sourceCoordinates: null,
+      tags: ['imported', 'mock'],
+      difficulty: 0.3,
+      stability: 1,
+      retrievability: null,
+      state: 'new',
+      nextReview: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    mockCards.unshift(importedCard)
+
+    return {
+      importedCount: 1,
+      skippedDuplicates: 0,
+      deckName: 'Mock Imported Deck',
+    } as T
+  }
+
+  if (cmd === 'pick_and_export_apkg') {
+    return {
+      deckName: 'Mock Export Deck',
+      cardCount: mockCards.length,
+      outputPath: 'mock://exports/xuejian-export.apkg',
+      exportedAt: new Date().toISOString(),
+    } as T
+  }
+
+  if (cmd === 'pick_and_export_csv') {
+    return {
+      cardCount: mockCards.length,
+      outputPath: 'mock://exports/xuejian-export.csv',
+    } as T
+  }
 
   if (cmd === 'update_settings') {
     const data = getRecord(args?.data)
@@ -372,7 +1094,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       return { success: false, message: '缺少 API Key。' } as T
     }
 
-    if (provider === 'custom') {
+    if (provider === 'openai_compatible') {
       if (!baseUrl) {
         return { success: false, message: 'Custom (OpenAI-Compatible) 需要提供 Base URL。' } as T
       }
@@ -426,11 +1148,15 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         'list_document_chunks',
         'list_due_cards',
         'create_card',
+        'delete_card',
+        'update_card',
         'list_cards',
         'list_highlights',
         'create_highlight',
         'update_highlight',
         'delete_highlight',
+        'batch_create_highlights_for_cards',
+        'export_annotated_pdf',
         'update_card_review',
         'list_card_candidates',
         'update_card_candidate',
@@ -438,6 +1164,12 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         'start_card_generation_workflow',
         'resume_card_generation_workflow',
         'finalize_card_generation_workflow',
+        'upload_card_media',
+        'list_card_media',
+        'delete_card_media',
+        'import_cards_apkg',
+        'pick_and_export_apkg',
+        'pick_and_export_csv',
       ],
     },
     get_orchestration_service_health: {
@@ -451,8 +1183,8 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       protocolCompatible: false,
       errorMessage: null,
     },
-    list_workflow_runs: [],
-    list_workflow_events: [],
+    list_workflow_runs: limitItems(mockWorkflowRuns.map(serializeWorkflowRun), limit),
+    list_workflow_events: limitItems(mockWorkflowEvents.map(serializeWorkflowEvent), limit),
     get_workflow_checkpoint: null,
     get_settings: mockAppSettings,
     list_documents: limitItems([serializeDocument(mockDocument)], limit),
@@ -468,7 +1200,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       documentId === MOCK_DOCUMENT_ID || documentId == null
         ? limitItems(mockChunks.map(serializeChunk), limit)
         : [],
-    list_card_candidates: [],
+    list_card_candidates: limitItems(mockCardCandidates.map(serializeCardCandidate), limit),
     start_card_generation_workflow: {
       id: '11111111-1111-4111-8111-111111111111',
       workflowType: 'card_generation',
@@ -484,40 +1216,12 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
-    resume_card_generation_workflow: {
-      id: '11111111-1111-4111-8111-111111111111',
-      workflowType: 'card_generation',
-      presetId: 'm3-card-production-line',
-      status: 'queued',
-      threadId: 'card-generation:mock',
-      checkpointRef: 'queued',
-      approvalPayload: null,
-      costUsd: null,
-      errorMessage: null,
-      startedAt: null,
-      finishedAt: null,
-      createdAt: new Date(MOCK_NOW).toISOString(),
-      updatedAt: new Date(MOCK_NOW).toISOString(),
-    },
+    resume_card_generation_workflow: serializeWorkflowRun(mockWorkflowRuns[0]),
     finalize_card_generation_workflow: {
       createdCount: 0,
       skippedDuplicates: 0,
       rejectedCount: 0,
-      run: {
-        id: '11111111-1111-4111-8111-111111111111',
-        workflowType: 'card_generation',
-        presetId: 'm3-card-production-line',
-        status: 'completed',
-        threadId: 'card-generation:mock',
-        checkpointRef: 'completed',
-        approvalPayload: null,
-        costUsd: null,
-        errorMessage: null,
-        startedAt: null,
-        finishedAt: new Date(MOCK_NOW).toISOString(),
-        createdAt: new Date(MOCK_NOW).toISOString(),
-        updatedAt: new Date(MOCK_NOW).toISOString(),
-      },
+      run: serializeWorkflowRun(mockWorkflowRuns[0]),
     },
     pick_and_import_pdf_document: null,
     pick_and_import_document: null,
@@ -809,6 +1513,30 @@ function serializeHighlight(highlight: Highlight) {
   }
 }
 
+function serializeWorkflowRun(run: WorkflowRun) {
+  return {
+    ...run,
+    startedAt: run.startedAt?.toISOString() ?? null,
+    finishedAt: run.finishedAt?.toISOString() ?? null,
+    createdAt: run.createdAt.toISOString(),
+    updatedAt: run.updatedAt.toISOString(),
+  }
+}
+
+function serializeWorkflowEvent(event: WorkflowEvent) {
+  return {
+    ...event,
+    createdAt: event.createdAt.toISOString(),
+  }
+}
+
+function serializeCardCandidate(candidate: CardCandidate) {
+  return {
+    ...candidate,
+    createdAt: candidate.createdAt.toISOString(),
+  }
+}
+
 function serializeApiConfig(config: ApiConfig) {
   return {
     ...config,
@@ -844,12 +1572,125 @@ function getNullableNumber(value: unknown) {
   return typeof value === 'number' ? value : null
 }
 
+function getWorkflowType(value: unknown): WorkflowRun['workflowType'] | undefined {
+  return value === 'card_generation' ||
+    value === 'document_embedding' ||
+    value === 'knowledge_qa' ||
+    value === 'knowledge_graph' ||
+    value === 'podcast_generation'
+    ? value
+    : undefined
+}
+
+function getWorkflowRunStatus(value: unknown): WorkflowRun['status'] | undefined {
+  return value === 'queued' ||
+    value === 'running' ||
+    value === 'waiting_confirmation' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'cancelled'
+    ? value
+    : undefined
+}
+
+function getCandidateStatus(value: unknown): CardCandidate['status'] | undefined {
+  return value === 'pending' || value === 'accepted' || value === 'rejected' ? value : undefined
+}
+
+function getVisibilityBucket(value: unknown): CardCandidate['visibilityBucket'] | undefined {
+  return value === 'default' || value === 'expanded' || value === 'hidden_low_quality'
+    ? value
+    : undefined
+}
+
+function getGenerationMode(value: unknown): CardCandidate['generationMode'] | undefined {
+  return value === 'llm' || value === 'fallback_rule' || value === 'fallback_fts5_only'
+    ? value
+    : undefined
+}
+
 function getBoolean(value: unknown) {
   return typeof value === 'boolean' ? value : undefined
 }
 
+function isCardType(value: unknown): value is Card['cardType'] {
+  return (
+    value === 'qa' ||
+    value === 'cloze' ||
+    value === 'fact' ||
+    value === 'choice' ||
+    value === 'image_occlusion'
+  )
+}
+
+function isCandidateCardType(value: unknown): value is CardCandidate['cardType'] {
+  return value === 'qa' || value === 'cloze' || value === 'fact' || value === 'choice'
+}
+
+function appendMockWorkflowEvent(
+  runId: string,
+  eventType: WorkflowEvent['eventType'],
+  message: string,
+  payload: Record<string, unknown> | null
+) {
+  mockWorkflowEvents.unshift({
+    runId,
+    eventType,
+    message,
+    progress: 1,
+    payload,
+    createdAt: new Date(),
+  })
+}
+
+function syncMockWorkflowRunSummary(runId: string) {
+  const run = mockWorkflowRuns.find((item) => item.id === runId)
+  if (!run) {
+    return
+  }
+
+  const candidates = mockCardCandidates.filter((candidate) => candidate.workflowRunId === runId)
+  const pendingCount = candidates.filter((candidate) => candidate.status === 'pending').length
+  const acceptedCount = candidates.filter((candidate) => candidate.status === 'accepted').length
+  const rejectedCount = candidates.filter((candidate) => candidate.status === 'rejected').length
+  const preferredCandidate = candidates.find(
+    (candidate) => candidate.visibilityBucket === 'default'
+  )
+  const fallbackCandidate = candidates.find((candidate) => candidate.fallbackReason)
+
+  run.approvalPayload = {
+    documentTitle: mockDocument.title,
+    phase: run.status,
+    generationMode: preferredCandidate?.generationMode ?? candidates[0]?.generationMode ?? 'llm',
+    fallbackReason: fallbackCandidate?.fallbackReason ?? null,
+    chunkCursor: 1,
+    totalChunks: 1,
+    generatedCount: candidates.length,
+    duplicateCount: 0,
+    pendingCount,
+    acceptedCount,
+    rejectedCount,
+  }
+  run.updatedAt = new Date()
+}
+
+function inferMimeType(filePath: string) {
+  const lower = filePath.toLowerCase()
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  if (lower.endsWith('.gif')) return 'image/gif'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  if (lower.endsWith('.svg')) return 'image/svg+xml'
+  return 'application/octet-stream'
+}
+
 function isApiProvider(value: unknown): value is ApiConfig['provider'] {
-  return value === 'openai' || value === 'anthropic' || value === 'custom' || value === 'qianfan'
+  return (
+    value === 'openai' ||
+    value === 'anthropic' ||
+    value === 'google' ||
+    value === 'openai_compatible'
+  )
 }
 
 function isApiAuthMode(value: unknown): value is ApiConfig['authMode'] {

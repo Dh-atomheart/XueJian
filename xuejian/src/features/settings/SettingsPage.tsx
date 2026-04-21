@@ -17,7 +17,7 @@ export function SettingsPage() {
 
   const handleSave = () => {
     setAIConfig({
-      provider: provider as 'openai' | 'anthropic' | 'custom',
+      provider: provider as 'openai' | 'anthropic' | 'google' | 'openai_compatible',
       apiKey,
       baseUrl: baseUrl || undefined,
       model,
@@ -40,7 +40,7 @@ export function SettingsPage() {
       models: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
     },
     {
-      id: 'custom' as const,
+      id: 'openai_compatible' as const,
       name: '自定义',
       description: '兼容 OpenAI API 的服务',
       models: [] as string[],
@@ -148,7 +148,7 @@ export function SettingsPage() {
           <p className="text-xs text-ink-muted mt-2">密钥仅保存在本地存储中，不会上传到服务器</p>
         </div>
 
-        {provider === 'custom' && (
+        {provider === 'openai_compatible' && (
           <div className="mb-6">
             <label className="block text-sm font-medium mb-2">Base URL（可选）</label>
             <input

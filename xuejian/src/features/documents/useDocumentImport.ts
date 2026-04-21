@@ -5,9 +5,6 @@ import { cardsQueryKeys, documentsQueryKeys, orchestrationQueryKeys } from '@/qu
 import { reportAppError } from '@/lib/appFeedback'
 import { cardsGateway } from '@/services/gateway/cards'
 import { documentGateway } from '@/services/gateway/documents'
-import { parsePdfDocument, resolvePdfDocumentSource } from '@/services/renderer/pdf'
-import { parseTextDocument } from '@/services/renderer/text'
-import { parseDocxDocument } from '@/services/renderer/docx'
 
 type ImportStage = 'idle' | 'picking' | 'parsing' | 'saving' | 'done' | 'error'
 
@@ -27,6 +24,7 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
 
   async function importDocument() {
     let importedDocument: Document | null = null
+    let shouldCleanupOnError = false
     setStage('picking')
     setMessage('正在选择并复制文档...')
     setWarnings([])
@@ -41,20 +39,15 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
         return null
       }
 
+      shouldCleanupOnError = false
+
       setStage('parsing')
       setMessage(`正在解析 ${importedDocument.title}`)
-
-      const analysis = await parseDocumentByType(importedDocument)
-
-      await documentGateway.updateStatus(importedDocument.id, 'parsed')
+      await documentGateway.runParseWorkflow(importedDocument.id)
 
       setStage('saving')
-      setMessage('正在写入分块与锚点...')
-      const readyDocument = await documentGateway.saveAnalysis(importedDocument.id, {
-        pageCount: analysis.pageCount,
-        anchors: analysis.anchors,
-        chunks: analysis.chunks,
-      })
+      setMessage('正在生成向量索引...')
+      const readyDocument = await documentGateway.runEmbeddingWorkflow(importedDocument.id)
 
       await queryClient.invalidateQueries({ queryKey: documentsQueryKeys.all })
 
@@ -75,17 +68,17 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
         generationWarning = `自动卡片生成没有成功启动：${detail}`
       }
 
-      setWarnings(generationWarning ? [...analysis.warnings, generationWarning] : analysis.warnings)
+      setWarnings(generationWarning ? [generationWarning] : [])
       setStage('done')
       setMessage(
         generationWarning
           ? '导入完成，但需要手动前往卡片工坊重新生成卡片。'
-          : analysis.warnings[0] ?? '导入完成，已启动卡片候选生成。'
+          : '导入完成，已完成解析、向量化并启动卡片候选生成。'
       )
       handleImported(readyDocument)
       return readyDocument
     } catch (cause) {
-      if (importedDocument) {
+      if (importedDocument && shouldCleanupOnError) {
         try {
           await documentGateway.delete(importedDocument.id)
           await queryClient.invalidateQueries({ queryKey: documentsQueryKeys.all })
@@ -116,30 +109,5 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
     warnings,
     error,
     isRunning: stage === 'picking' || stage === 'parsing' || stage === 'saving',
-  }
-}
-
-async function parseDocumentByType(document: Document) {
-  const { id, fileType } = document
-
-  switch (fileType) {
-    case 'pdf': {
-      const source = await resolvePdfDocumentSource(document.filePath, () =>
-        documentGateway.readBinary(id)
-      )
-      return parsePdfDocument(id, source)
-    }
-    case 'md':
-    case 'txt': {
-      const bytes = await documentGateway.readBinary(id)
-      const text = new TextDecoder('utf-8').decode(bytes)
-      return parseTextDocument(id, text)
-    }
-    case 'docx': {
-      const bytes = await documentGateway.readBinary(id)
-      return parseDocxDocument(id, bytes)
-    }
-    default:
-      throw new Error(`不支持的文档格式: ${fileType}`)
   }
 }

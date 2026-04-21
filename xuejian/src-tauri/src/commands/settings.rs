@@ -4,7 +4,8 @@ use tauri::State;
 use crate::{
     commands::{AppState, CommandError, CommandResult},
     db::{
-        ApiConfig, AppSettings, CreateApiConfigRequest, SettingsRepository, UpdateApiConfigRequest,
+        ApiConfig, AppSettings, CreateApiConfigRequest, CreateEmbeddingProfileRequest,
+        EmbeddingProfile, SettingsRepository, UpdateApiConfigRequest, VectorRepository,
     },
     secrets::SecretStore,
 };
@@ -14,6 +15,7 @@ use crate::{
 pub struct ApiConfigDto {
     pub id: String,
     pub provider: String,
+    pub protocol: Option<String>,
     pub auth_mode: String,
     pub name: String,
     pub base_url: Option<String>,
@@ -35,6 +37,7 @@ fn api_config_to_dto(config: ApiConfig, secrets: &SecretStore) -> CommandResult<
         has_stored_key,
         id: config.id,
         provider: config.provider,
+        protocol: config.protocol,
         auth_mode: config.auth_mode,
         name: config.name,
         base_url: config.base_url,
@@ -53,6 +56,7 @@ impl ApiConfigDto {
         Self {
             id: config.id,
             provider: config.provider,
+            protocol: config.protocol,
             auth_mode: config.auth_mode,
             name: config.name,
             base_url: config.base_url,
@@ -108,6 +112,34 @@ pub struct AppSettingsDto {
     pub language: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingProfileDto {
+    pub id: String,
+    pub provider: String,
+    pub model: String,
+    pub dimensions: i32,
+    pub distance_metric: String,
+    pub is_active: bool,
+    pub revision: i32,
+    pub created_at: String,
+}
+
+impl From<EmbeddingProfile> for EmbeddingProfileDto {
+    fn from(profile: EmbeddingProfile) -> Self {
+        Self {
+            id: profile.id,
+            provider: profile.provider,
+            model: profile.model,
+            dimensions: profile.dimensions,
+            distance_metric: profile.distance_metric,
+            is_active: profile.is_active,
+            revision: profile.revision,
+            created_at: profile.created_at,
+        }
+    }
+}
+
 impl From<AppSettings> for AppSettingsDto {
     fn from(settings: AppSettings) -> Self {
         Self {
@@ -135,6 +167,17 @@ pub struct TestApiConnectionDto {
     pub auth_mode: String,
     pub api_key: String,
     pub base_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateEmbeddingProfileDto {
+    pub provider: String,
+    pub model: String,
+    pub dimensions: i32,
+    pub distance_metric: Option<String>,
+    pub is_active: bool,
+    pub revision: i32,
 }
 
 #[derive(Debug, Serialize)]
@@ -438,4 +481,61 @@ pub async fn test_api_connection(
             }
         }
     }
+}
+
+#[tauri::command]
+pub fn list_embedding_profiles(
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<EmbeddingProfileDto>> {
+    let db = state.lock_db()?;
+    let repo = VectorRepository::new(&db);
+    let profiles = repo.list_embedding_profiles()?;
+    Ok(profiles.into_iter().map(Into::into).collect())
+}
+
+#[tauri::command]
+pub fn get_active_embedding_profile(
+    state: State<'_, AppState>,
+) -> CommandResult<Option<EmbeddingProfileDto>> {
+    let db = state.lock_db()?;
+    let repo = VectorRepository::new(&db);
+    let profile = repo.get_active_embedding_profile()?;
+    Ok(profile.map(Into::into))
+}
+
+#[tauri::command]
+pub fn create_embedding_profile(
+    state: State<'_, AppState>,
+    data: CreateEmbeddingProfileDto,
+) -> CommandResult<EmbeddingProfileDto> {
+    let db = state.lock_db()?;
+    let repo = VectorRepository::new(&db);
+    let profile = repo.create_embedding_profile(CreateEmbeddingProfileRequest {
+        provider: data.provider,
+        model: data.model,
+        dimensions: data.dimensions,
+        distance_metric: data.distance_metric,
+        is_active: data.is_active,
+        revision: data.revision,
+    })?;
+
+    if profile.is_active {
+        repo.mark_documents_embedding_stale()?;
+    }
+
+    Ok(profile.into())
+}
+
+#[tauri::command]
+pub fn set_active_embedding_profile(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<EmbeddingProfileDto> {
+    let db = state.lock_db()?;
+    let repo = VectorRepository::new(&db);
+    let profile = repo
+        .set_active_embedding_profile(&id)?
+        .ok_or(CommandError::NotFound)?;
+    repo.mark_documents_embedding_stale()?;
+    Ok(profile.into())
 }

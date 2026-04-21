@@ -1,39 +1,360 @@
 """Docling + PyMuPDF document parsing pipeline.
 
-Extracts structured content (chunks + anchors) from PDF documents.
-Falls back to PyMuPDF if docling is unavailable.
+Produces stable anchors, hierarchical sections, and parent/child chunks.
+Falls back to PyMuPDF for PDFs and supports basic Markdown / plain text parsing.
 """
 from __future__ import annotations
 
 import hashlib
 import logging
+import re
+import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..clients.host_gateway import HostGatewayClient
 
 logger = logging.getLogger(__name__)
 
-# ── Helpers ────────────────────────────────────────────────
+MIN_ANCHOR_CHARS = 12
+MIN_SECTION_CHARS = 24
+MAX_PARENT_CHARS = 6000
+MAX_CHILD_CHARS = 900
+OVERLAP_UNITS = 1
+
+
+def _stable_uuid(*parts: object) -> str:
+    seed = "::".join(str(part) for part in parts if part not in (None, ""))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, seed or "empty"))
 
 
 def _compute_quote_hash(text: str) -> str:
-    """SHA-256 of normalized quote text for deduplication."""
-    normalized = text.strip().lower()
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def _build_hierarchy_path(heading_stack: list[str]) -> list[str]:
-    """Return a copy of the current heading hierarchy."""
-    return list(heading_stack)
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()
 
 
-# ── Docling-based extraction ──────────────────────────────
+def _estimate_token_count(text: str) -> int:
+    return max(1, len(re.findall(r"\S+", text)))
 
 
-def _try_docling_parse(file_path: str) -> dict | None:
-    """Attempt to parse the document with docling. Returns structured result or None."""
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _copy_hierarchy_path(stack: list[str]) -> list[str]:
+    return list(stack)
+
+
+def _infer_heading_level(label: str, text: str) -> int | None:
+    lowered = (label or "").strip().lower()
+    if "heading" in lowered or "title" in lowered:
+        for ch in lowered:
+            if ch.isdigit():
+                return max(1, min(6, int(ch)))
+        return 1
+
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    if stripped.startswith("#"):
+        return min(6, len(stripped) - len(stripped.lstrip("#")))
+
+    return None
+
+
+def _is_heading_block(block: dict[str, Any]) -> bool:
+    return block.get("headingLevel") is not None
+
+
+def _rect_from_bbox(left: float, top: float, right: float, bottom: float) -> dict[str, float]:
+    return {
+        "x": left,
+        "y": top,
+        "width": max(0.0, right - left),
+        "height": max(0.0, bottom - top),
+    }
+
+
+def _build_block(
+    document_id: str,
+    block_index: int,
+    *,
+    text: str,
+    label: str,
+    page: int,
+    hierarchy_path: list[str],
+    heading_level: int | None,
+    bbox: dict[str, float] | None,
+) -> dict[str, Any] | None:
+    stripped = _normalize_text(text)
+    if not stripped:
+        return None
+
+    return {
+        "blockId": _stable_uuid(document_id, "block", block_index, page, stripped[:80]),
+        "text": stripped,
+        "label": (label or "paragraph").strip().lower() or "paragraph",
+        "page": page,
+        "hierarchyPath": hierarchy_path,
+        "headingLevel": heading_level,
+        "bbox": bbox,
+    }
+
+
+def _hydrate_anchors(document_id: str, blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    anchors: list[dict[str, Any]] = []
+
+    for block_index, block in enumerate(blocks):
+        text = block["text"]
+        if len(text) < MIN_ANCHOR_CHARS:
+            block["anchorId"] = None
+            block["anchorHash"] = None
+            continue
+
+        quote_hash = _compute_quote_hash(text)
+        anchor_id = _stable_uuid(document_id, "anchor", block["page"], quote_hash, block_index)
+        rects = [block["bbox"]] if block.get("bbox") else []
+        anchor = {
+            "id": anchor_id,
+            "page": block["page"],
+            "paragraph": None,
+            "textQuote": _truncate(text, 500),
+            "hash": quote_hash,
+            "quoteHash": quote_hash,
+            "hierarchyPath": block.get("hierarchyPath", []),
+            "rects": rects,
+        }
+        anchors.append(anchor)
+        block["anchorId"] = anchor_id
+        block["anchorHash"] = quote_hash
+
+    return anchors
+
+
+def _finalize_section(
+    document_id: str,
+    section_index: int,
+    heading: str | None,
+    hierarchy_path: list[str],
+    blocks: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not blocks:
+        return None
+
+    content = "\n\n".join(block["text"] for block in blocks if block.get("text")).strip()
+    if len(content) < MIN_SECTION_CHARS:
+        return None
+
+    anchor_ids = [block.get("anchorId") for block in blocks if block.get("anchorId")]
+    pages = [block["page"] for block in blocks]
+    section_id = _stable_uuid(document_id, "section", section_index, heading or content[:120])
+
+    return {
+        "id": section_id,
+        "sectionIndex": section_index,
+        "heading": heading,
+        "hierarchyPath": hierarchy_path,
+        "pageStart": min(pages),
+        "pageEnd": max(pages),
+        "anchorStartId": anchor_ids[0] if anchor_ids else None,
+        "anchorEndId": anchor_ids[-1] if anchor_ids else None,
+        "content": content,
+        "tokenCount": _estimate_token_count(content),
+        "metadata": {
+            "blockCount": len(blocks),
+            "anchorCount": len(anchor_ids),
+            "sectionKind": "heading_section" if heading else "preamble",
+        },
+        "blocks": blocks,
+    }
+
+
+def _build_sections(document_id: str, blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    current_blocks: list[dict[str, Any]] = []
+    current_heading: str | None = None
+    current_hierarchy: list[str] = []
+    section_index = 0
+
+    def flush_current() -> None:
+        nonlocal current_blocks, current_heading, current_hierarchy, section_index
+        section = _finalize_section(
+            document_id,
+            section_index,
+            current_heading,
+            current_hierarchy,
+            current_blocks,
+        )
+        if section:
+            sections.append(section)
+            section_index += 1
+        current_blocks = []
+        current_heading = None
+        current_hierarchy = []
+
+    for block in blocks:
+        if _is_heading_block(block):
+            flush_current()
+            current_heading = block["text"]
+            current_hierarchy = block.get("hierarchyPath", [])
+            current_blocks = [block]
+            continue
+
+        if not current_blocks:
+            current_hierarchy = block.get("hierarchyPath", [])
+        current_blocks.append(block)
+
+    flush_current()
+    return sections
+
+
+def _emit_chunk(
+    document_id: str,
+    chunk_index: int,
+    *,
+    section: dict[str, Any],
+    chunk_kind: str,
+    content: str,
+    source_blocks: list[dict[str, Any]],
+    child_index: int | None = None,
+) -> dict[str, Any] | None:
+    normalized_content = content.strip()
+    if not normalized_content:
+        return None
+
+    anchor_ids = [block.get("anchorId") for block in source_blocks if block.get("anchorId")]
+    anchor_hashes = [block.get("anchorHash") for block in source_blocks if block.get("anchorHash")]
+    pages = [block["page"] for block in source_blocks] or [section["pageStart"]]
+    chunk_id = _stable_uuid(
+        document_id,
+        "chunk",
+        section["id"],
+        chunk_kind,
+        child_index if child_index is not None else 0,
+        normalized_content[:120],
+    )
+
+    metadata = {
+        "hierarchyPath": section.get("hierarchyPath", []),
+        "sectionHeading": section.get("heading"),
+        "anchorIds": anchor_ids,
+        "anchorHashes": anchor_hashes,
+        "sourceBlockIds": [block["blockId"] for block in source_blocks],
+    }
+    if child_index is not None:
+        metadata["childIndex"] = child_index
+
+    return {
+        "id": chunk_id,
+        "sectionId": section["id"],
+        "anchorId": anchor_ids[0] if anchor_ids else None,
+        "pageStart": min(pages),
+        "pageEnd": max(pages),
+        "chunkIndex": chunk_index,
+        "chunkKind": chunk_kind,
+        "content": normalized_content,
+        "tokenCount": _estimate_token_count(normalized_content),
+        "metadata": metadata,
+    }
+
+
+def _build_chunks(document_id: str, sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    chunks: list[dict[str, Any]] = []
+    chunk_index = 0
+
+    for section in sections:
+        parent_chunk = _emit_chunk(
+            document_id,
+            chunk_index,
+            section=section,
+            chunk_kind="parent",
+            content=_truncate(section["content"], MAX_PARENT_CHARS),
+            source_blocks=section["blocks"],
+        )
+        if parent_chunk:
+            chunks.append(parent_chunk)
+            chunk_index += 1
+
+        units = section["blocks"]
+        current_units: list[dict[str, Any]] = []
+        current_length = 0
+        child_index = 0
+
+        def flush_child() -> None:
+            nonlocal current_units, current_length, child_index, chunk_index
+            if not current_units:
+                return
+
+            child_content = "\n\n".join(unit["text"] for unit in current_units).strip()
+            child_chunk = _emit_chunk(
+                document_id,
+                chunk_index,
+                section=section,
+                chunk_kind="child",
+                content=child_content,
+                source_blocks=current_units,
+                child_index=child_index,
+            )
+            if child_chunk:
+                chunks.append(child_chunk)
+                child_index += 1
+                chunk_index += 1
+
+            overlap = current_units[-OVERLAP_UNITS:] if OVERLAP_UNITS > 0 else []
+            current_units = list(overlap)
+            current_length = sum(len(unit["text"]) for unit in current_units)
+
+        for unit in units:
+            unit_length = len(unit["text"])
+            projected_length = current_length + unit_length + (2 if current_units else 0)
+            if current_units and projected_length > MAX_CHILD_CHARS:
+                flush_child()
+
+            current_units.append(unit)
+            current_length += unit_length + (2 if current_units else 0)
+
+        flush_child()
+
+    deduped_chunks: list[dict[str, Any]] = []
+    seen_signatures: set[tuple[str, str]] = set()
+    for chunk in chunks:
+        signature = (chunk["sectionId"], chunk["content"])
+        if chunk["chunkKind"] == "child" and signature in seen_signatures:
+            continue
+        seen_signatures.add(signature)
+        deduped_chunks.append(chunk)
+
+    for index, chunk in enumerate(deduped_chunks):
+        chunk["chunkIndex"] = index
+
+    return deduped_chunks
+
+
+def _assemble_analysis(document_id: str, page_count: int, blocks: list[dict[str, Any]]) -> dict[str, Any]:
+    anchors = _hydrate_anchors(document_id, blocks)
+    sections = _build_sections(document_id, blocks)
+    chunks = _build_chunks(document_id, sections)
+
+    return {
+        "pageCount": page_count,
+        "anchors": anchors,
+        "sections": [
+            {key: value for key, value in section.items() if key != "blocks"}
+            for section in sections
+        ],
+        "chunks": chunks,
+    }
+
+
+def _extract_docling_blocks(file_path: str, document_id: str) -> tuple[int, list[dict[str, Any]]] | None:
     try:
         from docling.document_converter import DocumentConverter
     except ImportError:
@@ -45,14 +366,11 @@ def _try_docling_parse(file_path: str) -> dict | None:
         result = converter.convert(file_path)
         doc = result.document
 
-        anchors: list[dict] = []
-        chunks: list[dict] = []
+        blocks: list[dict[str, Any]] = []
         heading_stack: list[str] = []
-        chunk_index = 0
 
-        for item in doc.iterate_items():
+        for block_index, item in enumerate(doc.iterate_items()):
             element = item
-            # docling items have .text, .label, and optionally .prov (provenance)
             text = getattr(element, "text", "") or ""
             label = getattr(element, "label", "paragraph") or "paragraph"
             prov_list = getattr(element, "prov", []) or []
@@ -64,219 +382,221 @@ def _try_docling_parse(file_path: str) -> dict | None:
                 page = getattr(first_prov, "page_no", 1) or 1
                 bbox_obj = getattr(first_prov, "bbox", None)
                 if bbox_obj is not None:
-                    bbox = {
-                        "x": getattr(bbox_obj, "l", 0.0),
-                        "y": getattr(bbox_obj, "t", 0.0),
-                        "width": getattr(bbox_obj, "r", 0.0) - getattr(bbox_obj, "l", 0.0),
-                        "height": getattr(bbox_obj, "b", 0.0) - getattr(bbox_obj, "t", 0.0),
-                    }
+                    bbox = _rect_from_bbox(
+                        getattr(bbox_obj, "l", 0.0),
+                        getattr(bbox_obj, "t", 0.0),
+                        getattr(bbox_obj, "r", 0.0),
+                        getattr(bbox_obj, "b", 0.0),
+                    )
 
-            # Track heading hierarchy
-            if "heading" in label.lower() or "title" in label.lower():
-                level = 1
-                for ch in label:
-                    if ch.isdigit():
-                        level = int(ch)
-                        break
-                # Truncate stack to parent level
-                heading_stack = heading_stack[: max(0, level - 1)]
-                heading_stack.append(text.strip())
+            heading_level = _infer_heading_level(str(label), text)
+            normalized_text = _normalize_text(text).lstrip("# ")
+            if heading_level and normalized_text:
+                heading_stack = heading_stack[: max(0, heading_level - 1)]
+                heading_stack.append(normalized_text)
 
-            # Build anchor for non-trivial text
-            stripped = text.strip()
-            if len(stripped) >= 12:
-                quote_hash = _compute_quote_hash(stripped)
-                anchor = {
-                    "page": page,
-                    "paragraph": None,
-                    "textQuote": stripped[:500],
-                    "hash": quote_hash,
-                    "hierarchyPath": _build_hierarchy_path(heading_stack),
-                    "rects": [bbox] if bbox else [],
-                }
-                anchors.append(anchor)
+            block = _build_block(
+                document_id,
+                block_index,
+                text=normalized_text,
+                label=str(label),
+                page=page,
+                hierarchy_path=_copy_hierarchy_path(heading_stack),
+                heading_level=heading_level,
+                bbox=bbox,
+            )
+            if block:
+                blocks.append(block)
 
-            # Build chunks from substantial text blocks
-            if len(stripped) >= 30:
-                anchor_hashes = [_compute_quote_hash(stripped)]
-                chunk = {
-                    "pageStart": page,
-                    "pageEnd": page,
-                    "chunkIndex": chunk_index,
-                    "content": stripped[:2000],
-                    "tokenCount": len(stripped.split()),
-                    "metadata": {
-                        "label": label,
-                        "anchorHashes": anchor_hashes,
-                        "hierarchyPath": _build_hierarchy_path(heading_stack),
-                    },
-                }
-                chunks.append(chunk)
-                chunk_index += 1
-
-        page_count = max((a["page"] for a in anchors), default=1) if anchors else 1
-        return {
-            "pageCount": page_count,
-            "anchors": anchors,
-            "chunks": chunks,
-        }
+        page_count = max((block["page"] for block in blocks), default=1)
+        return page_count, blocks
     except Exception as exc:
         logger.error("Docling parsing failed: %s", exc, exc_info=True)
         return None
 
 
-# ── PyMuPDF fallback ──────────────────────────────────────
-
-
-def _pymupdf_parse(file_path: str) -> dict:
-    """Fallback parser using PyMuPDF (fitz) for basic text extraction."""
+def _extract_pymupdf_blocks(file_path: str, document_id: str) -> tuple[int, list[dict[str, Any]]]:
     try:
-        import fitz  # pymupdf
+        import fitz
     except ImportError:
         logger.error("pymupdf not installed, cannot parse document")
-        return {"pageCount": 0, "anchors": [], "chunks": []}
+        return 0, []
 
     doc = fitz.open(file_path)
-    page_count = doc.page_count
-    anchors: list[dict] = []
-    chunks: list[dict] = []
-    chunk_index = 0
+    blocks: list[dict[str, Any]] = []
+    heading_stack: list[str] = []
+    block_index = 0
 
-    for page_num in range(page_count):
+    for page_num in range(doc.page_count):
         page = doc.load_page(page_num)
-        blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+        text_blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
 
-        page_text_parts: list[str] = []
-        for block in blocks:
-            if block.get("type") != 0:  # text blocks only
+        for block in text_blocks:
+            if block.get("type") != 0:
                 continue
+
+            raw_lines = []
+            max_font_size = 0.0
             for line in block.get("lines", []):
                 spans = line.get("spans", [])
-                line_text = "".join(s.get("text", "") for s in spans).strip()
-                if not line_text:
-                    continue
-                page_text_parts.append(line_text)
+                line_text = "".join(span.get("text", "") for span in spans).strip()
+                if line_text:
+                    raw_lines.append(line_text)
+                for span in spans:
+                    max_font_size = max(max_font_size, float(span.get("size", 0.0) or 0.0))
 
-                # Create anchor for substantial lines
-                if len(line_text) >= 12:
-                    bbox_raw = block.get("bbox", (0, 0, 0, 0))
-                    quote_hash = _compute_quote_hash(line_text)
-                    anchors.append({
-                        "page": page_num + 1,
-                        "paragraph": None,
-                        "textQuote": line_text[:500],
-                        "hash": quote_hash,
-                        "hierarchyPath": [],
-                        "rects": [{
-                            "x": bbox_raw[0],
-                            "y": bbox_raw[1],
-                            "width": bbox_raw[2] - bbox_raw[0],
-                            "height": bbox_raw[3] - bbox_raw[1],
-                        }],
-                    })
+            text = _normalize_text(" ".join(raw_lines))
+            if not text:
+                continue
 
-        # Create page-level chunk
-        page_content = "\n".join(page_text_parts)
-        if len(page_content.strip()) >= 30:
-            anchor_hashes = [
-                _compute_quote_hash(a["textQuote"])
-                for a in anchors
-                if a["page"] == page_num + 1
-            ]
-            chunks.append({
-                "pageStart": page_num + 1,
-                "pageEnd": page_num + 1,
-                "chunkIndex": chunk_index,
-                "content": page_content[:2000],
-                "tokenCount": len(page_content.split()),
-                "metadata": {
-                    "anchorHashes": anchor_hashes,
-                    "hierarchyPath": [],
-                },
-            })
-            chunk_index += 1
+            is_heading = (
+                len(text) <= 100
+                and not text.endswith(("。", ".", ":", "：", ";", "；", "?", "？"))
+                and max_font_size >= 12.0
+            )
+            heading_level = 1 if is_heading else None
+            if heading_level:
+                heading_stack = heading_stack[: max(0, heading_level - 1)]
+                heading_stack.append(text)
 
+            bbox_raw = block.get("bbox", (0.0, 0.0, 0.0, 0.0))
+            built_block = _build_block(
+                document_id,
+                block_index,
+                text=text,
+                label="heading" if is_heading else "paragraph",
+                page=page_num + 1,
+                hierarchy_path=_copy_hierarchy_path(heading_stack),
+                heading_level=heading_level,
+                bbox=_rect_from_bbox(*bbox_raw),
+            )
+            block_index += 1
+            if built_block:
+                blocks.append(built_block)
+
+    page_count = doc.page_count
     doc.close()
-    return {
-        "pageCount": page_count,
-        "anchors": anchors,
-        "chunks": chunks,
-    }
+    return page_count, blocks
 
 
-# ── Public entry point ────────────────────────────────────
+def _extract_text_blocks(file_path: str, document_id: str) -> tuple[int, list[dict[str, Any]]]:
+    content = Path(file_path).read_text(encoding="utf-8", errors="ignore")
+    suffix = Path(file_path).suffix.lower()
+    blocks: list[dict[str, Any]] = []
+    heading_stack: list[str] = []
+    block_index = 0
+    paragraph_lines: list[str] = []
+
+    def flush_paragraph() -> None:
+        nonlocal paragraph_lines, block_index
+        text = _normalize_text(" ".join(paragraph_lines))
+        if not text:
+            paragraph_lines = []
+            return
+        block = _build_block(
+            document_id,
+            block_index,
+            text=text,
+            label="paragraph",
+            page=1,
+            hierarchy_path=_copy_hierarchy_path(heading_stack),
+            heading_level=None,
+            bbox=None,
+        )
+        block_index += 1
+        if block:
+            blocks.append(block)
+        paragraph_lines = []
+
+    for raw_line in content.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            flush_paragraph()
+            continue
+
+        if suffix == ".md" and stripped.startswith("#"):
+            flush_paragraph()
+            heading_level = min(6, len(stripped) - len(stripped.lstrip("#")))
+            heading_text = stripped.lstrip("#").strip()
+            heading_stack = heading_stack[: max(0, heading_level - 1)]
+            heading_stack.append(heading_text)
+            block = _build_block(
+                document_id,
+                block_index,
+                text=heading_text,
+                label="heading",
+                page=1,
+                hierarchy_path=_copy_hierarchy_path(heading_stack),
+                heading_level=heading_level,
+                bbox=None,
+            )
+            block_index += 1
+            if block:
+                blocks.append(block)
+            continue
+
+        paragraph_lines.append(stripped)
+
+    flush_paragraph()
+    return 1, blocks
+
+
+def _parse_document(file_path: str, document_id: str) -> dict[str, Any]:
+    suffix = Path(file_path).suffix.lower()
+
+    if suffix in {".md", ".txt"}:
+        page_count, blocks = _extract_text_blocks(file_path, document_id)
+        return _assemble_analysis(document_id, page_count, blocks)
+
+    docling_result = _extract_docling_blocks(file_path, document_id)
+    if docling_result is not None:
+        page_count, blocks = docling_result
+        return _assemble_analysis(document_id, page_count, blocks)
+
+    logger.info("Falling back to PyMuPDF for document %s", document_id)
+    page_count, blocks = _extract_pymupdf_blocks(file_path, document_id)
+    return _assemble_analysis(document_id, page_count, blocks)
 
 
 def run_document_parse_workflow(
     run_id: str,
     document_id: str,
     host: HostGatewayClient,
-) -> dict:
-    """Parse a document (PDF) via docling or PyMuPDF fallback.
-
-    Steps:
-    1. Fetch document metadata from host.
-    2. Set status to 'parsing'.
-    3. Extract anchors + chunks.
-    4. Persist analysis via host.
-    5. Set status to 'parsed' (ready for card generation).
-
-    Returns:
-        {"status": "completed", "pageCount": ..., "anchorCount": ..., "chunkCount": ...}
-    """
+) -> dict[str, Any]:
+    """Parse a document into anchors, sections, and parent/child chunks."""
+    _ = run_id
     document = host.get_document(document_id)
     if not document:
         return {"status": "failed", "error": f"Document {document_id} not found"}
 
     file_path = document.get("filePath", "")
     if not file_path or not Path(file_path).exists():
+        host.update_document_status(document_id, "error")
         return {"status": "failed", "error": f"File not found: {file_path}"}
 
-    # Mark document as parsing
     host.update_document_status(document_id, "parsing")
 
-    # Try docling first, fall back to PyMuPDF
-    result = _try_docling_parse(file_path)
-    if result is None:
-        logger.info("Falling back to PyMuPDF for document %s", document_id)
-        result = _pymupdf_parse(file_path)
-
+    result = _parse_document(file_path, document_id)
     if not result["anchors"] and not result["chunks"]:
-        host.update_document_status(document_id, "failed")
+        host.update_document_status(document_id, "error")
         return {"status": "failed", "error": "No extractable content found"}
 
-    # Persist analysis results to host
-    host.save_document_analysis(document_id, {
-        "pageCount": result["pageCount"],
-        "anchors": [
-            {
-                "page": a["page"],
-                "paragraph": a.get("paragraph"),
-                "textQuote": a["textQuote"],
-                "rects": a.get("rects", []),
-                "hash": a["hash"],
-            }
-            for a in result["anchors"]
-        ],
-        "chunks": [
-            {
-                "pageStart": c.get("pageStart"),
-                "pageEnd": c.get("pageEnd"),
-                "chunkIndex": c["chunkIndex"],
-                "content": c["content"],
-                "tokenCount": c.get("tokenCount"),
-                "metadata": c.get("metadata"),
-            }
-            for c in result["chunks"]
-        ],
-    })
+    host.save_document_analysis(
+        document_id,
+        {
+            "pageCount": result["pageCount"],
+            "anchors": result["anchors"],
+            "sections": result["sections"],
+            "chunks": result["chunks"],
+        },
+    )
 
-    # Mark document as ready
     host.update_document_status(document_id, "parsed")
 
     return {
         "status": "completed",
         "pageCount": result["pageCount"],
         "anchorCount": len(result["anchors"]),
+        "sectionCount": len(result["sections"]),
         "chunkCount": len(result["chunks"]),
     }

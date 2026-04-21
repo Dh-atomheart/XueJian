@@ -10,6 +10,9 @@ const PAGE_TITLES: Record<NavItemId, string> = {
   learning: '学习',
   knowledge: '知识问答',
   settings: '设置',
+  profile: '我的',
+  podcast: '播客',
+  graph: '图谱',
 }
 
 export function TopBar() {
@@ -28,7 +31,9 @@ export function TopBar() {
   return (
     <header className="app-top-bar flex h-[68px] items-center justify-between border-b border-line-soft/85 bg-paper-muted/88 px-4 backdrop-blur sm:px-5 md:h-[74px] md:px-6 lg:px-8">
       <div className="min-w-0">
-        <p className="font-ui text-[10px] uppercase tracking-[0.28em] text-ink-soft">Study Center</p>
+        <p className="font-ui text-[10px] uppercase tracking-[0.28em] text-ink-soft">
+          Study Center
+        </p>
         <div className="mt-1 flex items-center gap-3">
           <h1 className="truncate font-display text-[1.45rem] leading-none text-ink md:text-[1.7rem]">
             {pageTitle}

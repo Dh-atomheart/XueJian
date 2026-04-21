@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react'
-import { SketchButton, SketchCard } from '@/components/ui/Sketch'
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
@@ -209,7 +208,7 @@ export function KnowledgeQaPage() {
   )
 }
 
-function generateResponse(question: string): string {
+function generateResponse(_question: string): string {
   const responses = [
     '根据你上传的学习材料，这个问题可以从以下几个方面来理解...\n\n首先，核心概念是关于知识结构化和记忆强化的。通过间隔重复（Spaced Repetition）的方法，可以有效提高长期记忆的保持率。',
     '这是一个很好的问题。基于文档中的内容，我来为你解答：\n\n关键要点在于理解概念之间的关联性。建议你重点关注以下几个方面的学习...',

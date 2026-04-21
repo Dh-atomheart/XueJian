@@ -16,6 +16,7 @@ import type {
   DocumentIRMetadata,
   DocumentIRPage,
   DocumentIRSpan,
+  EmbeddingProfile,
   FinalizeCardGenerationResult,
   Highlight,
   HostGatewayManifest,
@@ -154,7 +155,7 @@ export const appSettingsSchema = z.object({
   reviewTimeLimit: z.number().int().nonnegative(),
 }) as z.ZodType<AppSettings>
 
-export const apiProviderSchema = z.enum(['openai', 'anthropic', 'custom'])
+export const apiProviderSchema = z.enum(['openai', 'anthropic', 'google', 'openai_compatible'])
 
 export const apiAuthModeSchema = z.enum(['api_key', 'adc'])
 
@@ -179,6 +180,17 @@ export const apiConnectionTestResultSchema = z.object({
   message: z.string(),
 }) as z.ZodType<ApiConnectionTestResult>
 
+export const embeddingProfileSchema = z.object({
+  id: z.string().uuid(),
+  provider: apiProviderSchema,
+  model: z.string().min(1),
+  dimensions: z.number().int().positive(),
+  distanceMetric: z.literal('cosine'),
+  isActive: z.boolean(),
+  revision: z.number().int().nonnegative(),
+  createdAt: dateValueSchema,
+}) as z.ZodType<EmbeddingProfile>
+
 export const documentSchema = z.object({
   id: z.string().uuid(),
   title: z.string().min(1),
@@ -187,10 +199,34 @@ export const documentSchema = z.object({
   fileSize: z.number().int().nullable(),
   pageCount: z.number().int().nullable(),
   contentHash: z.string().nullable(),
-  status: z.enum(['uploading', 'parsed', 'indexing', 'generating', 'ready', 'error']),
+  status: z.enum([
+    'uploading',
+    'parsed',
+    'embedding',
+    'ready',
+    'embedding_failed',
+    'embedding_stale',
+    'error',
+  ]),
   createdAt: dateValueSchema,
   updatedAt: dateValueSchema,
 }) as z.ZodType<Document>
+
+export const documentSectionSchema = z.object({
+  id: z.string().uuid(),
+  documentId: z.string().uuid(),
+  sectionIndex: z.number().int().nonnegative(),
+  heading: z.string().nullable(),
+  hierarchyPath: z.array(z.string()),
+  pageStart: z.number().int().positive().nullable(),
+  pageEnd: z.number().int().positive().nullable(),
+  anchorStartId: z.string().uuid().nullable(),
+  anchorEndId: z.string().uuid().nullable(),
+  content: z.string().min(1),
+  tokenCount: z.number().int().positive().nullable(),
+  metadata: z.record(z.unknown()).nullable(),
+  createdAt: dateValueSchema,
+}) as z.ZodType<import('./document').DocumentSection>
 
 export const documentAnchorRectSchema = z.object({
   x: z.number(),
@@ -215,9 +251,12 @@ export const documentAnchorSchema = z.object({
 export const documentChunkSchema = z.object({
   id: z.string().uuid(),
   documentId: z.string().uuid(),
+  sectionId: z.string().uuid().nullable(),
+  anchorId: z.string().uuid().nullable(),
   pageStart: z.number().int().positive().nullable(),
   pageEnd: z.number().int().positive().nullable(),
   chunkIndex: z.number().int().nonnegative(),
+  chunkKind: z.enum(['parent', 'child', 'semantic', 'fallback']),
   content: z.string().min(1),
   tokenCount: z.number().int().positive().nullable(),
   metadata: z.record(z.unknown()).nullable(),
@@ -235,7 +274,7 @@ export const cardSchema = z.object({
   id: z.string().uuid(),
   groupId: z.string().uuid().nullable(),
   title: z.string().nullable(),
-  cardType: z.enum(['qa', 'cloze', 'fact', 'choice']),
+  cardType: z.enum(['qa', 'cloze', 'fact', 'choice', 'image_occlusion']),
   clusterId: z.string().nullable(),
   exportGuid: z.string().nullable(),
   documentId: z.string().uuid().nullable(),
@@ -259,6 +298,7 @@ export const cardCandidateSchema = z.object({
   id: z.string().uuid(),
   workflowRunId: z.string().uuid().nullable(),
   documentId: z.string().uuid(),
+  sectionId: z.string().uuid().nullable(),
   anchorId: z.string().uuid().nullable(),
   title: z.string().nullable(),
   cardType: z.enum(['qa', 'cloze', 'fact', 'choice']),
@@ -271,6 +311,13 @@ export const cardCandidateSchema = z.object({
   confidence: z.number().min(0).max(1),
   dedupeKey: z.string().min(1),
   status: z.enum(['pending', 'accepted', 'rejected']),
+  scoreOverall: z.number().nullable(),
+  scoreDetails: z.record(z.unknown()).nullable(),
+  visibilityBucket: z.enum(['default', 'expanded', 'hidden_low_quality']).nullable(),
+  generationMode: z.enum(['llm', 'fallback_rule', 'fallback_fts5_only']),
+  fallbackReason: z.string().nullable(),
+  evaluationSummary: z.string().nullable(),
+  sourceChunkIds: z.array(z.string().uuid()).nullable(),
   createdAt: dateValueSchema,
 }) as z.ZodType<CardCandidate>
 
@@ -283,6 +330,8 @@ export const highlightSchema = z.object({
   rectangles: z.array(documentAnchorRectSchema),
   textContent: z.string().min(1),
   color: z.string().min(4),
+  note: z.string().max(500).nullable(),
+  pageCardIndex: z.number().int().min(0).nullable(),
   createdAt: dateValueSchema,
 }) as z.ZodType<Highlight>
 
@@ -320,6 +369,7 @@ export const workflowRunSchema = z.object({
   id: z.string().uuid(),
   workflowType: z.enum([
     'card_generation',
+    'document_embedding',
     'knowledge_qa',
     'podcast_generation',
     'knowledge_graph',
@@ -384,6 +434,8 @@ export const cardGenerationCandidateSchema = z.object({
 
 export const citationSchema = z.object({
   documentId: z.string().uuid(),
+  sectionId: z.string().uuid().nullable(),
+  chunkId: z.string().uuid().nullable(),
   anchorId: z.string().uuid().nullable(),
   page: z.number().int().nullable(),
   quote: z.string().min(1),

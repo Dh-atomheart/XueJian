@@ -73,6 +73,34 @@ class HostGatewayClient:
             return None
         return default, api_key
 
+    def get_config_with_key_by_provider(self, provider: str) -> tuple[dict, str] | None:
+        configs = self.list_api_configs()
+        normalized_provider = provider.lower()
+        config = next(
+            (
+                item
+                for item in configs
+                if item.get("isEnabled")
+                and str(item.get("provider", "")).lower() == normalized_provider
+            ),
+            None,
+        )
+        if config is None:
+            return None
+        api_key = self.get_api_key(config["id"])
+        if not api_key:
+            return None
+        return config, api_key
+
+    def list_embedding_profiles(self) -> list[dict]:
+        return self._get("/model-gateway/embedding-profiles")
+
+    def get_active_embedding_profile(self) -> dict | None:
+        try:
+            return self._get("/model-gateway/embedding-profiles/active")
+        except urllib.error.HTTPError:
+            return None
+
     # ── ToolGateway ────────────────────────────────────
 
     def get_document(self, document_id: str) -> dict | None:
@@ -86,6 +114,9 @@ class HostGatewayClient:
 
     def list_chunks(self, document_id: str) -> list[dict]:
         return self._get(f"/tool-gateway/chunks?documentId={document_id}")
+
+    def list_sections(self, document_id: str) -> list[dict]:
+        return self._get(f"/tool-gateway/sections?documentId={document_id}")
 
     def list_document_chunks(self, document_id: str) -> list[dict]:
         return self.list_chunks(document_id)
@@ -106,6 +137,33 @@ class HostGatewayClient:
             "documentIds": document_ids or [],
             "limit": limit,
         })
+
+    def save_chunk_embeddings(self, profile_id: str, embeddings: list[dict]) -> dict:
+        return self._post(
+            "/tool-gateway/embeddings/chunks",
+            {
+                "profileId": profile_id,
+                "embeddings": embeddings,
+            },
+        )
+
+    def search_hybrid(
+        self,
+        query: str,
+        query_embedding: list[float] | None = None,
+        document_ids: list[str] | None = None,
+        limit: int = 10,
+        rrf_k: int = 60,
+    ) -> list[dict]:
+        payload: dict[str, Any] = {
+            "query": query,
+            "documentIds": document_ids or [],
+            "limit": limit,
+            "rrfK": rrf_k,
+        }
+        if query_embedding:
+            payload["queryEmbedding"] = query_embedding
+        return self._post("/tool-gateway/search-hybrid", payload)
 
     # ── Run status & checkpoint ────────────────────────────────
 

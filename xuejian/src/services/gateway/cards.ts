@@ -10,8 +10,10 @@ import {
 import type {
   Card,
   CardCandidate,
+  CardMedia,
   FinalizeCardGenerationResult,
   Highlight,
+  ImportApkgResult,
   ReviewLog,
   WorkflowRun,
 } from '@/types'
@@ -43,6 +45,13 @@ export interface CreateCardInput {
   tags?: string[]
 }
 
+export interface UpdateCardInput {
+  front: string
+  back: string
+  cardType?: Card['cardType']
+  tags?: string[]
+}
+
 export interface HighlightFilters {
   documentId?: string | null
   cardId?: string | null
@@ -51,13 +60,15 @@ export interface HighlightFilters {
 }
 
 export interface CreateHighlightInput {
-  cardId?: string | null
   documentId: string
+  cardId?: string | null
   anchorId?: string | null
   pageNumber: number
   rectangles: Highlight['rectangles']
   textContent: string
   color?: string | null
+  note?: string | null
+  pageCardIndex?: number | null
 }
 
 export interface UpdateHighlightInput {
@@ -66,6 +77,19 @@ export interface UpdateHighlightInput {
   rectangles?: Highlight['rectangles']
   textContent?: string
   color?: string
+  note?: string | null
+  pageCardIndex?: number | null
+}
+
+export interface BatchCreateHighlightsForRunResult {
+  created: number
+  skipped: number
+  unlinked: number
+}
+
+export interface ExportAnnotatedPdfResult {
+  outputPath: string
+  highlightCount: number
 }
 
 export const cardsGateway = {
@@ -84,6 +108,14 @@ export const cardsGateway = {
     return invokeWithSchema('create_card', cardSchema, { data })
   },
 
+  async update(id: string, data: UpdateCardInput): Promise<Card> {
+    return invokeWithSchema('update_card', cardSchema, { id, data })
+  },
+
+  async delete(id: string): Promise<void> {
+    return invoke<void>('delete_card', { id })
+  },
+
   async listCandidates(filters: CardCandidateFilters = {}): Promise<CardCandidate[]> {
     return invokeWithSchema('list_card_candidates', z.array(cardCandidateSchema), {
       workflowRunId: filters.workflowRunId ?? null,
@@ -95,7 +127,24 @@ export const cardsGateway = {
 
   async updateCandidate(
     id: string,
-    data: Partial<Pick<CardCandidate, 'front' | 'back' | 'tags' | 'confidence' | 'status'>>
+    data: Partial<
+      Pick<
+        CardCandidate,
+        | 'cardType'
+        | 'front'
+        | 'back'
+        | 'tags'
+        | 'confidence'
+        | 'status'
+        | 'scoreOverall'
+        | 'scoreDetails'
+        | 'visibilityBucket'
+        | 'generationMode'
+        | 'fallbackReason'
+        | 'evaluationSummary'
+        | 'sourceChunkIds'
+      >
+    >
   ): Promise<CardCandidate> {
     return invokeWithSchema('update_card_candidate', cardCandidateSchema, { id, data })
   },
@@ -151,6 +200,21 @@ export const cardsGateway = {
 
   async deleteHighlight(id: string): Promise<void> {
     return invoke<void>('delete_highlight', { id })
+  },
+
+  async batchCreateHighlightsForRun(
+    runId: string,
+    documentId: string
+  ): Promise<BatchCreateHighlightsForRunResult> {
+    return invoke<BatchCreateHighlightsForRunResult>('batch_create_highlights_for_cards', {
+      data: { runId, documentId },
+    })
+  },
+
+  async exportAnnotatedPdf(documentId: string): Promise<ExportAnnotatedPdfResult | null> {
+    return invoke<ExportAnnotatedPdfResult | null>('export_annotated_pdf', {
+      data: { documentId },
+    })
   },
 
   async listDueCards(limit?: number): Promise<Card[]> {
@@ -234,5 +298,41 @@ export const cardsGateway = {
     return invoke<{ cardCount: number; outputPath: string } | null>('pick_and_export_csv', {
       data: { documentId: documentId ?? null },
     })
+  },
+
+  // ── Card Media ──────────────────────────────────────
+
+  async uploadCardMedia(cardId: string, filePath: string): Promise<CardMedia> {
+    return invoke<CardMedia>('upload_card_media', {
+      data: { cardId, filePath },
+    })
+  },
+
+  async listCardMedia(cardId: string): Promise<CardMedia[]> {
+    return invoke<CardMedia[]>('list_card_media', { cardId })
+  },
+
+  async deleteCardMedia(id: string): Promise<void> {
+    return invoke<void>('delete_card_media', { id })
+  },
+
+  // ── APKG Import / Export ────────────────────────────
+
+  async importApkg(): Promise<ImportApkgResult> {
+    return invoke<ImportApkgResult>('import_cards_apkg')
+  },
+
+  async pickAndExportApkg(): Promise<{
+    deckName: string
+    cardCount: number
+    outputPath: string
+    exportedAt: string
+  } | null> {
+    return invoke<{
+      deckName: string
+      cardCount: number
+      outputPath: string
+      exportedAt: string
+    } | null>('pick_and_export_apkg')
   },
 }

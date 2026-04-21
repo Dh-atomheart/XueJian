@@ -1,6 +1,12 @@
 import { z } from 'zod'
-import { apiConfigSchema, apiConnectionTestResultSchema } from '@/types'
-import type { ApiAuthMode, ApiConfig, ApiConnectionTestResult, ModelProfile } from '@/types'
+import { apiConfigSchema, apiConnectionTestResultSchema, embeddingProfileSchema } from '@/types'
+import type {
+  ApiAuthMode,
+  ApiConfig,
+  ApiConnectionTestResult,
+  EmbeddingProfile,
+  ModelProfile,
+} from '@/types'
 import { invoke, invokeWithSchema } from './index'
 
 type ApiConfigDraft = Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey'>
@@ -49,6 +55,31 @@ export const apiConfigGateway = {
 
   async storeApiKey(configId: string, apiKey: string): Promise<void> {
     return invoke<void>('store_api_key', { data: { configId, apiKey } })
+  },
+}
+
+export const embeddingProfileGateway = {
+  async list(): Promise<EmbeddingProfile[]> {
+    return invokeWithSchema('list_embedding_profiles', z.array(embeddingProfileSchema))
+  },
+
+  async getActive(): Promise<EmbeddingProfile | null> {
+    return invokeWithSchema('get_active_embedding_profile', embeddingProfileSchema.nullable())
+  },
+
+  async create(data: {
+    provider: EmbeddingProfile['provider']
+    model: string
+    dimensions: number
+    distanceMetric?: 'cosine'
+    isActive: boolean
+    revision: number
+  }): Promise<EmbeddingProfile> {
+    return invokeWithSchema('create_embedding_profile', embeddingProfileSchema, { data })
+  },
+
+  async setActive(id: string): Promise<EmbeddingProfile> {
+    return invokeWithSchema('set_active_embedding_profile', embeddingProfileSchema, { id })
   },
 }
 

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { SketchButton, SketchCircle, SketchDivider, SketchProgress } from '@/components/ui/Sketch'
 import { useAppStore, generateMockData } from '@/lib/store'
 import { useAppUiStore } from '@/store'
@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 export function DashboardPage() {
   const [isHovered, setIsHovered] = useState(false)
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
-  const { flashcards, studyRecords, documents, setDocuments, setFlashcards } = useAppStore()
+  const { flashcards, documents } = useAppStore()
 
   // Initialize mock data if empty
   useEffect(() => {

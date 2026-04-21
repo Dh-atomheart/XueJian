@@ -77,12 +77,14 @@ export function CardCandidatePanel({
   const selectedCandidates = candidates.filter((candidate) => selectedIds.has(candidate.id))
 
   return (
-    <Panel variant="paperCard" className={cn('rounded-[24px] p-5', className)}>
+    <Panel
+      variant="paperCard"
+      className={cn('rounded-[24px] p-5', className)}
+      data-testid="card-candidate-panel"
+    >
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">
-            卡片候选
-          </p>
+          <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">卡片候选</p>
           <h3 className="mt-1 font-display text-lg text-ink">
             待确认 {pending.length} · 已接受 {acceptedCount} · 已丢弃 {rejectedCount}
           </h3>
@@ -127,6 +129,7 @@ export function CardCandidatePanel({
             return (
               <li
                 key={candidate.id}
+                data-testid={`card-candidate-${candidate.id}`}
                 className={cn(
                   'rounded-[20px] border px-4 py-4 transition-colors',
                   STATUS_TONES[candidate.status],
@@ -153,12 +156,25 @@ export function CardCandidatePanel({
                         </span>
                       )}
                       <ConfidenceMeter value={candidate.confidence} />
+                      {candidate.scoreOverall != null && (
+                        <span className="rounded-full border border-ink/10 bg-paper-card px-2 py-0.5 font-latin text-[10px] uppercase tracking-[0.14em] text-ink-soft">
+                          评分 {Math.round(candidate.scoreOverall)}
+                        </span>
+                      )}
+                      {candidate.visibilityBucket && (
+                        <span className="rounded-full border border-ink/10 bg-paper-card px-2 py-0.5 font-latin text-[10px] uppercase tracking-[0.14em] text-ink-soft">
+                          {formatVisibilityBucket(candidate.visibilityBucket)}
+                        </span>
+                      )}
+                      {candidate.generationMode !== 'llm' && (
+                        <span className="rounded-full border border-highlight-yellow/40 bg-highlight-yellow/15 px-2 py-0.5 font-latin text-[10px] uppercase tracking-[0.14em] text-ink-soft">
+                          {formatGenerationMode(candidate.generationMode)}
+                        </span>
+                      )}
                     </div>
 
                     <div>
-                      <p className="font-ui text-sm font-medium text-ink">
-                        {candidate.front}
-                      </p>
+                      <p className="font-ui text-sm font-medium text-ink">{candidate.front}</p>
                       <p className="mt-1.5 font-body text-sm leading-6 text-ink/85">
                         {candidate.back}
                       </p>
@@ -168,6 +184,12 @@ export function CardCandidatePanel({
                       <blockquote className="rounded-[14px] border-l-2 border-ink/20 bg-paper-muted/60 px-3 py-2 font-body text-xs leading-5 text-ink-muted">
                         {candidate.sourceQuote}
                       </blockquote>
+                    )}
+
+                    {candidate.evaluationSummary && (
+                      <div className="rounded-[14px] border border-line-soft/60 bg-paper-base/70 px-3 py-2 font-body text-xs leading-5 text-ink-muted">
+                        {candidate.evaluationSummary}
+                      </div>
                     )}
 
                     {candidate.tags.length > 0 && (
@@ -222,14 +244,32 @@ export function CardCandidatePanel({
   )
 }
 
+function formatVisibilityBucket(value: NonNullable<CardCandidate['visibilityBucket']>) {
+  switch (value) {
+    case 'expanded':
+      return '扩展展示'
+    case 'hidden_low_quality':
+      return '低质量候选'
+    default:
+      return '默认展示'
+  }
+}
+
+function formatGenerationMode(value: CardCandidate['generationMode']) {
+  switch (value) {
+    case 'fallback_rule':
+      return '规则降级'
+    case 'fallback_fts5_only':
+      return 'FTS5 降级'
+    default:
+      return '模型生成'
+  }
+}
+
 function ConfidenceMeter({ value }: { value: number }) {
   const pct = Math.round(Math.max(0, Math.min(1, value)) * 100)
   const tone =
-    pct >= 80
-      ? 'bg-highlight-green'
-      : pct >= 55
-        ? 'bg-highlight-yellow'
-        : 'bg-highlight-pink'
+    pct >= 80 ? 'bg-highlight-green' : pct >= 55 ? 'bg-highlight-yellow' : 'bg-highlight-pink'
 
   return (
     <span
@@ -237,10 +277,7 @@ function ConfidenceMeter({ value }: { value: number }) {
       title={`置信度 ${pct}%`}
     >
       <span className="block h-1.5 w-16 overflow-hidden rounded-full bg-paper-soft">
-        <span
-          className={cn('block h-full', tone)}
-          style={{ width: `${pct}%` }}
-        />
+        <span className={cn('block h-full', tone)} style={{ width: `${pct}%` }} />
       </span>
       <span className="tabular-nums">{pct}%</span>
     </span>

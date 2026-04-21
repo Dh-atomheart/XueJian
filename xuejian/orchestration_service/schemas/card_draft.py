@@ -11,7 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 
-CardType = Literal["qa", "cloze", "fact"]
+CardType = Literal["qa", "cloze", "fact", "choice"]
 
 
 class CardDraft(BaseModel):
@@ -82,7 +82,7 @@ class CardDraftBatch(BaseModel):
 
             card_type: CardType = "qa"
             raw_ct = str(item.get("cardType") or item.get("card_type") or "qa").lower()
-            if raw_ct in {"cloze", "fact"}:
+            if raw_ct in {"cloze", "fact", "choice"}:
                 card_type = raw_ct  # type: ignore[assignment]
 
             title = str(item.get("title", "")).strip() or None

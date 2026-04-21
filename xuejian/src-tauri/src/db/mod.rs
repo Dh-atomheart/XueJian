@@ -1,6 +1,7 @@
 use refinery::embed_migrations;
 use rusqlite::Connection;
 use std::path::PathBuf;
+use std::sync::Once;
 use tauri::{AppHandle, Manager};
 
 pub mod animation_repo;
@@ -9,7 +10,9 @@ pub mod document_repo;
 pub mod knowledge_graph_repo;
 pub mod podcast_repo;
 pub mod points_repo;
+pub mod section_repo;
 pub mod settings_repo;
+pub mod vector_repo;
 pub mod workflow_repo;
 
 pub use animation_repo::*;
@@ -18,10 +21,14 @@ pub use document_repo::*;
 pub use knowledge_graph_repo::*;
 pub use podcast_repo::*;
 pub use points_repo::*;
+pub use section_repo::*;
 pub use settings_repo::*;
+pub use vector_repo::*;
 pub use workflow_repo::*;
 
 embed_migrations!("src/migrations");
+
+static SQLITE_VEC_AUTO_EXTENSION: Once = Once::new();
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -52,6 +59,7 @@ impl Database {
             std::fs::create_dir_all(parent)?;
         }
 
+        register_sqlite_vec_auto_extension();
         let conn = Connection::open(&db_path)?;
 
         configure_connection(&conn)?;
@@ -89,6 +97,14 @@ fn configure_connection(conn: &Connection) -> Result<()> {
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     Ok(())
+}
+
+fn register_sqlite_vec_auto_extension() {
+    SQLITE_VEC_AUTO_EXTENSION.call_once(|| unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    });
 }
 
 #[cfg(test)]

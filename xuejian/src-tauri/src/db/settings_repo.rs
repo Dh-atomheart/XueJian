@@ -314,17 +314,16 @@ fn normalize_provider(provider: String) -> String {
     let normalized = provider.trim().to_ascii_lowercase();
 
     match normalized.as_str() {
-        "openai_compatible" => "custom".to_string(),
-        "openai" | "anthropic" | "custom" | "qianfan" => normalized,
-        "google" => "openai".to_string(),
+        "custom" | "openai_compatible" | "qianfan" => "openai_compatible".to_string(),
+        "openai" | "anthropic" | "google" => normalized,
         _ => "openai".to_string(),
     }
 }
 
 fn infer_protocol(provider: &str) -> Option<String> {
     match provider {
-        "openai" | "anthropic" => Some("native".to_string()),
-        "custom" | "openai_compatible" | "qianfan" => Some("openai-compatible".to_string()),
+        "openai" | "anthropic" | "google" => Some("native".to_string()),
+        "openai_compatible" => Some("openai-compatible".to_string()),
         _ => None,
     }
 }
@@ -362,7 +361,7 @@ mod tests {
         conn.execute_batch(include_str!("../migrations/V10__card_schema_extension.sql"))
             .expect("apply v10 migration");
         conn.execute(
-            "INSERT INTO users (id, name) VALUES ('default', '默认用户')",
+            "INSERT OR IGNORE INTO users (id, name) VALUES ('default', '默认用户')",
             [],
         )
         .expect("insert default user");
@@ -387,7 +386,7 @@ mod tests {
             })
             .expect("create config");
 
-        assert_eq!(created.provider, "custom");
+        assert_eq!(created.provider, "openai_compatible");
         assert_eq!(created.protocol.as_deref(), Some("openai-compatible"));
 
         let stored = repo
@@ -395,7 +394,7 @@ mod tests {
             .expect("load config")
             .expect("config exists");
 
-        assert_eq!(stored.provider, "custom");
+        assert_eq!(stored.provider, "openai_compatible");
         assert_eq!(stored.protocol.as_deref(), Some("openai-compatible"));
     }
 
@@ -416,7 +415,7 @@ mod tests {
             })
             .expect("create qianfan config");
 
-        assert_eq!(created.provider, "qianfan");
+        assert_eq!(created.provider, "openai_compatible");
         assert_eq!(created.protocol.as_deref(), Some("openai-compatible"));
     }
 
@@ -435,7 +434,7 @@ mod tests {
         let configs = repo.list_api_configs().expect("list configs");
 
         assert_eq!(configs.len(), 1);
-        assert_eq!(configs[0].provider, "custom");
+        assert_eq!(configs[0].provider, "openai_compatible");
         assert_eq!(configs[0].protocol.as_deref(), Some("openai-compatible"));
     }
 }

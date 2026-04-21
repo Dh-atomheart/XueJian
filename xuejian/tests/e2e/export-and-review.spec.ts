@@ -30,10 +30,10 @@ test('dashboard shows daily stats including correct rate when available', async 
 // @acceptance:w3-a3
 test('card studio shows documents with parsed status as eligible', async ({ page }) => {
   await page.goto('/')
-  await page.getByTestId('sidebar-nav-card-studio').click()
+  await page.getByTestId('sidebar-nav-cards').click()
 
   // Card studio page should load
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(page.getByTestId('card-studio-page')).toBeVisible()
 })
 
 // @acceptance:w4-a1

@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "src/components/cards/CardContentRenderer.tsx",
+    "src/components/cards/CardEditorModal.tsx",
+    "src/components/cards/ClozeCardContent.tsx",
+    "src/components/cards/ChoiceCardContent.tsx",
+    "src/components/cards/ImageOcclusionCardContent.tsx",
+    "src/components/ui/Sketch.tsx",
+    "src/features/cards/CardStudioPage.tsx",
+    "src/features/review/ReviewPage.tsx",
+    "src/lib/utils.ts",
+    "src/queries/cards.ts",
+    "src/queries/learning.ts",
+    "src/services/gateway/cards.ts",
+    "src/services/gateway/mockData.ts",
+    "src/services/learning/index.ts",
+    "src/store/index.ts",
+    "src/store/learning.ts",
+    "src/store/ui.ts",
+    "src/types/**/*.ts"
+  ]
+}

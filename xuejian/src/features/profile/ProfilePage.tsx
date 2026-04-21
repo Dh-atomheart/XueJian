@@ -16,7 +16,7 @@ export function ProfilePage() {
       date.setDate(date.getDate() - i)
       const dateStr = date.toISOString().split('T')[0]
       const record = studyRecords.find((r) => r.date === dateStr)
-      const count = record?.cardsStudied || 0
+      const count = record?.cardsStudied ?? record?.cardsReviewed ?? 0
       let level = 0
       if (count > 0) level = 1
       if (count > 10) level = 2
@@ -31,16 +31,25 @@ export function ProfilePage() {
     const totalCards = flashcards.length
     const masteredCards = flashcards.filter((c) => c.status === 'mastered').length
     const totalStudyDays = studyRecords.length
-    const totalMinutes = studyRecords.reduce((sum, r) => sum + r.duration, 0)
-    const totalCardsStudied = studyRecords.reduce((sum, r) => sum + r.cardsStudied, 0)
+    const totalMinutes = studyRecords.reduce((sum, r) => sum + (r.duration ?? r.studyMinutes), 0)
+    const totalCardsStudied = studyRecords.reduce(
+      (sum, r) => sum + (r.cardsStudied ?? r.cardsReviewed),
+      0
+    )
 
     let streak = 0
-    const sortedRecords = [...studyRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    const sortedRecords = [...studyRecords].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    )
     for (const record of sortedRecords) {
       const expectedDate = new Date()
       expectedDate.setDate(expectedDate.getDate() - streak)
       const expectedStr = expectedDate.toISOString().split('T')[0]
-      if (record.date === expectedStr) { streak++ } else { break }
+      if (record.date === expectedStr) {
+        streak++
+      } else {
+        break
+      }
     }
 
     return {
@@ -55,12 +64,20 @@ export function ProfilePage() {
     }
   }, [flashcards, studyRecords, documents])
 
-  const levelColors = ['bg-paper-muted', 'bg-green-200', 'bg-green-300', 'bg-green-400', 'bg-green-500']
+  const levelColors = [
+    'bg-paper-muted',
+    'bg-green-200',
+    'bg-green-300',
+    'bg-green-400',
+    'bg-green-500',
+  ]
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 animate-fade-in">
       <div className="mb-8">
-        <p className="text-xs tracking-[0.3em] text-ink-muted uppercase mb-2 font-ui">Profile & Stats</p>
+        <p className="text-xs tracking-[0.3em] text-ink-muted uppercase mb-2 font-ui">
+          Profile & Stats
+        </p>
         <h1 className="text-2xl font-display font-semibold mb-2">我的</h1>
         <p className="text-sm text-ink-muted">查看学习统计和个人设置</p>
       </div>
@@ -73,10 +90,24 @@ export function ProfilePage() {
           </div>
           <div>
             <h2 className="text-lg font-semibold">学习者</h2>
-            <p className="text-sm text-ink-muted">已学习 {stats.totalStudyDays} 天 · 连续 {stats.streak} 天</p>
+            <p className="text-sm text-ink-muted">
+              已学习 {stats.totalStudyDays} 天 · 连续 {stats.streak} 天
+            </p>
           </div>
-          <button onClick={() => setActiveNavItem('settings')} className="ml-auto p-2 hover:bg-paper-muted rounded-lg transition-colors">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <button
+            onClick={() => setActiveNavItem('settings')}
+            className="ml-auto p-2 hover:bg-paper-muted rounded-lg transition-colors"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
@@ -124,7 +155,9 @@ export function ProfilePage() {
       <SketchCard className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-medium">学习热图</h3>
-          <span className="text-xs text-ink-muted">过去 60 天共学习 {stats.totalCardsStudied} 张卡片</span>
+          <span className="text-xs text-ink-muted">
+            过去 60 天共学习 {stats.totalCardsStudied} 张卡片
+          </span>
         </div>
         <div className="overflow-x-auto">
           <div className="grid grid-cols-[repeat(12,1fr)] gap-1 min-w-[600px]">
@@ -139,33 +172,89 @@ export function ProfilePage() {
         </div>
         <div className="flex items-center justify-end gap-2 mt-4">
           <span className="text-xs text-ink-muted">少</span>
-          {levelColors.map((color, i) => <div key={i} className={cn('w-3 h-3 rounded-sm', color)} />)}
+          {levelColors.map((color, i) => (
+            <div key={i} className={cn('w-3 h-3 rounded-sm', color)} />
+          ))}
           <span className="text-xs text-ink-muted">多</span>
         </div>
       </SketchCard>
 
       {/* Quick links */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <button onClick={() => setActiveNavItem('settings')} className="flex items-center gap-4 p-4 rounded-lg border border-line-soft/60 hover:bg-paper-muted/30 transition-colors text-left">
+        <button
+          onClick={() => setActiveNavItem('settings')}
+          className="flex items-center gap-4 p-4 rounded-lg border border-line-soft/60 hover:bg-paper-muted/30 transition-colors text-left"
+        >
           <div className="w-10 h-10 rounded-lg bg-paper-muted flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
           </div>
           <div>
             <p className="font-medium text-sm">设置</p>
             <p className="text-xs text-ink-muted">配置 AI API 和偏好</p>
           </div>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="ml-auto text-ink-muted"><path d="m9 18 6-6-6-6" /></svg>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="ml-auto text-ink-muted"
+          >
+            <path d="m9 18 6-6-6-6" />
+          </svg>
         </button>
 
-        <button onClick={() => setActiveNavItem('cards')} className="flex items-center gap-4 p-4 rounded-lg border border-line-soft/60 hover:bg-paper-muted/30 transition-colors text-left">
+        <button
+          onClick={() => setActiveNavItem('cards')}
+          className="flex items-center gap-4 p-4 rounded-lg border border-line-soft/60 hover:bg-paper-muted/30 transition-colors text-left"
+        >
           <div className="w-10 h-10 rounded-lg bg-paper-muted flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><path d="M16 3H8l-2 4h12l-2-4z" /></svg>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+              <path d="M16 3H8l-2 4h12l-2-4z" />
+            </svg>
           </div>
           <div>
             <p className="font-medium text-sm">导出卡片</p>
             <p className="text-xs text-ink-muted">导出为 Anki 格式</p>
           </div>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="ml-auto text-ink-muted"><path d="m9 18 6-6-6-6" /></svg>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="ml-auto text-ink-muted"
+          >
+            <path d="m9 18 6-6-6-6" />
+          </svg>
         </button>
       </div>
     </div>

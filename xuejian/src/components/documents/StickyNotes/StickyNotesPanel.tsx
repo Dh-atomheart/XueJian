@@ -1,8 +1,17 @@
-import { useEffect, useMemo } from 'react'
-import { Button } from '@/components/ui'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { CardEditorModal } from '@/components/cards/CardEditorModal'
+import { Button, Input } from '@/components/ui'
 import { cn } from '@/lib/utils'
-import { useCardsQuery, useDocumentQuery, useHighlightsQuery } from '@/queries'
+import {
+  useCardsQuery,
+  useDeleteCardMutation,
+  useDocumentQuery,
+  useHighlightsQuery,
+  useUpdateCardMutation,
+} from '@/queries'
 import { useAppUiStore } from '@/store'
+import type { Card, Highlight } from '@/types'
+import { StickyNoteCard } from './StickyNoteCard'
 
 interface StickyNotesPanelProps {
   documentId: string
@@ -14,24 +23,132 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
   const setContextRailOpen = useAppUiStore((state) => state.setContextRailOpen)
   const setReaderPage = useAppUiStore((state) => state.setReaderPage)
   const selectCard = useAppUiStore((state) => state.selectCard)
+  const selectHighlight = useAppUiStore((state) => state.selectHighlight)
+  const hoverHighlight = useAppUiStore((state) => state.hoverHighlight)
+  const setAnnotationFilterTags = useAppUiStore((state) => state.setAnnotationFilterTags)
+  const setAnnotationScope = useAppUiStore((state) => state.setAnnotationScope)
+  const enterLinkingMode = useAppUiStore((state) => state.enterLinkingMode)
+  const exitLinkingMode = useAppUiStore((state) => state.exitLinkingMode)
+  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const { data: currentDocument } = useDocumentQuery(documentId)
-  const { data: cards = [] } = useCardsQuery(
-    { documentId, pageNumber: reader.currentPage, limit: 24 },
+  const { data: cards = [] } = useCardsQuery({ documentId, limit: 5000 }, { enabled: Boolean(documentId) })
+  const { data: highlights = [] } = useHighlightsQuery(
+    { documentId, limit: 5000 },
     { enabled: Boolean(documentId) }
   )
-  const { data: highlights = [] } = useHighlightsQuery(
-    { documentId, pageNumber: reader.currentPage, limit: 24 },
-    { enabled: Boolean(documentId) }
+  const updateCard = useUpdateCardMutation()
+  const deleteCard = useDeleteCardMutation()
+  const [searchQuery, setSearchQuery] = useState('')
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
+  const [editingCard, setEditingCard] = useState<Card | null>(null)
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+
+  const highlightByCardId = useMemo<Record<string, Highlight>>(
+    () =>
+      Object.fromEntries(
+        highlights.filter((item) => item.cardId).map((item) => [item.cardId as string, item])
+      ),
+    [highlights]
   )
 
-  const cardEntries = useMemo(
+  const availableTags = useMemo(
     () =>
-      cards.map((card) => ({
-        card,
-        highlight: highlights.find((item) => item.cardId === card.id) ?? null,
-      })),
-    [cards, highlights]
+      Array.from(new Set(cards.flatMap((card) => card.tags)))
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right, 'zh-CN')),
+    [cards]
   )
+
+  const scopedCards = useMemo(() => {
+    if (reader.annotationScope === 'all' || deferredSearchQuery.trim()) {
+      return cards
+    }
+
+    return cards.filter(
+      (card) => (highlightByCardId[card.id]?.pageNumber ?? card.sourcePage) === reader.currentPage
+    )
+  }, [cards, deferredSearchQuery, highlightByCardId, reader.annotationScope, reader.currentPage])
+
+  const cardEntries = useMemo(() => {
+    const normalizedQuery = deferredSearchQuery.trim().toLowerCase()
+
+    return scopedCards
+      .map((card) => ({
+        card,
+        highlight: highlightByCardId[card.id] ?? null,
+      }))
+      .filter(({ card, highlight }) => {
+        if (reader.annotationFilterTags.length > 0) {
+          const hasAllTags = reader.annotationFilterTags.every((tag) => card.tags.includes(tag))
+          if (!hasAllTags) {
+            return false
+          }
+        }
+
+        if (!normalizedQuery) {
+          return true
+        }
+
+        const haystack = [
+          card.title,
+          card.front,
+          card.back,
+          highlight?.textContent,
+          card.tags.join(' '),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+
+        return haystack.includes(normalizedQuery)
+      })
+      .sort((left, right) => {
+        const leftPage = left.highlight?.pageNumber ?? left.card.sourcePage ?? Number.MAX_SAFE_INTEGER
+        const rightPage = right.highlight?.pageNumber ?? right.card.sourcePage ?? Number.MAX_SAFE_INTEGER
+        if (leftPage !== rightPage) {
+          return leftPage - rightPage
+        }
+
+        const leftIndex = left.highlight?.pageCardIndex ?? Number.MAX_SAFE_INTEGER
+        const rightIndex = right.highlight?.pageCardIndex ?? Number.MAX_SAFE_INTEGER
+        if (leftIndex !== rightIndex) {
+          return leftIndex - rightIndex
+        }
+
+        return left.card.front.localeCompare(right.card.front, 'zh-CN')
+      })
+  }, [deferredSearchQuery, highlightByCardId, reader.annotationFilterTags, scopedCards])
+
+  const unlinkedCount = useMemo(
+    () => cards.filter((card) => !highlightByCardId[card.id]).length,
+    [cards, highlightByCardId]
+  )
+
+  const groupedCardEntries = useMemo(() => {
+    const groups = new Map<number, typeof cardEntries>()
+
+    for (const entry of cardEntries) {
+      const pageNumber = entry.highlight?.pageNumber ?? entry.card.sourcePage ?? -1
+      const existing = groups.get(pageNumber) ?? []
+      groups.set(pageNumber, [...existing, entry])
+    }
+
+    return Array.from(groups.entries())
+      .sort(([leftPage], [rightPage]) => {
+        if (leftPage < 0) {
+          return 1
+        }
+        if (rightPage < 0) {
+          return -1
+        }
+        return leftPage - rightPage
+      })
+      .map(([pageNumber, entries]) => ({
+        pageNumber,
+        title: pageNumber > 0 ? `第 ${pageNumber} 页` : '未定位页码',
+        entries,
+      }))
+  }, [cardEntries])
 
   useEffect(() => {
     if (!reader.selectedCardId) {
@@ -40,6 +157,7 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
 
     const element = window.document.getElementById(`sticky-card-${reader.selectedCardId}`)
     element?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    setExpandedCardId(reader.selectedCardId)
   }, [reader.selectedCardId])
 
   return (
@@ -59,22 +177,105 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
         <div className="grid gap-2 sm:grid-cols-3">
           <RailMetric label="页码" value={`${reader.currentPage}/${Math.max(reader.totalPages, 1)}`} />
           <RailMetric label="贴笺" value={`${cards.length}`} />
-          <RailMetric label="高亮" value={`${highlights.length}`} />
+          <RailMetric label="缺失关联" value={`${unlinkedCount}`} />
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <Input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="搜索卡片、原文、标签..."
+            data-testid="reader-sticky-search"
+          />
+
+          {deferredSearchQuery.trim() ? (
+            <p className="rounded-[16px] border border-line-soft bg-paper-base/75 px-3 py-2 text-xs leading-5 text-ink-soft">
+              当前搜索覆盖整份文档，结果会按页码重新排序。
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            {(['page', 'all'] as const).map((scope) => (
+              <button
+                key={scope}
+                type="button"
+                onClick={() => setAnnotationScope(scope)}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-xs transition',
+                  reader.annotationScope === scope
+                    ? 'border-ink/25 bg-ink text-paper-base'
+                    : 'border-line-soft bg-paper-base/80 text-ink-soft hover:border-ink/15 hover:text-ink'
+                )}
+              >
+                {scope === 'page' ? '仅本页' : '整份文档'}
+              </button>
+            ))}
+          </div>
+
+          {availableTags.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {availableTags.map((tag) => {
+                const isActive = reader.annotationFilterTags.includes(tag)
+
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => {
+                      setAnnotationFilterTags(
+                        isActive
+                          ? reader.annotationFilterTags.filter((item) => item !== tag)
+                          : [...reader.annotationFilterTags, tag]
+                      )
+                    }}
+                    className={cn(
+                      'rounded-full border px-2.5 py-1 text-[11px] transition',
+                      isActive
+                        ? 'border-ink/20 bg-highlight-yellow/35 text-ink'
+                        : 'border-line-soft bg-paper-base/75 text-ink-soft hover:border-ink/10 hover:text-ink'
+                    )}
+                  >
+                    #{tag}
+                  </button>
+                )
+              })}
+
+              {reader.annotationFilterTags.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setAnnotationFilterTags([])}
+                  className="rounded-full px-2 py-1 text-[11px] text-ink-soft transition hover:text-ink"
+                >
+                  清空过滤
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
+
+      {reader.isLinkingMode ? (
+        <div className="border-b border-line-soft bg-highlight-yellow/15 px-4 py-3 text-sm text-ink-muted">
+          <div className="flex items-start justify-between gap-3">
+            <p>已进入手动关联模式。回到正文圈定一句原文，就会把它绑到当前卡片。</p>
+            <Button variant="ghost" size="sm" onClick={exitLinkingMode}>
+              取消
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex-1 overflow-auto px-4 py-4">
         {cardEntries.length === 0 ? (
           <div className="relative">
-            {/* Tape strip decoration */}
             <span
               aria-hidden
               className="absolute left-1/2 top-0 h-4 w-16 -translate-x-1/2 -translate-y-1/2 rotate-[-4deg] rounded-sm bg-highlight-yellow/40 ring-1 ring-ink/5"
             />
             <div className="rounded-[24px] border border-dashed border-line-soft bg-white/80 px-4 py-7 text-center">
-              <p className="font-ui text-sm text-ink">当前页还没有贴笺</p>
+              <p className="font-ui text-sm text-ink">当前范围内还没有贴笺</p>
               <p className="mt-2 text-sm leading-6 text-ink-soft">
-                在正文里圈出关键句，这里会长出便签。
+                可以在正文里直接圈句建卡，也可以切到整份文档范围继续搜索。
               </p>
               <div className="mt-4 flex justify-center gap-2">
                 <Button
@@ -91,81 +292,95 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            {cardEntries.map(({ card, highlight }, index) => {
-              const isSelected = reader.selectedCardId === card.id
-              // Alternate very small rotation to feel hand-pasted.
-              const skewClass =
-                index % 2 === 0 ? 'sm:-rotate-[0.3deg]' : 'sm:rotate-[0.3deg]'
-
-              return (
-                <button
-                  key={card.id}
-                  id={`sticky-card-${card.id}`}
-                  type="button"
-                  data-selected={isSelected ? 'true' : 'false'}
-                  data-testid={`sticky-card-${card.id}`}
-                  onClick={() => {
-                    setReaderPage(card.sourcePage ?? reader.currentPage)
-                    selectCard(card.id)
-                  }}
-                  className={cn(
-                    'sticky-note-card group relative block w-full rounded-[22px] border px-4 py-4 text-left transition-all duration-200',
-                    skewClass,
-                    isSelected
-                      ? 'border-ink/30 bg-highlight-yellow/30 shadow-sticky -translate-y-0.5'
-                      : 'border-line-soft bg-white/85 hover:-translate-y-0.5 hover:border-ink/20 hover:bg-white hover:shadow-sticky'
-                  )}
-                >
-                  {/* Paper tape */}
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'absolute left-5 top-0 h-2.5 w-10 -translate-y-1/2 rounded-sm ring-1 ring-ink/5 transition-opacity',
-                      isSelected
-                        ? 'bg-highlight-pink/50 opacity-100'
-                        : 'bg-highlight-yellow/45 opacity-80 group-hover:opacity-100'
-                    )}
-                  />
-
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <span className="inline-flex items-center gap-1 rounded-full border border-ink/10 bg-white/70 px-2 py-0.5 font-latin text-[10px] uppercase tracking-[0.2em] text-ink-soft">
-                        <span>便签</span>
-                        <span className="tabular-nums">{String(index + 1).padStart(2, '0')}</span>
-                      </span>
-                      <p className="mt-3 font-ui text-sm leading-6 text-ink">{card.front}</p>
-                    </div>
-                    <span className="shrink-0 font-latin text-[11px] text-ink-soft">
-                      P.{card.sourcePage ?? reader.currentPage}
-                    </span>
+          <div className="space-y-6">
+            {groupedCardEntries.map((group) => (
+              <section key={group.pageNumber} className="space-y-4">
+                {(groupedCardEntries.length > 1 || group.pageNumber < 0) ? (
+                  <div className="flex items-center justify-between gap-3 px-1">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">{group.title}</p>
+                    <span className="text-[11px] text-ink-soft">{group.entries.length} 张</span>
                   </div>
+                ) : null}
 
-                  <p className="rounded-[16px] bg-paper-base/90 px-3 py-3 text-sm leading-6 text-ink-muted">
-                    {highlight?.textContent ?? card.back}
-                  </p>
+                <div className="space-y-4">
+                  {group.entries.map(({ card, highlight }, index) => {
+                    const isSelected = reader.selectedCardId === card.id
 
-                  <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-ink-soft">
-                    <span className="truncate">
-                      {card.tags.length > 0 ? card.tags.join(' · ') : '未分组贴笺'}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span
-                        aria-hidden
-                        className={cn(
-                          'inline-block h-1.5 w-1.5 rounded-full',
-                          highlight ? 'bg-highlight-green' : 'bg-ink-soft/50'
-                        )}
-                      />
-                      {highlight ? '含原文高亮' : '仅卡片定位'}
-                    </span>
-                  </div>
-                </button>
-              )
-            })}
+                    return (
+                      <div
+                        key={card.id}
+                        onMouseEnter={() => hoverHighlight(highlight?.id ?? null)}
+                        onMouseLeave={() => hoverHighlight(null)}
+                      >
+                        <StickyNoteCard
+                          card={card}
+                          highlight={highlight}
+                          index={index}
+                          isSelected={isSelected}
+                          isExpanded={expandedCardId === card.id}
+                          onSelect={() => {
+                            setReaderPage(highlight?.pageNumber ?? card.sourcePage ?? reader.currentPage)
+                            selectCard(card.id)
+                            selectHighlight(highlight?.id ?? null)
+                          }}
+                          onToggleExpand={() => {
+                            setExpandedCardId((current) => (current === card.id ? null : card.id))
+                          }}
+                          onLocate={() => {
+                            setReaderPage(highlight?.pageNumber ?? card.sourcePage ?? reader.currentPage)
+                            selectCard(card.id)
+                            selectHighlight(highlight?.id ?? null)
+                          }}
+                          onEdit={() => setEditingCard(card)}
+                          onDelete={() => {
+                            if (!window.confirm('确认删除这张卡片吗？')) {
+                              return
+                            }
+                            deleteCard.mutate(card.id, {
+                              onSuccess: () => {
+                                if (reader.selectedCardId === card.id) {
+                                  selectCard(null)
+                                  selectHighlight(null)
+                                }
+                              },
+                            })
+                          }}
+                          onLink={() => {
+                            setReaderPage(card.sourcePage ?? reader.currentPage)
+                            selectCard(card.id)
+                            enterLinkingMode(card.id)
+                          }}
+                          onOpenCandidates={() => setActiveNavItem('cards')}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </div>
+
+      {editingCard ? (
+        <CardEditorModal
+          card={editingCard}
+          isSaving={updateCard.isPending}
+          onClose={() => setEditingCard(null)}
+          onSave={async ({ front, back, tags, cardType }) => {
+            await updateCard.mutateAsync({
+              id: editingCard.id,
+              data: {
+                front,
+                back,
+                tags,
+                cardType,
+              },
+            })
+            setEditingCard(null)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

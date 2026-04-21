@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
+    "eval:cards": "node scripts/eval/run-eval.mjs",
     "test:e2e": "playwright test",
     "test:smoke": "playwright test tests/e2e/reader.spec.ts tests/e2e/performance-smoke.spec.ts --workers=1",
     "tauri:dev": "tauri dev",

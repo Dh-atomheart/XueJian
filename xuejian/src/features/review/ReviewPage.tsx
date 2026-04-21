@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { SketchButton, SketchCircle, SketchProgress } from '@/components/ui/Sketch'
+import { useState, useEffect, useCallback } from 'react'
+import { SketchButton, SketchCircle } from '@/components/ui/Sketch'
 import { CardContentRenderer } from '@/components/cards/CardContentRenderer'
 import { ClozeCardContent } from '@/components/cards/ClozeCardContent'
 import { ChoiceCardContent } from '@/components/cards/ChoiceCardContent'
+import { ImageOcclusionCardContent } from '@/components/cards/ImageOcclusionCardContent'
 import { useDueCardsQuery, useDailyStatsQuery, useSubmitReviewMutation } from '@/queries/learning'
 import { useLearningSessionStore } from '@/store/learning'
 import { useAppUiStore } from '@/store'
@@ -85,7 +86,10 @@ export function ReviewPage() {
   // Intro screen
   if (phase === 'intro') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[80vh] px-6 animate-fade-in">
+      <div
+        className="flex flex-col items-center justify-center min-h-[80vh] px-6 animate-fade-in"
+        data-testid="review-page-intro"
+      >
         <div className="text-center max-w-md">
           <p className="text-xs tracking-[0.3em] text-ink-muted uppercase mb-4 font-ui">
             Study Session
@@ -137,7 +141,10 @@ export function ReviewPage() {
     })
 
     return (
-      <div className="flex flex-col items-center justify-center min-h-[80vh] px-6 animate-fade-in">
+      <div
+        className="flex flex-col items-center justify-center min-h-[80vh] px-6 animate-fade-in"
+        data-testid="review-page-complete"
+      >
         <div className="text-center max-w-md">
           <div className="text-5xl mb-6">✓</div>
           <h1 className="text-2xl font-display font-semibold mb-2">学习完成</h1>
@@ -175,12 +182,14 @@ export function ReviewPage() {
 
   // Study screen
   return (
-    <div className="min-h-[80vh] flex flex-col">
+    <div className="min-h-[80vh] flex flex-col" data-testid="review-page-studying">
       {/* Progress header */}
       <header className="p-4 border-b border-line-soft">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <button
             onClick={() => setPhase('intro')}
+            aria-label="退出学习会话"
+            title="退出学习会话"
             className="p-2 hover:bg-paper-muted rounded-lg transition-colors"
           >
             <svg
@@ -214,7 +223,7 @@ export function ReviewPage() {
       {/* Card area */}
       <main className="flex-1 flex items-center justify-center p-6">
         {currentCard && (
-          <div onClick={handleFlip} className="w-full max-w-lg cursor-pointer">
+          <div onClick={handleFlip} className="w-full max-w-lg cursor-pointer" data-testid="review-current-card">
             <div
               className={cn(
                 'relative min-h-[300px] p-8 rounded-xl border border-line-soft/60 bg-paper-card shadow-sm transition-all duration-500',
@@ -232,7 +241,25 @@ export function ReviewPage() {
                 {currentCard.cardType === 'cloze' ? (
                   <ClozeCardContent content={currentCard.front} revealed={isFlipped} />
                 ) : currentCard.cardType === 'choice' ? (
-                  <ChoiceCardContent content={currentCard.front} revealed={isFlipped} />
+                  <>
+                    <ChoiceCardContent content={currentCard.front} revealed={isFlipped} />
+                    {isFlipped && currentCard.back && (
+                      <div className="mt-4 pt-3 border-t border-line-soft/40">
+                        <p className="text-xs text-ink-muted mb-1">解析</p>
+                        <CardContentRenderer content={currentCard.back} />
+                      </div>
+                    )}
+                  </>
+                ) : currentCard.cardType === 'image_occlusion' ? (
+                  <>
+                    <ImageOcclusionCardContent content={currentCard.front} revealed={isFlipped} />
+                    {isFlipped && currentCard.back ? (
+                      <div className="mt-4 pt-3 border-t border-line-soft/40">
+                        <p className="text-xs text-ink-muted mb-1">解析</p>
+                        <CardContentRenderer content={currentCard.back} />
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <CardContentRenderer content={isFlipped ? currentCard.back : currentCard.front} />
                 )}
@@ -263,6 +290,7 @@ export function ReviewPage() {
                   key={rating.key}
                   onClick={() => handleRating(rating.key)}
                   disabled={submitReview.isPending}
+                  data-testid={`review-rate-${rating.key}`}
                   className={cn(
                     'py-4 px-2 rounded-lg border border-line-soft/60 hover:bg-paper-muted/50 transition-all',
                     'flex flex-col items-center gap-1',

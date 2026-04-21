@@ -42,6 +42,14 @@ pub struct CreateCardRequest {
     pub tags: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateCardRequest {
+    pub front: String,
+    pub back: String,
+    pub card_type: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CardFilters<'a> {
     pub document_id: Option<&'a str>,
@@ -56,6 +64,7 @@ pub struct CardCandidate {
     pub id: String,
     pub workflow_run_id: Option<String>,
     pub document_id: String,
+    pub section_id: Option<String>,
     pub anchor_id: Option<String>,
     pub title: Option<String>,
     pub card_type: String,
@@ -68,6 +77,13 @@ pub struct CardCandidate {
     pub confidence: f64,
     pub dedupe_key: String,
     pub status: String,
+    pub score_overall: Option<f64>,
+    pub score_details: Option<serde_json::Value>,
+    pub visibility_bucket: Option<String>,
+    pub generation_mode: String,
+    pub fallback_reason: Option<String>,
+    pub evaluation_summary: Option<String>,
+    pub source_chunk_ids: Option<Vec<String>>,
     pub created_at: String,
 }
 
@@ -75,6 +91,7 @@ pub struct CardCandidate {
 pub struct CreateCardCandidateRequest {
     pub workflow_run_id: Option<String>,
     pub document_id: String,
+    pub section_id: Option<String>,
     pub anchor_id: Option<String>,
     pub title: Option<String>,
     pub card_type: Option<String>,
@@ -83,16 +100,31 @@ pub struct CreateCardCandidateRequest {
     pub tags: Vec<String>,
     pub confidence: f64,
     pub dedupe_key: String,
+    pub score_overall: Option<f64>,
+    pub score_details: Option<serde_json::Value>,
+    pub visibility_bucket: Option<String>,
+    pub generation_mode: Option<String>,
+    pub fallback_reason: Option<String>,
+    pub evaluation_summary: Option<String>,
+    pub source_chunk_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateCardCandidateRequest {
+    pub card_type: String,
     pub front: String,
     pub back: String,
     pub tags: Vec<String>,
     pub confidence: f64,
     pub dedupe_key: String,
     pub status: String,
+    pub score_overall: Option<f64>,
+    pub score_details: Option<serde_json::Value>,
+    pub visibility_bucket: Option<String>,
+    pub generation_mode: String,
+    pub fallback_reason: Option<String>,
+    pub evaluation_summary: Option<String>,
+    pub source_chunk_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -117,6 +149,14 @@ pub struct FinalizeCardGenerationResult {
     pub rejected_count: usize,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchCreateHighlightsResult {
+    pub created: usize,
+    pub skipped: usize,
+    pub unlinked: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Highlight {
@@ -128,6 +168,8 @@ pub struct Highlight {
     pub rectangles: Vec<DocumentAnchorRect>,
     pub text_content: String,
     pub color: String,
+    pub note: Option<String>,
+    pub page_card_index: Option<i32>,
     pub created_at: String,
 }
 
@@ -140,6 +182,8 @@ pub struct CreateHighlightRequest {
     pub rectangles: Vec<DocumentAnchorRect>,
     pub text_content: String,
     pub color: String,
+    pub note: Option<String>,
+    pub page_card_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -149,6 +193,8 @@ pub struct UpdateHighlightRequest {
     pub rectangles: Vec<DocumentAnchorRect>,
     pub text_content: String,
     pub color: String,
+    pub note: Option<String>,
+    pub page_card_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -186,6 +232,29 @@ pub struct CreateReviewLogRequest {
     pub interval_days: Option<i32>,
 }
 
+// ── Card Media ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardMedia {
+    pub id: String,
+    pub card_id: String,
+    pub file_name: String,
+    pub mime_type: String,
+    pub file_size: Option<i64>,
+    pub storage_key: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateCardMediaRequest {
+    pub card_id: String,
+    pub file_name: String,
+    pub mime_type: String,
+    pub file_size: Option<i64>,
+    pub storage_key: String,
+}
+
 pub struct CardRepository<'a> {
     db: &'a Database,
 }
@@ -193,6 +262,77 @@ pub struct CardRepository<'a> {
 impl<'a> CardRepository<'a> {
     pub fn new(db: &'a Database) -> Self {
         Self { db }
+    }
+
+    // ── Card Media methods ──────────────────────────────────
+
+    pub fn create_card_media(&self, req: CreateCardMediaRequest) -> Result<CardMedia> {
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        self.db.connection().execute(
+            "INSERT INTO card_media (id, card_id, file_name, mime_type, file_size, storage_key, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![&id, &req.card_id, &req.file_name, &req.mime_type, req.file_size, &req.storage_key, &now],
+        )?;
+
+        Ok(CardMedia {
+            id,
+            card_id: req.card_id,
+            file_name: req.file_name,
+            mime_type: req.mime_type,
+            file_size: req.file_size,
+            storage_key: req.storage_key,
+            created_at: now,
+        })
+    }
+
+    pub fn list_card_media(&self, card_id: &str) -> Result<Vec<CardMedia>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, card_id, file_name, mime_type, file_size, storage_key, created_at
+             FROM card_media WHERE card_id = ?1 ORDER BY created_at ASC",
+        )?;
+
+        let media = stmt.query_map(params![card_id], |row| {
+            Ok(CardMedia {
+                id: row.get(0)?,
+                card_id: row.get(1)?,
+                file_name: row.get(2)?,
+                mime_type: row.get(3)?,
+                file_size: row.get(4)?,
+                storage_key: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })?;
+
+        media.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn delete_card_media(&self, id: &str) -> Result<Option<CardMedia>> {
+        let media = {
+            let mut stmt = self.db.connection().prepare(
+                "SELECT id, card_id, file_name, mime_type, file_size, storage_key, created_at
+                 FROM card_media WHERE id = ?1",
+            )?;
+            stmt.query_row(params![id], |row| {
+                Ok(CardMedia {
+                    id: row.get(0)?,
+                    card_id: row.get(1)?,
+                    file_name: row.get(2)?,
+                    mime_type: row.get(3)?,
+                    file_size: row.get(4)?,
+                    storage_key: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })
+            .optional()?
+        };
+
+        if media.is_some() {
+            self.db.connection().execute("DELETE FROM card_media WHERE id = ?1", params![id])?;
+        }
+
+        Ok(media)
     }
 
     pub fn get_card_by_id(&self, id: &str) -> Result<Option<Card>> {
@@ -350,6 +490,29 @@ impl<'a> CardRepository<'a> {
         })
     }
 
+    pub fn update_card(&self, id: &str, req: UpdateCardRequest) -> Result<Option<Card>> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let tags_json = req.tags.map(|tags| serde_json::json!(tags));
+        let card_type = req.card_type.unwrap_or_else(|| "qa".to_string());
+
+        let changed = self.db.connection().execute(
+            "UPDATE cards
+             SET front = ?1,
+                 back = ?2,
+                 card_type = ?3,
+                 tags = ?4,
+                 updated_at = ?5
+             WHERE id = ?6",
+            params![&req.front, &req.back, &card_type, tags_json, &now, id],
+        )?;
+
+        if changed == 0 {
+            return Ok(None);
+        }
+
+        self.get_card_by_id(id)
+    }
+
     pub fn find_due_cards(&self, limit: Option<i64>) -> Result<Vec<Card>> {
         let limit = limit.unwrap_or(50);
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -433,10 +596,12 @@ impl<'a> CardRepository<'a> {
     ) -> Result<Vec<CardCandidate>> {
         let limit = limit.unwrap_or(200);
         let mut stmt = self.db.connection().prepare(
-            "SELECT c.id, c.workflow_run_id, c.document_id, c.anchor_id,
-                    c.title, c.card_type, c.front, c.back,
-                    c.tags, c.confidence, c.dedupe_key, c.status, c.created_at,
-                    a.page, a.paragraph, a.text_quote
+            "SELECT c.id, c.workflow_run_id, c.document_id, c.section_id, c.anchor_id,
+                c.title, c.card_type, c.front, c.back,
+                c.tags, c.confidence, c.dedupe_key, c.status,
+                c.score_overall, c.score_details, c.visibility_bucket, c.generation_mode,
+                c.fallback_reason, c.evaluation_summary, c.source_chunk_ids, c.created_at,
+                a.page, a.paragraph, a.text_quote
              FROM card_candidates c
              LEFT JOIN document_anchors a ON a.id = c.anchor_id
              WHERE (?1 IS NULL OR c.workflow_run_id = ?1)
@@ -458,10 +623,12 @@ impl<'a> CardRepository<'a> {
 
     pub fn get_candidate(&self, id: &str) -> Result<Option<CardCandidate>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT c.id, c.workflow_run_id, c.document_id, c.anchor_id,
-                    c.title, c.card_type, c.front, c.back,
-                    c.tags, c.confidence, c.dedupe_key, c.status, c.created_at,
-                    a.page, a.paragraph, a.text_quote
+            "SELECT c.id, c.workflow_run_id, c.document_id, c.section_id, c.anchor_id,
+                c.title, c.card_type, c.front, c.back,
+                c.tags, c.confidence, c.dedupe_key, c.status,
+                c.score_overall, c.score_details, c.visibility_bucket, c.generation_mode,
+                c.fallback_reason, c.evaluation_summary, c.source_chunk_ids, c.created_at,
+                a.page, a.paragraph, a.text_quote
              FROM card_candidates c
              LEFT JOIN document_anchors a ON a.id = c.anchor_id
              WHERE c.id = ?1",
@@ -507,16 +674,31 @@ impl<'a> CardRepository<'a> {
             }
 
             let tags_json = serde_json::to_string(&request.tags).map_err(json_encode_error)?;
+            let score_details_json = request
+                .score_details
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(json_encode_error)?;
+            let source_chunk_ids_json = request
+                .source_chunk_ids
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(json_encode_error)?;
             let card_type = request.card_type.unwrap_or_else(|| "qa".to_string());
             transaction.execute(
                 "INSERT INTO card_candidates (
-                    id, workflow_run_id, document_id, anchor_id, title, card_type,
-                    front, back, tags, confidence, dedupe_key, status, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending', ?12)",
+                    id, workflow_run_id, document_id, section_id, anchor_id, title, card_type,
+                    front, back, tags, confidence, dedupe_key, status,
+                    score_overall, score_details, visibility_bucket, generation_mode,
+                    fallback_reason, evaluation_summary, source_chunk_ids, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'pending', ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
                 params![
                     Uuid::new_v4().to_string(),
                     request.workflow_run_id,
                     request.document_id,
+                    request.section_id,
                     request.anchor_id,
                     request.title,
                     card_type,
@@ -525,6 +707,13 @@ impl<'a> CardRepository<'a> {
                     tags_json,
                     request.confidence,
                     request.dedupe_key,
+                    request.score_overall,
+                    score_details_json,
+                    request.visibility_bucket,
+                    request.generation_mode.unwrap_or_else(|| "llm".to_string()),
+                    request.fallback_reason,
+                    request.evaluation_summary,
+                    source_chunk_ids_json,
                     &now,
                 ],
             )?;
@@ -542,23 +731,51 @@ impl<'a> CardRepository<'a> {
         request: UpdateCardCandidateRequest,
     ) -> Result<Option<CardCandidate>> {
         let tags_json = serde_json::to_string(&request.tags).map_err(json_encode_error)?;
+        let score_details_json = request
+            .score_details
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(json_encode_error)?;
+        let source_chunk_ids_json = request
+            .source_chunk_ids
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(json_encode_error)?;
 
         self.db.connection().execute(
             "UPDATE card_candidates
-             SET front = ?1,
-                 back = ?2,
-                 tags = ?3,
-                 confidence = ?4,
-                 dedupe_key = ?5,
-                 status = ?6
-             WHERE id = ?7",
+             SET card_type = ?1,
+                 front = ?2,
+                 back = ?3,
+                 tags = ?4,
+                 confidence = ?5,
+                 dedupe_key = ?6,
+                 status = ?7,
+                 score_overall = ?8,
+                 score_details = ?9,
+                 visibility_bucket = ?10,
+                 generation_mode = ?11,
+                 fallback_reason = ?12,
+                 evaluation_summary = ?13,
+                 source_chunk_ids = ?14
+             WHERE id = ?15",
             params![
+                request.card_type,
                 request.front,
                 request.back,
                 tags_json,
                 request.confidence,
                 request.dedupe_key,
                 request.status,
+                request.score_overall,
+                score_details_json,
+                request.visibility_bucket,
+                request.generation_mode,
+                request.fallback_reason,
+                request.evaluation_summary,
+                source_chunk_ids_json,
                 id,
             ],
         )?;
@@ -733,7 +950,7 @@ impl<'a> CardRepository<'a> {
         let limit = filters.limit.unwrap_or(300);
         let mut stmt = self.db.connection().prepare(
             "SELECT id, card_id, document_id, anchor_id, page_number, rectangles,
-                    text_content, color, created_at
+                                        text_content, color, note, page_card_index, created_at
              FROM highlights
              WHERE (?1 IS NULL OR document_id = ?1)
                AND (?2 IS NULL OR card_id = ?2)
@@ -760,7 +977,7 @@ impl<'a> CardRepository<'a> {
     pub fn get_highlight(&self, id: &str) -> Result<Option<Highlight>> {
         let mut stmt = self.db.connection().prepare(
             "SELECT id, card_id, document_id, anchor_id, page_number, rectangles,
-                    text_content, color, created_at
+                    text_content, color, note, page_card_index, created_at
              FROM highlights
              WHERE id = ?1",
         )?;
@@ -778,8 +995,8 @@ impl<'a> CardRepository<'a> {
         self.db.connection().execute(
             "INSERT INTO highlights (
                 id, card_id, document_id, anchor_id, page_number, rectangles,
-                text_content, color, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                text_content, color, note, page_card_index, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 &id,
                 request.card_id,
@@ -789,6 +1006,8 @@ impl<'a> CardRepository<'a> {
                 rectangles,
                 request.text_content,
                 request.color,
+                request.note,
+                request.page_card_index,
                 &now,
             ],
         )?;
@@ -802,6 +1021,8 @@ impl<'a> CardRepository<'a> {
             rectangles: request.rectangles,
             text_content: request.text_content,
             color: request.color,
+            note: request.note,
+            page_card_index: request.page_card_index,
             created_at: now,
         })
     }
@@ -819,19 +1040,144 @@ impl<'a> CardRepository<'a> {
                  anchor_id = ?2,
                  rectangles = ?3,
                  text_content = ?4,
-                 color = ?5
-             WHERE id = ?6",
+                 color = ?5,
+                 note = ?6,
+                 page_card_index = ?7
+             WHERE id = ?8",
             params![
                 request.card_id,
                 request.anchor_id,
                 rectangles,
                 request.text_content,
                 request.color,
+                request.note,
+                request.page_card_index,
                 id,
             ],
         )?;
 
         self.get_highlight(id)
+    }
+
+    pub fn highlight_exists_for_card(&self, card_id: &str) -> Result<bool> {
+        self.db
+            .connection()
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM highlights WHERE card_id = ?1)",
+                params![card_id],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn find_card_by_document_and_dedupe(
+        &self,
+        document_id: &str,
+        dedupe_key: &str,
+    ) -> Result<Option<Card>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, group_id, title, card_type, cluster_id, export_guid, front, back,
+                    document_id, anchor_id, source_page, source_paragraph, source_coordinates,
+                    tags, difficulty, stability, retrievability, state, next_review,
+                    dedupe_key, created_at, updated_at
+             FROM cards
+             WHERE document_id = ?1 AND dedupe_key = ?2
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )?;
+
+        stmt.query_row(params![document_id, dedupe_key], map_card_row)
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn create_missing_highlights_for_run(
+        &self,
+        workflow_run_id: &str,
+        document_id: &str,
+    ) -> Result<BatchCreateHighlightsResult> {
+        let accepted_candidates = {
+            let mut stmt = self.db.connection().prepare(
+                "SELECT c.anchor_id, c.front, c.source_quote, c.source_page, c.dedupe_key,
+                        a.rects, c.created_at
+                 FROM card_candidates c
+                 LEFT JOIN document_anchors a ON a.id = c.anchor_id
+                 WHERE c.workflow_run_id = ?1 AND c.status = 'accepted' AND c.document_id = ?2
+                 ORDER BY COALESCE(c.source_page, a.page, 1) ASC, c.created_at ASC",
+            )?;
+
+            let rows = stmt.query_map(params![workflow_run_id, document_id], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<i32>>(3)?,
+                    row.get::<_, String>(4)?,
+                    decode_rectangles(row.get(5)?)?,
+                    row.get::<_, String>(6)?,
+                ))
+            })?;
+
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+
+        let mut page_order: std::collections::HashMap<i32, usize> = std::collections::HashMap::new();
+        let mut result = BatchCreateHighlightsResult::default();
+
+        for (anchor_id, front, source_quote, source_page, dedupe_key, anchor_rects, _created_at) in accepted_candidates {
+            let Some(card) = self.find_card_by_document_and_dedupe(document_id, &dedupe_key)? else {
+                result.unlinked += 1;
+                continue;
+            };
+
+            if self.highlight_exists_for_card(&card.id)? {
+                result.skipped += 1;
+                continue;
+            }
+
+            let page_number = source_page.or(card.source_page).unwrap_or(1);
+            let page_card_index = page_order.entry(page_number).or_insert(0);
+            let rectangles = if !anchor_rects.is_empty() {
+                anchor_rects
+            } else {
+                decode_source_coordinates(card.source_coordinates.clone())
+                    .map(|rect| vec![rect])
+                    .unwrap_or_default()
+            };
+
+            if rectangles.is_empty() {
+                result.unlinked += 1;
+                *page_card_index += 1;
+                continue;
+            }
+
+            self.create_highlight(CreateHighlightRequest {
+                card_id: Some(card.id),
+                document_id: document_id.to_string(),
+                anchor_id: anchor_id.or(card.anchor_id),
+                page_number,
+                rectangles,
+                text_content: source_quote.unwrap_or(front),
+                color: annotation_color_for_index(*page_card_index).to_string(),
+                note: None,
+                page_card_index: Some(*page_card_index as i32),
+            })?;
+
+            result.created += 1;
+            *page_card_index += 1;
+        }
+
+        Ok(result)
+    }
+
+    pub fn delete_card(&self, id: &str) -> Result<()> {
+        let transaction = self.db.connection().unchecked_transaction()?;
+        transaction.execute("DELETE FROM highlights WHERE card_id = ?1", params![id])?;
+        transaction.execute("DELETE FROM review_logs WHERE card_id = ?1", params![id])?;
+        transaction.execute("DELETE FROM card_media WHERE card_id = ?1", params![id])?;
+        transaction.execute("DELETE FROM cards WHERE id = ?1", params![id])?;
+        transaction.commit()?;
+        Ok(())
     }
 
     pub fn delete_highlight(&self, id: &str) -> Result<()> {
@@ -870,23 +1216,42 @@ fn map_card_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Card> {
 }
 
 fn map_card_candidate_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CardCandidate> {
+    let score_details = row
+        .get::<_, Option<String>>(14)?
+        .map(|raw| serde_json::from_str::<serde_json::Value>(&raw))
+        .transpose()
+        .map_err(json_decode_error)?;
+    let source_chunk_ids = row
+        .get::<_, Option<String>>(19)?
+        .map(|raw| serde_json::from_str::<Vec<String>>(&raw))
+        .transpose()
+        .map_err(json_decode_error)?;
+
     Ok(CardCandidate {
         id: row.get(0)?,
         workflow_run_id: row.get(1)?,
         document_id: row.get(2)?,
-        anchor_id: row.get(3)?,
-        title: row.get(4)?,
-        card_type: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "qa".to_string()),
-        front: row.get(6)?,
-        back: row.get(7)?,
-        tags: decode_tags(row.get(8)?)?,
-        confidence: row.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
-        dedupe_key: row.get(10)?,
-        status: row.get(11)?,
-        created_at: row.get(12)?,
-        source_page: row.get(13)?,
-        source_paragraph: row.get(14)?,
-        source_quote: row.get(15)?,
+        section_id: row.get(3)?,
+        anchor_id: row.get(4)?,
+        title: row.get(5)?,
+        card_type: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "qa".to_string()),
+        front: row.get(7)?,
+        back: row.get(8)?,
+        tags: decode_tags(row.get(9)?)?,
+        confidence: row.get::<_, Option<f64>>(10)?.unwrap_or(0.0),
+        dedupe_key: row.get(11)?,
+        status: row.get(12)?,
+        score_overall: row.get(13)?,
+        score_details,
+        visibility_bucket: row.get(15)?,
+        generation_mode: row.get::<_, Option<String>>(16)?.unwrap_or_else(|| "llm".to_string()),
+        fallback_reason: row.get(17)?,
+        evaluation_summary: row.get(18)?,
+        source_chunk_ids,
+        created_at: row.get(20)?,
+        source_page: row.get(21)?,
+        source_paragraph: row.get(22)?,
+        source_quote: row.get(23)?,
     })
 }
 
@@ -900,8 +1265,15 @@ fn map_highlight_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Highlight> {
         rectangles: decode_rectangles(row.get(5)?)?,
         text_content: row.get(6)?,
         color: row.get(7)?,
-        created_at: row.get(8)?,
+        note: row.get(8)?,
+        page_card_index: row.get(9)?,
+        created_at: row.get(10)?,
     })
+}
+
+fn decode_source_coordinates(value: Option<serde_json::Value>) -> Option<DocumentAnchorRect> {
+    let value = value?;
+    serde_json::from_value::<DocumentAnchorRect>(value).ok()
 }
 
 fn decode_tags(value: Option<String>) -> rusqlite::Result<Vec<String>> {
@@ -944,6 +1316,15 @@ fn merge_rectangles_into_bounding_box(
     })
 }
 
+fn annotation_color_for_index(index: usize) -> &'static str {
+    match index % 4 {
+        0 => "#F8E16C",
+        1 => "#BBDEFB",
+        2 => "#C8E6C9",
+        _ => "#F8BBD9",
+    }
+}
+
 fn json_encode_error(error: serde_json::Error) -> rusqlite::Error {
     rusqlite::Error::ToSqlConversionFailure(Box::new(error))
 }
@@ -970,6 +1351,46 @@ mod tests {
             "../migrations/V3__card_generation_workflow.sql"
         ))
         .expect("apply v3 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V4__points_ledger.sql"
+        ))
+        .expect("apply v4 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V5__card_animations.sql"
+        ))
+        .expect("apply v5 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V6__podcast_episodes.sql"
+        ))
+        .expect("apply v6 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V7__knowledge_graph.sql"
+        ))
+        .expect("apply v7 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V8__points_daily_bonus_rule.sql"
+        ))
+        .expect("apply v8 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V9__api_config_auth_mode.sql"
+        ))
+        .expect("apply v9 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V10__card_schema_extension.sql"
+        ))
+        .expect("apply v10 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V11__anchor_provenance.sql"
+        ))
+        .expect("apply v11 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V12__card_media.sql"
+        ))
+        .expect("apply v12 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V13__agent_document_workflow_foundation.sql"
+        ))
+        .expect("apply v13 migration");
 
         Database { conn }
     }
@@ -1023,22 +1444,42 @@ mod tests {
                 CreateCardCandidateRequest {
                     workflow_run_id: Some("run-1".to_string()),
                     document_id: document_id.clone(),
+                    section_id: None,
                     anchor_id: Some(anchor_id.clone()),
+                    title: None,
+                    card_type: None,
                     front: "什么是 FSRS？".to_string(),
                     back: "一种用于间隔重复学习调度的算法。".to_string(),
                     tags: vec!["page-3".to_string()],
                     confidence: 0.82,
                     dedupe_key: "dedupe-1".to_string(),
+                    score_overall: None,
+                    score_details: None,
+                    visibility_bucket: Some("default".to_string()),
+                    generation_mode: Some("llm".to_string()),
+                    fallback_reason: None,
+                    evaluation_summary: None,
+                    source_chunk_ids: None,
                 },
                 CreateCardCandidateRequest {
                     workflow_run_id: Some("run-1".to_string()),
                     document_id: document_id.clone(),
+                    section_id: None,
                     anchor_id: Some(anchor_id.clone()),
+                    title: None,
+                    card_type: None,
                     front: "什么是 FSRS？".to_string(),
                     back: "一种用于间隔重复学习调度的算法。".to_string(),
                     tags: vec!["page-3".to_string()],
                     confidence: 0.82,
                     dedupe_key: "dedupe-1".to_string(),
+                    score_overall: None,
+                    score_details: None,
+                    visibility_bucket: Some("default".to_string()),
+                    generation_mode: Some("llm".to_string()),
+                    fallback_reason: None,
+                    evaluation_summary: None,
+                    source_chunk_ids: None,
                 },
             ])
             .expect("insert candidates");
@@ -1055,12 +1496,20 @@ mod tests {
         repo.update_candidate(
             &candidate.id,
             UpdateCardCandidateRequest {
+                card_type: candidate.card_type.clone(),
                 front: candidate.front.clone(),
                 back: candidate.back.clone(),
                 tags: candidate.tags.clone(),
                 confidence: candidate.confidence,
                 dedupe_key: candidate.dedupe_key.clone(),
                 status: "accepted".to_string(),
+                score_overall: candidate.score_overall,
+                score_details: candidate.score_details.clone(),
+                visibility_bucket: candidate.visibility_bucket.clone(),
+                generation_mode: candidate.generation_mode.clone(),
+                fallback_reason: candidate.fallback_reason.clone(),
+                evaluation_summary: candidate.evaluation_summary.clone(),
+                source_chunk_ids: candidate.source_chunk_ids.clone(),
             },
         )
         .expect("accept candidate");
@@ -1102,32 +1551,62 @@ mod tests {
                 CreateCardCandidateRequest {
                     workflow_run_id: Some("run-bulk".to_string()),
                     document_id: document_id.clone(),
+                    section_id: None,
                     anchor_id: Some(anchor_id.clone()),
+                    title: None,
+                    card_type: None,
                     front: "Q1".to_string(),
                     back: "A1".to_string(),
                     tags: vec![],
                     confidence: 0.7,
                     dedupe_key: "bulk-1".to_string(),
+                    score_overall: None,
+                    score_details: None,
+                    visibility_bucket: Some("default".to_string()),
+                    generation_mode: Some("llm".to_string()),
+                    fallback_reason: None,
+                    evaluation_summary: None,
+                    source_chunk_ids: None,
                 },
                 CreateCardCandidateRequest {
                     workflow_run_id: Some("run-bulk".to_string()),
                     document_id: document_id.clone(),
+                    section_id: None,
                     anchor_id: Some(anchor_id.clone()),
+                    title: None,
+                    card_type: None,
                     front: "Q2".to_string(),
                     back: "A2".to_string(),
                     tags: vec![],
                     confidence: 0.8,
                     dedupe_key: "bulk-2".to_string(),
+                    score_overall: None,
+                    score_details: None,
+                    visibility_bucket: Some("default".to_string()),
+                    generation_mode: Some("llm".to_string()),
+                    fallback_reason: None,
+                    evaluation_summary: None,
+                    source_chunk_ids: None,
                 },
                 CreateCardCandidateRequest {
                     workflow_run_id: Some("run-bulk".to_string()),
                     document_id: document_id.clone(),
+                    section_id: None,
                     anchor_id: Some(anchor_id.clone()),
+                    title: None,
+                    card_type: None,
                     front: "Q3".to_string(),
                     back: "A3".to_string(),
                     tags: vec![],
                     confidence: 0.9,
                     dedupe_key: "bulk-3".to_string(),
+                    score_overall: None,
+                    score_details: None,
+                    visibility_bucket: Some("default".to_string()),
+                    generation_mode: Some("llm".to_string()),
+                    fallback_reason: None,
+                    evaluation_summary: None,
+                    source_chunk_ids: None,
                 },
             ])
             .expect("insert candidates");

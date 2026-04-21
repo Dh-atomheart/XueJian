@@ -18,6 +18,24 @@ pub struct Document {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSection {
+    pub id: String,
+    pub document_id: String,
+    pub section_index: i32,
+    pub heading: Option<String>,
+    pub hierarchy_path: Vec<String>,
+    pub page_start: Option<i32>,
+    pub page_end: Option<i32>,
+    pub anchor_start_id: Option<String>,
+    pub anchor_end_id: Option<String>,
+    pub content: String,
+    pub token_count: Option<i32>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateDocumentRequest {
     pub title: String,
@@ -54,6 +72,7 @@ pub struct DocumentAnchor {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateDocumentAnchorRequest {
+    pub id: Option<String>,
     pub page: i32,
     pub paragraph: Option<i32>,
     pub text_quote: String,
@@ -68,9 +87,12 @@ pub struct CreateDocumentAnchorRequest {
 pub struct DocumentChunk {
     pub id: String,
     pub document_id: String,
+    pub section_id: Option<String>,
+    pub anchor_id: Option<String>,
     pub page_start: Option<i32>,
     pub page_end: Option<i32>,
     pub chunk_index: i32,
+    pub chunk_kind: String,
     pub content: String,
     pub token_count: Option<i32>,
     pub metadata: Option<serde_json::Value>,
@@ -78,10 +100,29 @@ pub struct DocumentChunk {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct CreateDocumentSectionRequest {
+    pub id: Option<String>,
+    pub section_index: i32,
+    pub heading: Option<String>,
+    pub hierarchy_path: Option<Vec<String>>,
+    pub page_start: Option<i32>,
+    pub page_end: Option<i32>,
+    pub anchor_start_id: Option<String>,
+    pub anchor_end_id: Option<String>,
+    pub content: String,
+    pub token_count: Option<i32>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CreateDocumentChunkRequest {
+    pub id: Option<String>,
+    pub section_id: Option<String>,
+    pub anchor_id: Option<String>,
     pub page_start: Option<i32>,
     pub page_end: Option<i32>,
     pub chunk_index: i32,
+    pub chunk_kind: Option<String>,
     pub content: String,
     pub token_count: Option<i32>,
     pub metadata: Option<serde_json::Value>,
@@ -91,6 +132,7 @@ pub struct CreateDocumentChunkRequest {
 pub struct ReplaceDocumentAnalysisRequest {
     pub page_count: i32,
     pub anchors: Vec<CreateDocumentAnchorRequest>,
+    pub sections: Vec<CreateDocumentSectionRequest>,
     pub chunks: Vec<CreateDocumentChunkRequest>,
 }
 
@@ -98,6 +140,8 @@ pub struct ReplaceDocumentAnalysisRequest {
 pub struct DocumentChunkSearchResult {
     pub id: String,
     pub document_id: String,
+    pub section_id: Option<String>,
+    pub anchor_id: Option<String>,
     pub chunk_index: i32,
     pub page_start: Option<i32>,
     pub page_end: Option<i32>,
@@ -221,7 +265,7 @@ impl<'a> DocumentRepository<'a> {
 
     pub fn list_chunks(&self, document_id: &str) -> Result<Vec<DocumentChunk>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT id, document_id, page_start, page_end, chunk_index, content, token_count, metadata, created_at
+            "SELECT id, document_id, section_id, anchor_id, page_start, page_end, chunk_index, chunk_kind, content, token_count, metadata, created_at
              FROM document_chunks
              WHERE document_id = ?1
              ORDER BY chunk_index ASC",
@@ -229,25 +273,78 @@ impl<'a> DocumentRepository<'a> {
 
         let chunks = stmt.query_map(params![document_id], |row| {
             let metadata = row
-                .get::<_, Option<String>>(7)?
-                .map(|value| serde_json::from_str::<serde_json::Value>(&value))
+                .get::<_, Option<String>>(10)?
+                .map(|value| {
+                    serde_json::from_str::<serde_json::Value>(&value)
+                        .or_else(|_| Ok(serde_json::Value::String(value)))
+                })
                 .transpose()
                 .map_err(json_decode_error)?;
 
             Ok(DocumentChunk {
                 id: row.get(0)?,
                 document_id: row.get(1)?,
-                page_start: row.get(2)?,
-                page_end: row.get(3)?,
-                chunk_index: row.get(4)?,
-                content: row.get(5)?,
-                token_count: row.get(6)?,
+                section_id: row.get(2)?,
+                anchor_id: row.get(3)?,
+                page_start: row.get(4)?,
+                page_end: row.get(5)?,
+                chunk_index: row.get(6)?,
+                chunk_kind: row.get(7)?,
+                content: row.get(8)?,
+                token_count: row.get(9)?,
                 metadata,
-                created_at: row.get(8)?,
+                created_at: row.get(11)?,
             })
         })?;
 
         chunks
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn list_sections(&self, document_id: &str) -> Result<Vec<DocumentSection>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, document_id, section_index, heading, hierarchy_path, page_start, page_end,
+                    anchor_start_id, anchor_end_id, content, token_count, metadata, created_at
+             FROM document_sections
+             WHERE document_id = ?1
+             ORDER BY section_index ASC",
+        )?;
+
+        let sections = stmt.query_map(params![document_id], |row| {
+            let hierarchy_path = row
+                .get::<_, Option<String>>(4)?
+                .map(|value| serde_json::from_str::<Vec<String>>(&value))
+                .transpose()
+                .map_err(json_decode_error)?
+                .unwrap_or_default();
+            let metadata = row
+                .get::<_, Option<String>>(11)?
+                .map(|value| {
+                    serde_json::from_str::<serde_json::Value>(&value)
+                        .or_else(|_| Ok(serde_json::Value::String(value)))
+                })
+                .transpose()
+                .map_err(json_decode_error)?;
+
+            Ok(DocumentSection {
+                id: row.get(0)?,
+                document_id: row.get(1)?,
+                section_index: row.get(2)?,
+                heading: row.get(3)?,
+                hierarchy_path,
+                page_start: row.get(5)?,
+                page_end: row.get(6)?,
+                anchor_start_id: row.get(7)?,
+                anchor_end_id: row.get(8)?,
+                content: row.get(9)?,
+                token_count: row.get(10)?,
+                metadata,
+                created_at: row.get(12)?,
+            })
+        })?;
+
+        sections
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }
@@ -262,6 +359,10 @@ impl<'a> DocumentRepository<'a> {
 
         transaction.execute(
             "DELETE FROM document_anchors WHERE document_id = ?1",
+            params![document_id],
+        )?;
+        transaction.execute(
+            "DELETE FROM document_sections WHERE document_id = ?1",
             params![document_id],
         )?;
         transaction.execute(
@@ -283,7 +384,7 @@ impl<'a> DocumentRepository<'a> {
                     hierarchy_path, quote_hash, created_at
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
-                    Uuid::new_v4().to_string(),
+                    anchor.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
                     document_id,
                     anchor.page,
                     anchor.paragraph,
@@ -292,6 +393,42 @@ impl<'a> DocumentRepository<'a> {
                     anchor.hash,
                     hierarchy_path_json,
                     anchor.quote_hash,
+                    &now,
+                ],
+            )?;
+        }
+
+        for section in req.sections {
+            let hierarchy_path = section
+                .hierarchy_path
+                .as_deref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(json_encode_error)?;
+            let metadata = section
+                .metadata
+                .map(|value| serde_json::to_string(&value))
+                .transpose()
+                .map_err(json_encode_error)?;
+
+            transaction.execute(
+                "INSERT INTO document_sections (
+                    id, document_id, section_index, heading, hierarchy_path, page_start, page_end,
+                    anchor_start_id, anchor_end_id, content, token_count, metadata, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    section.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+                    document_id,
+                    section.section_index,
+                    section.heading,
+                    hierarchy_path,
+                    section.page_start,
+                    section.page_end,
+                    section.anchor_start_id,
+                    section.anchor_end_id,
+                    section.content,
+                    section.token_count,
+                    metadata,
                     &now,
                 ],
             )?;
@@ -306,14 +443,17 @@ impl<'a> DocumentRepository<'a> {
 
             transaction.execute(
                 "INSERT INTO document_chunks (
-                    id, document_id, page_start, page_end, chunk_index, content, token_count, metadata
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    id, document_id, section_id, anchor_id, page_start, page_end, chunk_index, chunk_kind, content, token_count, metadata
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
-                    Uuid::new_v4().to_string(),
+                    chunk.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
                     document_id,
+                    chunk.section_id,
+                    chunk.anchor_id,
                     chunk.page_start,
                     chunk.page_end,
                     chunk.chunk_index,
+                    chunk.chunk_kind.unwrap_or_else(|| "semantic".to_string()),
                     chunk.content,
                     chunk.token_count,
                     metadata,
@@ -323,7 +463,7 @@ impl<'a> DocumentRepository<'a> {
 
         transaction.execute(
             "UPDATE documents
-             SET page_count = ?1, status = 'ready', updated_at = ?2
+             SET page_count = ?1, status = 'parsed', updated_at = ?2
              WHERE id = ?3",
             params![req.page_count, &now, document_id],
         )?;
@@ -368,6 +508,7 @@ impl<'a> DocumentRepository<'a> {
         let limit = limit.unwrap_or(10);
         let mut stmt = self.db.connection().prepare(
             "SELECT c.id, c.document_id, c.chunk_index, c.page_start, c.page_end, c.content,
+                    c.section_id, c.anchor_id,
                     snippet(document_chunks_fts, 0, '[', ']', '...', 12) AS snippet
              FROM document_chunks_fts
              JOIN document_chunks c ON c.rowid = document_chunks_fts.rowid
@@ -384,7 +525,9 @@ impl<'a> DocumentRepository<'a> {
                 page_start: row.get(3)?,
                 page_end: row.get(4)?,
                 content: row.get(5)?,
-                snippet: row.get(6)?,
+                section_id: row.get(6)?,
+                anchor_id: row.get(7)?,
+                snippet: row.get(8)?,
             })
         })?;
 
@@ -410,6 +553,7 @@ impl<'a> DocumentRepository<'a> {
 
         let sql = format!(
             "SELECT c.id, c.document_id, c.chunk_index, c.page_start, c.page_end, c.content,
+                    c.section_id, c.anchor_id,
                     snippet(document_chunks_fts, 0, '[', ']', '...', 12) AS snippet
              FROM document_chunks_fts
              JOIN document_chunks c ON c.rowid = document_chunks_fts.rowid
@@ -438,7 +582,9 @@ impl<'a> DocumentRepository<'a> {
                 page_start: row.get(3)?,
                 page_end: row.get(4)?,
                 content: row.get(5)?,
-                snippet: row.get(6)?,
+                section_id: row.get(6)?,
+                anchor_id: row.get(7)?,
+                snippet: row.get(8)?,
             })
         })?;
 
@@ -486,6 +632,54 @@ mod tests {
             "../migrations/V2__workflow_and_fts_foundation.sql"
         ))
         .expect("apply v2 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V3__card_generation_workflow.sql"
+        ))
+        .expect("apply v3 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V4__points_ledger.sql"
+        ))
+        .expect("apply v4 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V5__card_animations.sql"
+        ))
+        .expect("apply v5 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V6__podcast_episodes.sql"
+        ))
+        .expect("apply v6 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V7__knowledge_graph.sql"
+        ))
+        .expect("apply v7 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V8__points_daily_bonus_rule.sql"
+        ))
+        .expect("apply v8 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V9__api_config_auth_mode.sql"
+        ))
+        .expect("apply v9 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V10__card_schema_extension.sql"
+        ))
+        .expect("apply v10 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V11__anchor_provenance.sql"
+        ))
+        .expect("apply v11 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V12__card_media.sql"
+        ))
+        .expect("apply v12 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V13__agent_document_workflow_foundation.sql"
+        ))
+        .expect("apply v13 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V14__chunk_embedding_state.sql"
+        ))
+        .expect("apply v14 migration");
 
         Database { conn }
     }
@@ -511,6 +705,7 @@ mod tests {
             ReplaceDocumentAnalysisRequest {
                 page_count: 2,
                 anchors: vec![CreateDocumentAnchorRequest {
+                    id: None,
                     page: 1,
                     paragraph: Some(1),
                     text_quote: "Stable anchors matter for study workflows.".to_string(),
@@ -521,11 +716,30 @@ mod tests {
                         height: 0.04,
                     }],
                     hash: "anchor-hash-1".to_string(),
+                    hierarchy_path: None,
+                    quote_hash: None,
+                }],
+                sections: vec![CreateDocumentSectionRequest {
+                    id: None,
+                    section_index: 0,
+                    heading: Some("Introduction".to_string()),
+                    hierarchy_path: Some(vec!["Introduction".to_string()]),
+                    page_start: Some(1),
+                    page_end: Some(2),
+                    anchor_start_id: None,
+                    anchor_end_id: None,
+                    content: "Stable anchors matter for study workflows.".to_string(),
+                    token_count: Some(10),
+                    metadata: None,
                 }],
                 chunks: vec![CreateDocumentChunkRequest {
+                    id: None,
+                    section_id: None,
+                    anchor_id: None,
                     page_start: Some(1),
                     page_end: Some(2),
                     chunk_index: 0,
+                    chunk_kind: Some("child".to_string()),
                     content: "Stable anchors matter for study workflows.".to_string(),
                     token_count: Some(10),
                     metadata: Some(serde_json::json!({
@@ -541,7 +755,11 @@ mod tests {
             .expect("load document")
             .expect("document exists");
         assert_eq!(stored_document.page_count, Some(2));
-        assert_eq!(stored_document.status, "ready");
+        assert_eq!(stored_document.status, "parsed");
+
+        let sections = repo.list_sections(&document.id).expect("list sections");
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].heading.as_deref(), Some("Introduction"));
 
         let anchors = repo.list_anchors(&document.id).expect("list anchors");
         assert_eq!(anchors.len(), 1);
@@ -551,6 +769,7 @@ mod tests {
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].chunk_index, 0);
         assert_eq!(chunks[0].page_end, Some(2));
+        assert_eq!(chunks[0].chunk_kind, "child");
     }
 
     #[test]

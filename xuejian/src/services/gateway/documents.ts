@@ -1,6 +1,11 @@
 import { z } from 'zod'
-import { documentAnchorSchema, documentChunkSchema, documentSchema } from '@/types'
-import type { Document, DocumentAnchor, DocumentChunk } from '@/types'
+import {
+  documentAnchorSchema,
+  documentChunkSchema,
+  documentSchema,
+  documentSectionSchema,
+} from '@/types'
+import type { Document, DocumentAnchor, DocumentChunk, DocumentSection } from '@/types'
 import { invoke, invokeWithSchema } from './index'
 
 export interface CreateDocumentInput {
@@ -13,6 +18,7 @@ export interface CreateDocumentInput {
 }
 
 export interface PersistedDocumentAnchorInput {
+  id?: string | null
   page: number
   paragraph: number | null
   textQuote: string
@@ -23,12 +29,32 @@ export interface PersistedDocumentAnchorInput {
     height: number
   }>
   hash: string
+  hierarchyPath?: string[] | null
+  quoteHash?: string | null
+}
+
+export interface PersistedDocumentSectionInput {
+  id?: string | null
+  sectionIndex: number
+  heading?: string | null
+  hierarchyPath?: string[] | null
+  pageStart?: number | null
+  pageEnd?: number | null
+  anchorStartId?: string | null
+  anchorEndId?: string | null
+  content: string
+  tokenCount?: number | null
+  metadata?: Record<string, unknown> | null
 }
 
 export interface PersistedDocumentChunkInput {
+  id?: string | null
+  sectionId?: string | null
+  anchorId?: string | null
   pageStart: number | null
   pageEnd: number | null
   chunkIndex: number
+  chunkKind?: 'parent' | 'child' | 'semantic' | null
   content: string
   tokenCount: number | null
   metadata: Record<string, unknown> | null
@@ -37,6 +63,7 @@ export interface PersistedDocumentChunkInput {
 export interface SaveDocumentAnalysisInput {
   pageCount: number
   anchors: PersistedDocumentAnchorInput[]
+  sections?: PersistedDocumentSectionInput[]
   chunks: PersistedDocumentChunkInput[]
 }
 
@@ -68,6 +95,14 @@ export const documentGateway = {
     return invokeWithSchema('import_document_from_path', documentSchema, { filePath })
   },
 
+  async runParseWorkflow(documentId: string): Promise<Document> {
+    return invokeWithSchema('run_document_parse_workflow', documentSchema, { documentId })
+  },
+
+  async runEmbeddingWorkflow(documentId: string): Promise<Document> {
+    return invokeWithSchema('run_document_embedding_workflow', documentSchema, { documentId })
+  },
+
   async updateStatus(id: string, status: Document['status']): Promise<void> {
     return invoke<void>('update_document_status', { id, status })
   },
@@ -84,6 +119,12 @@ export const documentGateway = {
 
   async getChunks(documentId: string): Promise<DocumentChunk[]> {
     return invokeWithSchema('list_document_chunks', z.array(documentChunkSchema), {
+      documentId,
+    })
+  },
+
+  async getSections(documentId: string): Promise<DocumentSection[]> {
+    return invokeWithSchema('list_document_sections', z.array(documentSectionSchema), {
       documentId,
     })
   },

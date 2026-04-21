@@ -2,6 +2,7 @@ use std::{
     fs::File,
     io::Read,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,8 @@ use crate::{
     commands::{AppState, CommandError, CommandResult},
     db::{
         CreateDocumentAnchorRequest, CreateDocumentChunkRequest, CreateDocumentRequest, Document,
-        DocumentAnchor, DocumentChunk, DocumentRepository, ReplaceDocumentAnalysisRequest,
+        DocumentAnchor, DocumentChunk, DocumentRepository, DocumentSection,
+        ReplaceDocumentAnalysisRequest, CreateDocumentSectionRequest,
     },
 };
 
@@ -93,6 +95,44 @@ pub struct DocumentAnchorDto {
     pub created_at: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSectionDto {
+    pub id: String,
+    pub document_id: String,
+    pub section_index: i32,
+    pub heading: Option<String>,
+    pub hierarchy_path: Vec<String>,
+    pub page_start: Option<i32>,
+    pub page_end: Option<i32>,
+    pub anchor_start_id: Option<String>,
+    pub anchor_end_id: Option<String>,
+    pub content: String,
+    pub token_count: Option<i32>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: String,
+}
+
+impl From<DocumentSection> for DocumentSectionDto {
+    fn from(section: DocumentSection) -> Self {
+        Self {
+            id: section.id,
+            document_id: section.document_id,
+            section_index: section.section_index,
+            heading: section.heading,
+            hierarchy_path: section.hierarchy_path,
+            page_start: section.page_start,
+            page_end: section.page_end,
+            anchor_start_id: section.anchor_start_id,
+            anchor_end_id: section.anchor_end_id,
+            content: section.content,
+            token_count: section.token_count,
+            metadata: section.metadata,
+            created_at: section.created_at,
+        }
+    }
+}
+
 impl From<DocumentAnchor> for DocumentAnchorDto {
     fn from(anchor: DocumentAnchor) -> Self {
         Self {
@@ -113,9 +153,12 @@ impl From<DocumentAnchor> for DocumentAnchorDto {
 pub struct DocumentChunkDto {
     pub id: String,
     pub document_id: String,
+    pub section_id: Option<String>,
+    pub anchor_id: Option<String>,
     pub page_start: Option<i32>,
     pub page_end: Option<i32>,
     pub chunk_index: i32,
+    pub chunk_kind: String,
     pub content: String,
     pub token_count: Option<i32>,
     pub metadata: Option<serde_json::Value>,
@@ -127,9 +170,12 @@ impl From<DocumentChunk> for DocumentChunkDto {
         Self {
             id: chunk.id,
             document_id: chunk.document_id,
+            section_id: chunk.section_id,
+            anchor_id: chunk.anchor_id,
             page_start: chunk.page_start,
             page_end: chunk.page_end,
             chunk_index: chunk.chunk_index,
+            chunk_kind: chunk.chunk_kind,
             content: chunk.content,
             token_count: chunk.token_count,
             metadata: chunk.metadata,
@@ -152,19 +198,42 @@ pub struct CreateDocumentDto {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveDocumentAnchorDto {
+    pub id: Option<String>,
     pub page: i32,
     pub paragraph: Option<i32>,
     pub text_quote: String,
     pub rects: Vec<DocumentAnchorRectDto>,
     pub hash: String,
+    pub hierarchy_path: Option<Vec<String>>,
+    pub quote_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveDocumentSectionDto {
+    pub id: Option<String>,
+    pub section_index: i32,
+    pub heading: Option<String>,
+    pub hierarchy_path: Option<Vec<String>>,
+    pub page_start: Option<i32>,
+    pub page_end: Option<i32>,
+    pub anchor_start_id: Option<String>,
+    pub anchor_end_id: Option<String>,
+    pub content: String,
+    pub token_count: Option<i32>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveDocumentChunkDto {
+    pub id: Option<String>,
+    pub section_id: Option<String>,
+    pub anchor_id: Option<String>,
     pub page_start: Option<i32>,
     pub page_end: Option<i32>,
     pub chunk_index: i32,
+    pub chunk_kind: Option<String>,
     pub content: String,
     pub token_count: Option<i32>,
     pub metadata: Option<serde_json::Value>,
@@ -174,7 +243,11 @@ pub struct SaveDocumentChunkDto {
 #[serde(rename_all = "camelCase")]
 pub struct SaveDocumentAnalysisDto {
     pub page_count: i32,
+    #[serde(default)]
     pub anchors: Vec<SaveDocumentAnchorDto>,
+    #[serde(default)]
+    pub sections: Vec<SaveDocumentSectionDto>,
+    #[serde(default)]
     pub chunks: Vec<SaveDocumentChunkDto>,
 }
 
@@ -274,6 +347,26 @@ pub fn import_document_from_path(
 }
 
 #[tauri::command]
+pub async fn run_document_parse_workflow(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    document_id: String,
+) -> CommandResult<DocumentDto> {
+    run_document_orchestration_workflow(&app, &state, &document_id, "/workflows/document-parse")
+        .await
+}
+
+#[tauri::command]
+pub async fn run_document_embedding_workflow(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    document_id: String,
+) -> CommandResult<DocumentDto> {
+    run_document_orchestration_workflow(&app, &state, &document_id, "/workflows/document-embedding")
+        .await
+}
+
+#[tauri::command]
 pub fn update_document_status(
     state: State<'_, AppState>,
     id: String,
@@ -300,22 +393,44 @@ pub fn save_document_analysis(
             .anchors
             .into_iter()
             .map(|anchor| CreateDocumentAnchorRequest {
+                id: anchor.id,
                 page: anchor.page,
                 paragraph: anchor.paragraph,
                 text_quote: anchor.text_quote,
                 rects: anchor.rects.into_iter().map(Into::into).collect(),
                 hash: anchor.hash,
-                hierarchy_path: None,
-                quote_hash: None,
+                hierarchy_path: anchor.hierarchy_path,
+                quote_hash: anchor.quote_hash,
+            })
+            .collect(),
+        sections: data
+            .sections
+            .into_iter()
+            .map(|section| CreateDocumentSectionRequest {
+                id: section.id,
+                section_index: section.section_index,
+                heading: section.heading,
+                hierarchy_path: section.hierarchy_path,
+                page_start: section.page_start,
+                page_end: section.page_end,
+                anchor_start_id: section.anchor_start_id,
+                anchor_end_id: section.anchor_end_id,
+                content: section.content,
+                token_count: section.token_count,
+                metadata: section.metadata,
             })
             .collect(),
         chunks: data
             .chunks
             .into_iter()
             .map(|chunk| CreateDocumentChunkRequest {
+                id: chunk.id,
+                section_id: chunk.section_id,
+                anchor_id: chunk.anchor_id,
                 page_start: chunk.page_start,
                 page_end: chunk.page_end,
                 chunk_index: chunk.chunk_index,
+                chunk_kind: chunk.chunk_kind,
                 content: chunk.content,
                 token_count: chunk.token_count,
                 metadata: chunk.metadata,
@@ -338,6 +453,17 @@ pub fn list_document_anchors(
     let repo = DocumentRepository::new(&db);
     let anchors = repo.list_anchors(&document_id)?;
     Ok(anchors.into_iter().map(Into::into).collect())
+}
+
+#[tauri::command]
+pub fn list_document_sections(
+    state: State<'_, AppState>,
+    document_id: String,
+) -> CommandResult<Vec<DocumentSectionDto>> {
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
+    let sections = repo.list_sections(&document_id)?;
+    Ok(sections.into_iter().map(Into::into).collect())
 }
 
 #[tauri::command]
@@ -466,6 +592,75 @@ fn validate_document_source(source_path: &Path) -> CommandResult<()> {
     }
 
     Ok(())
+}
+
+async fn run_document_orchestration_workflow(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    document_id: &str,
+    workflow_path: &str,
+) -> CommandResult<DocumentDto> {
+    {
+        let db = state.lock_db()?;
+        let repo = DocumentRepository::new(&db);
+        repo.find_by_id(document_id)?.ok_or(CommandError::NotFound)?;
+    }
+
+    let health = state.orchestration.health().await.map_err(|error| {
+        CommandError::Internal(format!("Orchestration health check failed: {error}"))
+    })?;
+
+    let endpoint = health.endpoint.ok_or(CommandError::Internal(
+        "Orchestration service not available".to_string(),
+    ))?;
+
+    if health.status != "healthy" && health.status != "degraded" {
+        return Err(CommandError::Internal(format!(
+            "Orchestration service status: {}",
+            health.status
+        )));
+    }
+
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|error| CommandError::Internal(error.to_string()))?;
+
+    let response = client
+        .post(format!("{endpoint}{workflow_path}"))
+        .json(&serde_json::json!({
+            "documentId": document_id,
+        }))
+        .send()
+        .await
+        .map_err(|error| CommandError::Internal(format!("Orchestration request failed: {error}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(CommandError::Internal(format!(
+            "Orchestration returned {status}: {body}"
+        )));
+    }
+
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| CommandError::Internal(error.to_string()))?;
+    if payload["status"].as_str() == Some("failed") {
+        let message = payload["error"]
+            .as_str()
+            .unwrap_or("Unknown orchestration failure")
+            .to_string();
+        return Err(CommandError::Internal(message));
+    }
+
+    let db = state.lock_db()?;
+    let repo = DocumentRepository::new(&db);
+    let document = repo.find_by_id(document_id)?.ok_or(CommandError::NotFound)?;
+    let _ = app;
+    Ok(document.into())
 }
 
 fn prepare_document_target_path(

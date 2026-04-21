@@ -17,19 +17,32 @@ logger = logging.getLogger(__name__)
 
 CARD_GENERATION_SYSTEM_PROMPT = """\
 You are a flashcard generation assistant for a spaced-repetition learning app.
-Given a text passage from a document, generate flashcard candidates.
+Given a text passage from a document, generate flashcard candidates of varying types.
+
+Card types:
+- "qa": Question & answer. Front is a question, back is the answer.
+- "cloze": Fill-in-the-blank. Front contains {{c1::hidden text}} syntax. Back is the full sentence.
+- "fact": A key fact. Front is a topic/heading, back is the fact content.
+- "choice": Multiple choice. Front is the question. Back is a JSON object: {"options": ["A", "B", "C", "D"], "answer": "A"}.
 
 Rules:
 - Each card must have a concise "front" (question or prompt) and a substantive "back" (answer).
-- Front should be 8-120 characters. Back should be 12-300 characters.
-- Generate 1-3 cards per passage, depending on content density.
+- Front should be 8-120 characters. Back should be 12-500 characters.
+- Generate 1-4 cards per passage, depending on content density.
+- Use a mix of card types appropriate for the content:
+  * Definitions → "qa" or "cloze"
+  * Key facts → "fact"
+  * Lists of options / comparisons → "choice"
+  * Fill-in-the-blank for important terms → "cloze"
 - Assign a confidence score between 0.0 and 1.0.
 - Tag each card with relevant topic tags.
-- Output valid JSON only: an array of objects with keys "front", "back", "confidence", "tags".
+- Output valid JSON only: an array of objects with keys "front", "back", "cardType", "confidence", "tags".
 """
 
 CARD_GENERATION_USER_TEMPLATE = """\
 Document: {title}
+Section: {section_heading}
+Hierarchy: {hierarchy_path}
 Page range: {page_range}
 Source quote: {quote}
 
@@ -56,6 +69,23 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
+
+
+def _get_chunk_section(chunk: dict, section_by_id: dict[str, dict]) -> dict | None:
+    section_id = chunk.get("sectionId")
+    if not section_id:
+        return None
+    return section_by_id.get(section_id)
+
+
+def _candidate_base_payload(chunk: dict, *, generation_mode: str, fallback_reason: str | None = None) -> dict:
+    return {
+        "sectionId": chunk.get("sectionId"),
+        "visibilityBucket": "default",
+        "generationMode": generation_mode,
+        "fallbackReason": fallback_reason,
+        "sourceChunkIds": [chunk["id"]] if chunk.get("id") else None,
+    }
 
 
 def _extract_flashcard(text: str, anchor: dict) -> tuple[str, str, float]:
@@ -89,6 +119,7 @@ def _extract_flashcard(text: str, anchor: dict) -> tuple[str, str, float]:
 def _try_langchain_generation(
     config: dict, api_key: str, chunks: list[dict], anchors: list[dict],
     document: dict, run_id: str, max_candidates: int, host: HostGatewayClient,
+    section_by_id: dict[str, dict],
 ) -> int:
     """Attempt LangChain-based generation. Returns number of candidates persisted."""
     try:
@@ -109,8 +140,20 @@ def _try_langchain_generation(
         _check_cancelled(host, run_id)
 
         anchor = None
+        section = _get_chunk_section(chunk, section_by_id)
         metadata = chunk.get("metadata") or {}
         anchor_hashes = metadata.get("anchorHashes", []) if isinstance(metadata, dict) else []
+        anchor_ids = metadata.get("anchorIds", []) if isinstance(metadata, dict) else []
+
+        if chunk.get("anchorId"):
+            anchor = next((item for item in anchors if item.get("id") == chunk.get("anchorId")), None)
+
+        if anchor is None:
+            for anchor_id in anchor_ids:
+                anchor = next((item for item in anchors if item.get("id") == anchor_id), None)
+                if anchor:
+                    break
+
         for h in anchor_hashes:
             if h in anchor_by_hash:
                 anchor = anchor_by_hash[h]
@@ -118,9 +161,13 @@ def _try_langchain_generation(
 
         quote = anchor.get("textQuote", chunk.get("content", ""))[:500] if anchor else chunk.get("content", "")[:500]
         page_range = f"{chunk.get('pageStart', '?')}-{chunk.get('pageEnd', '?')}"
+        section_heading = (section or {}).get("heading") or "Untitled section"
+        hierarchy_path = " > ".join((section or {}).get("hierarchyPath") or []) or "(root)"
 
         prompt = CARD_GENERATION_USER_TEMPLATE.format(
             title=document.get("title", "Untitled"),
+            section_heading=section_heading,
+            hierarchy_path=hierarchy_path,
             page_range=page_range,
             quote=quote,
         )
@@ -140,13 +187,13 @@ def _try_langchain_generation(
             logger.error("LLM invocation failed for chunk %s: %s", chunk.get("chunkIndex"), exc)
             continue
 
-        batch = CardDraftBatch.from_llm_json(
-            items, anchor.get("id") if anchor else None, document["id"]
-        )
-        candidates = [
-            d.to_persist_payload(run_id, document["id"])
-            for d in batch.drafts[:max_candidates - total_persisted]
-        ]
+        batch = CardDraftBatch.from_llm_json(items, anchor.get("id") if anchor else None, document["id"])
+        candidates = []
+        for draft in batch.drafts[:max_candidates - total_persisted]:
+            candidate = draft.to_persist_payload(run_id, document["id"])
+            candidate.update(_candidate_base_payload(chunk, generation_mode="llm"))
+            candidate["evaluationSummary"] = f"LLM candidate from {section_heading}"
+            candidates.append(candidate)
 
         if candidates:
             result = host.persist_candidates(run_id, document["id"], candidates)
@@ -164,6 +211,7 @@ def _try_langchain_generation(
 def _rule_based_generation(
     chunks: list[dict], anchors: list[dict], document: dict,
     run_id: str, max_candidates: int, host: HostGatewayClient,
+    section_by_id: dict[str, dict],
 ) -> int:
     """Fallback: rule-based candidate generation (mirrors Rust local rules)."""
     anchor_by_hash = {a.get("hash", ""): a for a in anchors if a.get("hash")}
@@ -177,8 +225,14 @@ def _rule_based_generation(
 
         metadata = chunk.get("metadata") or {}
         anchor_hashes = metadata.get("anchorHashes", []) if isinstance(metadata, dict) else []
+        section = _get_chunk_section(chunk, section_by_id)
 
         chunk_anchors = [anchor_by_hash[h] for h in anchor_hashes if h in anchor_by_hash]
+        if not chunk_anchors and chunk.get("anchorId"):
+            anchor = next((item for item in anchors if item.get("id") == chunk.get("anchorId")), None)
+            if anchor:
+                chunk_anchors.append(anchor)
+
         if not chunk_anchors:
             page_start = chunk.get("pageStart")
             page_end = chunk.get("pageEnd")
@@ -205,12 +259,19 @@ def _rule_based_generation(
             if anchor.get("paragraph"):
                 tags.append(f"paragraph-{anchor['paragraph']}")
             candidates.append({
+                **_candidate_base_payload(
+                    chunk,
+                    generation_mode="fallback_rule",
+                    fallback_reason="rule_based_anchor_generation",
+                ),
+                "sectionId": chunk.get("sectionId"),
                 "anchorId": anchor.get("id"),
                 "front": front,
                 "back": back,
                 "confidence": round(confidence, 3),
                 "tags": tags,
                 "dedupeKey": dedupe_key,
+                "evaluationSummary": f"Rule-based candidate from {(section or {}).get('heading') or 'untitled section'}",
             })
 
         if candidates:
@@ -230,8 +291,13 @@ def run_card_generation_workflow(
 
     chunks = host.list_chunks(document_id)
     anchors = host.list_anchors(document_id)
+    sections = host.list_sections(document_id)
     if not chunks:
         return {"status": "failed", "error": "Document has no parsed chunks"}
+
+    section_by_id = {section["id"]: section for section in sections if section.get("id")}
+    child_chunks = [chunk for chunk in chunks if chunk.get("chunkKind") == "child"]
+    generation_chunks = child_chunks or chunks
 
     # Try to resume from checkpoint
     checkpoint = host.load_checkpoint(run_id)
@@ -243,7 +309,7 @@ def run_card_generation_workflow(
             logger.info("Resuming from checkpoint: chunk_cursor=%d", start_chunk)
 
     if start_chunk > 0 and start_chunk < len(chunks):
-        chunks = chunks[start_chunk:]
+        generation_chunks = generation_chunks[start_chunk:]
         logger.info("Skipping %d already-processed chunks", start_chunk)
 
     try:
@@ -258,7 +324,15 @@ def run_card_generation_workflow(
             )
             try:
                 ai_count = _try_langchain_generation(
-                    config, api_key, chunks, anchors, document, run_id, max_candidates, host,
+                    config,
+                    api_key,
+                    generation_chunks,
+                    anchors,
+                    document,
+                    run_id,
+                    max_candidates,
+                    host,
+                    section_by_id,
                 )
             except WorkflowCancelled:
                 raise
@@ -267,10 +341,18 @@ def run_card_generation_workflow(
 
         if ai_count == 0:
             logger.info("Using rule-based generation (AI unavailable or produced 0 candidates)")
-            ai_count = _rule_based_generation(chunks, anchors, document, run_id, max_candidates, host)
+            ai_count = _rule_based_generation(
+                generation_chunks,
+                anchors,
+                document,
+                run_id,
+                max_candidates,
+                host,
+                section_by_id,
+            )
 
         # Save final checkpoint
-        _save_progress_checkpoint(host, run_id, document_id, len(chunks), ai_count)
+        _save_progress_checkpoint(host, run_id, document_id, len(generation_chunks), ai_count)
 
     except WorkflowCancelled:
         logger.info("Workflow %s cancelled by user", run_id)

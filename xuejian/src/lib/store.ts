@@ -4,12 +4,15 @@ import { persist } from 'zustand/middleware'
 export interface Document {
   id: string
   name: string
-  type: 'pdf' | 'epub' | 'markdown'
+  type: 'pdf' | 'epub' | 'markdown' | 'txt'
   pageCount: number
-  uploadDate: Date
+  uploadDate?: Date
+  uploadedAt?: string
   lastOpened?: Date
-  progress: number
-  tags: string[]
+  progress?: number
+  tags?: string[]
+  size?: string
+  cardsGenerated?: number
 }
 
 export interface Flashcard {
@@ -32,6 +35,7 @@ export interface CardGroup {
   name: string
   documentId: string
   cardCount: number
+  color?: 'yellow' | 'blue' | 'green'
 }
 
 export interface KnowledgeCluster {
@@ -47,6 +51,17 @@ export interface StudyRecord {
   cardsReviewed: number
   correctCount: number
   studyMinutes: number
+  cardsStudied?: number
+  duration?: number
+}
+
+type LocalAiProvider = 'openai' | 'anthropic' | 'google' | 'openai_compatible'
+
+export interface LocalAiConfig {
+  provider: LocalAiProvider
+  model: string
+  apiKey?: string
+  baseUrl?: string
 }
 
 interface AppState {
@@ -55,7 +70,7 @@ interface AppState {
   groups: CardGroup[]
   clusters: KnowledgeCluster[]
   studyRecords: StudyRecord[]
-  aiConfig: { provider: string; model: string } | null
+  aiConfig: LocalAiConfig | null
   isLoading: boolean
   currentStudySession: {
     cards: Flashcard[]
@@ -65,12 +80,8 @@ interface AppState {
   } | null
   setDocuments: (docs: Document[]) => void
   setFlashcards: (cards: Flashcard[]) => void
-  setAiConfig: (
-    config: { provider: string; model: string; apiKey?: string; baseUrl?: string } | null
-  ) => void
-  setAIConfig: (
-    config: { provider: string; model: string; apiKey?: string; baseUrl?: string } | null
-  ) => void
+  setAiConfig: (config: LocalAiConfig | null) => void
+  setAIConfig: (config: LocalAiConfig | null) => void
   startStudySession: () => void
   flipCard: () => void
   rateCard: (cardId: string, rating: string) => void

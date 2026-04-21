@@ -1,5 +1,6 @@
 use std::{collections::HashMap, time::Duration};
 
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, State};
@@ -13,7 +14,7 @@ use crate::{
         CardRepository, CreateCardCandidateRequest, CreateCardRequest, CreateHighlightRequest,
         CreateReviewLogRequest, CreateWorkflowRunRequest, Document, DocumentAnchor,
         DocumentAnchorRect, DocumentChunk, DocumentRepository, Highlight, HighlightFilters,
-        ReviewLog, UpdateCardCandidateRequest, UpdateHighlightRequest, UpdateWorkflowRunRequest,
+        ReviewLog, UpdateCardCandidateRequest, UpdateCardRequest, UpdateHighlightRequest, UpdateWorkflowRunRequest,
         UpsertWorkflowCheckpointRequest, WorkflowRepository, WorkflowRun,
     },
 };
@@ -88,6 +89,8 @@ pub struct HighlightDto {
     pub rectangles: Vec<DocumentAnchorRect>,
     pub text_content: String,
     pub color: String,
+    pub note: Option<String>,
+    pub page_card_index: Option<i32>,
     pub created_at: String,
 }
 
@@ -102,6 +105,8 @@ impl From<Highlight> for HighlightDto {
             rectangles: highlight.rectangles,
             text_content: highlight.text_content,
             color: highlight.color,
+            note: highlight.note,
+            page_card_index: highlight.page_card_index,
             created_at: highlight.created_at,
         }
     }
@@ -113,7 +118,10 @@ pub struct CardCandidateDto {
     pub id: String,
     pub workflow_run_id: Option<String>,
     pub document_id: String,
+    pub section_id: Option<String>,
     pub anchor_id: Option<String>,
+    pub title: Option<String>,
+    pub card_type: String,
     pub source_page: Option<i32>,
     pub source_paragraph: Option<i32>,
     pub source_quote: Option<String>,
@@ -123,6 +131,13 @@ pub struct CardCandidateDto {
     pub confidence: f64,
     pub dedupe_key: String,
     pub status: String,
+    pub score_overall: Option<f64>,
+    pub score_details: Option<serde_json::Value>,
+    pub visibility_bucket: Option<String>,
+    pub generation_mode: String,
+    pub fallback_reason: Option<String>,
+    pub evaluation_summary: Option<String>,
+    pub source_chunk_ids: Option<Vec<String>>,
     pub created_at: String,
 }
 
@@ -132,7 +147,10 @@ impl From<CardCandidate> for CardCandidateDto {
             id: candidate.id,
             workflow_run_id: candidate.workflow_run_id,
             document_id: candidate.document_id,
+            section_id: candidate.section_id,
             anchor_id: candidate.anchor_id,
+            title: candidate.title,
+            card_type: candidate.card_type,
             source_page: candidate.source_page,
             source_paragraph: candidate.source_paragraph,
             source_quote: candidate.source_quote,
@@ -142,6 +160,13 @@ impl From<CardCandidate> for CardCandidateDto {
             confidence: candidate.confidence,
             dedupe_key: candidate.dedupe_key,
             status: candidate.status,
+            score_overall: candidate.score_overall,
+            score_details: candidate.score_details,
+            visibility_bucket: candidate.visibility_bucket,
+            generation_mode: candidate.generation_mode,
+            fallback_reason: candidate.fallback_reason,
+            evaluation_summary: candidate.evaluation_summary,
+            source_chunk_ids: candidate.source_chunk_ids,
             created_at: candidate.created_at,
         }
     }
@@ -172,6 +197,15 @@ pub struct CreateCardDto {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateCardDto {
+    pub front: String,
+    pub back: String,
+    pub card_type: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateReviewDto {
     pub difficulty: f64,
     pub stability: f64,
@@ -190,11 +224,19 @@ pub struct StartCardGenerationDto {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCardCandidateDto {
+    pub card_type: Option<String>,
     pub front: Option<String>,
     pub back: Option<String>,
     pub tags: Option<Vec<String>>,
     pub confidence: Option<f64>,
     pub status: Option<String>,
+    pub score_overall: Option<Option<f64>>,
+    pub score_details: Option<Option<serde_json::Value>>,
+    pub visibility_bucket: Option<Option<String>>,
+    pub generation_mode: Option<String>,
+    pub fallback_reason: Option<Option<String>>,
+    pub evaluation_summary: Option<Option<String>>,
+    pub source_chunk_ids: Option<Option<Vec<String>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -233,6 +275,8 @@ pub struct CreateHighlightDto {
     pub rectangles: Vec<DocumentAnchorRect>,
     pub text_content: String,
     pub color: Option<String>,
+    pub note: Option<String>,
+    pub page_card_index: Option<i32>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -243,6 +287,36 @@ pub struct UpdateHighlightDto {
     pub rectangles: Option<Vec<DocumentAnchorRect>>,
     pub text_content: Option<String>,
     pub color: Option<String>,
+    pub note: Option<Option<String>>,
+    pub page_card_index: Option<Option<i32>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchCreateHighlightsForCardsDto {
+    pub run_id: String,
+    pub document_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchCreateHighlightsForCardsResultDto {
+    pub created: usize,
+    pub skipped: usize,
+    pub unlinked: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportAnnotatedPdfDto {
+    pub document_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportAnnotatedPdfResultDto {
+    pub output_path: String,
+    pub highlight_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -322,6 +396,45 @@ pub fn create_card(state: State<'_, AppState>, data: CreateCardDto) -> CommandRe
 }
 
 #[tauri::command]
+pub fn update_card(
+    state: State<'_, AppState>,
+    id: String,
+    data: UpdateCardDto,
+) -> CommandResult<CardDto> {
+    let front = data.front.trim();
+    let back = data.back.trim();
+
+    if front.is_empty() || back.is_empty() {
+        return Err(CommandError::InvalidInput(
+            "Card front and back must not be empty".to_string(),
+        ));
+    }
+
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let updated = repo
+        .update_card(
+            &id,
+            UpdateCardRequest {
+                front: front.to_string(),
+                back: back.to_string(),
+                card_type: data.card_type,
+                tags: data.tags,
+            },
+        )?
+        .ok_or(CommandError::NotFound)?;
+
+    Ok(updated.into())
+}
+
+#[tauri::command]
+pub fn delete_card(state: State<'_, AppState>, id: String) -> CommandResult<()> {
+    let db = state.lock_db()?;
+    CardRepository::new(&db).delete_card(&id)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn list_highlights(
     state: State<'_, AppState>,
     filters: Option<ListHighlightsFiltersDto>,
@@ -355,6 +468,11 @@ pub fn create_highlight(
         rectangles: data.rectangles,
         text_content: data.text_content.trim().to_string(),
         color: sanitize_highlight_color(data.color.as_deref()),
+        note: data
+            .note
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        page_card_index: data.page_card_index,
     })?;
 
     Ok(highlight.into())
@@ -386,11 +504,33 @@ pub fn update_highlight(
                 rectangles,
                 text_content,
                 color: sanitize_highlight_color(data.color.as_deref().or(Some(&current.color))),
+                note: data
+                    .note
+                    .unwrap_or(current.note.clone())
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty()),
+                page_card_index: data.page_card_index.unwrap_or(current.page_card_index),
             },
         )?
         .ok_or(CommandError::NotFound)?;
 
     Ok(updated.into())
+}
+
+#[tauri::command]
+pub fn batch_create_highlights_for_cards(
+    state: State<'_, AppState>,
+    data: BatchCreateHighlightsForCardsDto,
+) -> CommandResult<BatchCreateHighlightsForCardsResultDto> {
+    let db = state.lock_db()?;
+    let result = CardRepository::new(&db)
+        .create_missing_highlights_for_run(&data.run_id, &data.document_id)?;
+
+    Ok(BatchCreateHighlightsForCardsResultDto {
+        created: result.created,
+        skipped: result.skipped,
+        unlinked: result.unlinked,
+    })
 }
 
 #[tauri::command]
@@ -552,17 +692,34 @@ pub fn update_card_candidate(
     let db = state.lock_db()?;
     let repo = CardRepository::new(&db);
     let current = repo.get_candidate(&id)?.ok_or(CommandError::NotFound)?;
+    let card_type = data.card_type.unwrap_or(current.card_type.clone());
     let front = data.front.unwrap_or(current.front.clone());
     let back = data.back.unwrap_or(current.back.clone());
     let tags = data.tags.unwrap_or(current.tags.clone());
     let confidence = data.confidence.unwrap_or(current.confidence);
     let status = data.status.unwrap_or(current.status.clone());
+    let score_overall = data.score_overall.unwrap_or(current.score_overall);
+    let score_details = data.score_details.unwrap_or(current.score_details.clone());
+    let visibility_bucket = data.visibility_bucket.unwrap_or(current.visibility_bucket.clone());
+    let generation_mode = data
+        .generation_mode
+        .unwrap_or_else(|| current.generation_mode.clone());
+    let fallback_reason = data
+        .fallback_reason
+        .unwrap_or(current.fallback_reason.clone());
+    let evaluation_summary = data
+        .evaluation_summary
+        .unwrap_or(current.evaluation_summary.clone());
+    let source_chunk_ids = data
+        .source_chunk_ids
+        .unwrap_or(current.source_chunk_ids.clone());
     validate_candidate_status(&status)?;
 
     let updated = repo
         .update_candidate(
             &id,
             UpdateCardCandidateRequest {
+                card_type,
                 front: front.clone(),
                 back: back.clone(),
                 tags,
@@ -574,6 +731,13 @@ pub fn update_card_candidate(
                     &back,
                 ),
                 status,
+                score_overall,
+                score_details,
+                visibility_bucket,
+                generation_mode,
+                fallback_reason,
+                evaluation_summary,
+                source_chunk_ids,
             },
         )?
         .ok_or(CommandError::NotFound)?;
@@ -756,6 +920,7 @@ pub fn finalize_card_generation_workflow(
 
     let mut payload = load_card_generation_payload(&workflow_repo, &run)?;
     let result = card_repo.finalize_candidates_for_run(&run_id)?;
+    let highlight_result = card_repo.create_missing_highlights_for_run(&run_id, &payload.document_id)?;
     let counts = card_repo.count_candidates_for_run(&run_id)?;
     payload.pending_count = counts.pending as usize;
     payload.phase = "completed".to_string();
@@ -784,8 +949,8 @@ pub fn finalize_card_generation_workflow(
         run_id,
         event_type: "completed".to_string(),
         message: Some(format!(
-            "Created {} cards and skipped {} duplicates",
-            result.created_count, result.skipped_duplicates
+            "Created {} cards, skipped {} duplicates, linked {} highlights",
+            result.created_count, result.skipped_duplicates, highlight_result.created
         )),
         progress: Some(1.0),
         payload: Some(build_run_summary(&payload, &counts)),
@@ -1323,6 +1488,7 @@ fn build_candidates_for_chunk(
                 CreateCardCandidateRequest {
                     workflow_run_id: Some(run_id.to_string()),
                     document_id: document.id.clone(),
+                    section_id: chunk.section_id.clone(),
                     anchor_id: Some(anchor.id.clone()),
                     title: None,
                     card_type: None,
@@ -1336,6 +1502,13 @@ fn build_candidates_for_chunk(
                         &front,
                         &back,
                     ),
+                    score_overall: None,
+                    score_details: None,
+                    visibility_bucket: Some("default".to_string()),
+                    generation_mode: Some("fallback_rule".to_string()),
+                    fallback_reason: Some("rule_based_anchor_generation".to_string()),
+                    evaluation_summary: Some("Legacy fallback generation from anchor extraction".to_string()),
+                    source_chunk_ids: Some(vec![chunk.id.clone()]),
                 }
             })
         })
@@ -1595,6 +1768,438 @@ pub async fn pick_and_export_csv(
         output_path,
         document_id: data.document_id,
     })?;
+
+    Ok(Some(result))
+}
+
+#[tauri::command]
+pub async fn export_annotated_pdf(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    data: ExportAnnotatedPdfDto,
+) -> CommandResult<Option<ExportAnnotatedPdfResultDto>> {
+    let Some(file_path) = app
+        .dialog()
+        .file()
+        .add_filter("PDF", &["pdf"])
+        .set_title("导出带注释的 PDF")
+        .set_file_name("xuejian-annotated.pdf")
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+
+    let output_path = file_path
+        .into_path()
+        .map_err(|e| CommandError::InvalidInput(e.to_string()))?
+        .to_string_lossy()
+        .to_string();
+
+    let (document_file_path, highlight_payload) = {
+        let db = state.lock_db()?;
+        let document_repo = DocumentRepository::new(&db);
+        let card_repo = CardRepository::new(&db);
+        let document = document_repo
+            .find_by_id(&data.document_id)?
+            .ok_or(CommandError::NotFound)?;
+
+        if document.file_type.to_lowercase() != "pdf" {
+            return Err(CommandError::InvalidInput(
+                "Only PDF documents can be exported with annotations".to_string(),
+            ));
+        }
+
+        let highlights = card_repo.list_highlights(HighlightFilters {
+            document_id: Some(&data.document_id),
+            card_id: None,
+            page_number: None,
+            limit: Some(10_000),
+        })?;
+
+        (
+            document.file_path,
+            highlights.into_iter().map(HighlightDto::from).collect::<Vec<_>>(),
+        )
+    };
+
+    let health = state
+        .orchestration
+        .health()
+        .await
+        .map_err(|e| CommandError::Internal(format!("Orchestration service unavailable: {e}")))?;
+
+    let endpoint = health.endpoint.ok_or(CommandError::Internal(
+        "No orchestration endpoint available".to_string(),
+    ))?;
+
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| CommandError::Internal(format!("HTTP client error: {e}")))?;
+
+    let response = client
+        .post(format!("{endpoint}/exports/annotated-pdf"))
+        .json(&serde_json::json!({
+            "filePath": document_file_path,
+            "outputPath": output_path,
+            "highlights": highlight_payload,
+        }))
+        .send()
+        .await
+        .map_err(|e| CommandError::Internal(format!("Annotated PDF export request failed: {e}")))?;
+
+    if !response.status().is_success() {
+        let body = response.text().await.unwrap_or_else(|_| "<no body>".to_string());
+        return Err(CommandError::Internal(format!(
+            "Annotated PDF export failed: {body}"
+        )));
+    }
+
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| CommandError::Internal(format!("Invalid export response: {e}")))?;
+
+    Ok(Some(ExportAnnotatedPdfResultDto {
+        output_path: payload
+            .get("outputPath")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        highlight_count: payload
+            .get("highlightCount")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0) as usize,
+    }))
+}
+
+// ── Card Media Commands ────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardMediaDto {
+    pub id: String,
+    pub card_id: String,
+    pub file_name: String,
+    pub mime_type: String,
+    pub file_size: Option<i64>,
+    pub storage_key: String,
+    pub created_at: String,
+}
+
+impl From<crate::db::CardMedia> for CardMediaDto {
+    fn from(m: crate::db::CardMedia) -> Self {
+        Self {
+            id: m.id,
+            card_id: m.card_id,
+            file_name: m.file_name,
+            mime_type: m.mime_type,
+            file_size: m.file_size,
+            storage_key: m.storage_key,
+            created_at: m.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadCardMediaDto {
+    pub card_id: String,
+    pub file_path: String,
+}
+
+#[tauri::command]
+pub async fn upload_card_media(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    data: UploadCardMediaDto,
+) -> CommandResult<CardMediaDto> {
+    use std::path::PathBuf;
+
+    let source = PathBuf::from(&data.file_path);
+    if !source.exists() {
+        return Err(CommandError::InvalidInput(format!(
+            "File does not exist: {}", data.file_path
+        )));
+    }
+
+    let file_name = source
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let mime_type = match source.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => "application/octet-stream",
+    }
+    .to_string();
+
+    let file_size = std::fs::metadata(&source)
+        .map(|m| m.len() as i64)
+        .ok();
+
+    let media_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| CommandError::Internal("Failed to resolve app local data dir".to_string()))?
+        .join("card-media");
+    std::fs::create_dir_all(&media_dir)
+        .map_err(|e| CommandError::Internal(format!("Failed to create media dir: {e}")))?;
+
+    let storage_key = format!("{}.{}", uuid::Uuid::new_v4(), source.extension().and_then(|e| e.to_str()).unwrap_or("bin"));
+    let dest = media_dir.join(&storage_key);
+
+    std::fs::copy(&source, &dest)
+        .map_err(|e| CommandError::Internal(format!("Failed to copy media file: {e}")))?;
+
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let media = repo.create_card_media(crate::db::CreateCardMediaRequest {
+        card_id: data.card_id,
+        file_name,
+        mime_type,
+        file_size,
+        storage_key,
+    })?;
+
+    Ok(media.into())
+}
+
+#[tauri::command]
+pub fn list_card_media(
+    state: State<'_, AppState>,
+    card_id: String,
+) -> CommandResult<Vec<CardMediaDto>> {
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let media = repo.list_card_media(&card_id)?;
+    Ok(media.into_iter().map(Into::into).collect())
+}
+
+#[tauri::command]
+pub async fn delete_card_media(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<()> {
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+
+    if let Some(media) = repo.delete_card_media(&id)? {
+        let media_dir = app
+            .path()
+            .app_local_data_dir()
+            .map_err(|_| CommandError::Internal("Failed to resolve app local data dir".to_string()))?
+            .join("card-media");
+        let file_path = media_dir.join(&media.storage_key);
+        if file_path.exists() {
+            let _ = std::fs::remove_file(file_path);
+        }
+    }
+
+    Ok(())
+}
+
+// ── APKG Import ──────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportApkgResultDto {
+    pub imported_count: usize,
+    pub skipped_duplicates: usize,
+    pub deck_name: String,
+}
+
+#[tauri::command]
+pub async fn import_cards_apkg(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<ImportApkgResultDto> {
+    let health = state.orchestration.health().await
+        .map_err(|e| CommandError::Internal(format!("Orchestration service unavailable: {e}")))?;
+
+    let endpoint = health.endpoint.ok_or(CommandError::Internal(
+        "No orchestration endpoint available".to_string()
+    ))?;
+
+    let Some(file_path) = app
+        .dialog()
+        .file()
+        .add_filter("Anki Package", &["apkg"])
+        .set_title("导入 Anki 卡片包")
+        .blocking_pick_file()
+    else {
+        return Err(CommandError::InvalidInput("No file selected".to_string()));
+    };
+
+    let path_str = file_path
+        .into_path()
+        .map_err(|e| CommandError::InvalidInput(e.to_string()))?
+        .to_string_lossy()
+        .to_string();
+
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| CommandError::Internal(format!("HTTP client error: {e}")))?;
+
+    let response = client
+        .post(format!("{endpoint}/imports/apkg"))
+        .json(&serde_json::json!({ "filePath": path_str }))
+        .send()
+        .await
+        .map_err(|e| CommandError::Internal(format!("Import request failed: {e}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(CommandError::Internal(format!(
+            "Import failed ({status}): {body}"
+        )));
+    }
+
+    let result: serde_json::Value = response.json().await
+        .map_err(|e| CommandError::Internal(format!("Invalid import response: {e}")))?;
+
+    let cards_data = result["cards"]
+        .as_array()
+        .ok_or(CommandError::Internal("No cards in import response".to_string()))?;
+
+    let deck_name = result["deckName"]
+        .as_str()
+        .unwrap_or("Imported Deck")
+        .to_string();
+
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let mut imported_count = 0usize;
+    let mut skipped_duplicates = 0usize;
+
+    for card_data in cards_data {
+        let front = card_data["front"].as_str().unwrap_or("").trim().to_string();
+        let back = card_data["back"].as_str().unwrap_or("").trim().to_string();
+        if front.is_empty() || back.is_empty() {
+            continue;
+        }
+
+        let card_type = card_data["cardType"]
+            .as_str()
+            .unwrap_or("qa")
+            .to_string();
+
+        let tags: Option<Vec<String>> = card_data["tags"]
+            .as_array()
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+
+        let dedupe_key = {
+            let mut hasher = Sha256::new();
+            hasher.update(front.to_lowercase().as_bytes());
+            hasher.update(b"::");
+            hasher.update(back.to_lowercase().as_bytes());
+            format!("{:x}", hasher.finalize())
+        };
+
+        let exists: bool = db.connection().query_row(
+            "SELECT EXISTS(SELECT 1 FROM cards WHERE dedupe_key = ?1)",
+            params![&dedupe_key],
+            |row| row.get(0),
+        ).unwrap_or(false);
+
+        if exists {
+            skipped_duplicates += 1;
+            continue;
+        }
+
+        let created = repo.create(crate::db::CreateCardRequest {
+            front,
+            back,
+            card_type: Some(card_type),
+            document_id: None,
+            anchor_id: None,
+            source_page: None,
+            source_paragraph: None,
+            source_coordinates: None,
+            tags,
+        });
+
+        if let Ok(card) = created {
+            let _ = db.connection().execute(
+                "UPDATE cards SET dedupe_key = ?1 WHERE id = ?2",
+                params![&dedupe_key, &card.id],
+            );
+        }
+
+        imported_count += 1;
+    }
+
+    Ok(ImportApkgResultDto {
+        imported_count,
+        skipped_duplicates,
+        deck_name,
+    })
+}
+
+#[tauri::command]
+pub async fn pick_and_export_apkg(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<serde_json::Value>> {
+    let Some(file_path) = app
+        .dialog()
+        .file()
+        .add_filter("Anki Package", &["apkg"])
+        .set_title("导出卡片为 APKG")
+        .set_file_name("xuejian-export.apkg")
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+
+    let output_path = file_path
+        .into_path()
+        .map_err(|e| CommandError::InvalidInput(e.to_string()))?
+        .to_string_lossy()
+        .to_string();
+
+    let health = state.orchestration.health().await
+        .map_err(|e| CommandError::Internal(format!("Orchestration service unavailable: {e}")))?;
+
+    let endpoint = health.endpoint.ok_or(CommandError::Internal(
+        "No orchestration endpoint available".to_string()
+    ))?;
+
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| CommandError::Internal(format!("HTTP client error: {e}")))?;
+
+    let response = client
+        .post(format!("{endpoint}/exports/apkg"))
+        .json(&serde_json::json!({
+            "outputPath": output_path,
+            "deckName": "XueJian Export",
+        }))
+        .send()
+        .await
+        .map_err(|e| CommandError::Internal(format!("Export request failed: {e}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(CommandError::Internal(format!(
+            "Export failed ({status}): {body}"
+        )));
+    }
+
+    let result: serde_json::Value = response.json().await
+        .map_err(|e| CommandError::Internal(format!("Invalid export response: {e}")))?;
 
     Ok(Some(result))
 }
