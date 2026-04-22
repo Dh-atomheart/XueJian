@@ -314,6 +314,12 @@ export interface AppSettings {
   language: 'zh-CN' | 'en-US'
   dailyNewCardLimit: number
   reviewTimeLimit: number
+  podcastTtsProvider: 'auto' | 'openai' | 'edge_tts' | 'elevenlabs' | 'fish_audio'
+  podcastOpenaiModel: string
+  podcastFishAudioEndpoint: string | null
+  podcastVoiceOverrides: Record<string, string>
+  podcastOutputFormat: 'mp3' | 'wav'
+  podcastSkipReview: boolean
 }
 
 export interface ApiConfig {

@@ -6,10 +6,9 @@ export type NavItemId =
   | 'cards'
   | 'learning'
   | 'knowledge'
-  | 'settings'
-  | 'profile'
   | 'podcast'
   | 'graph'
+  | 'settings'
 
 export type AppFeedbackLevel = 'info' | 'warning' | 'error'
 
@@ -29,19 +28,6 @@ interface ReaderState {
   scale: number
   selectedHighlightId: string | null
   selectedCardId: string | null
-  hoveredHighlightId: string | null
-  isSearchOpen: boolean
-  searchQuery: string
-  searchMatchIndex: number
-  searchResults: Array<{
-    page: number
-    rects: Array<{ x: number; y: number; width: number; height: number }>
-    excerpt: string
-  }>
-  annotationFilterTags: string[]
-  annotationScope: 'page' | 'all'
-  isLinkingMode: boolean
-  linkingTargetCardId: string | null
 }
 
 interface AppUiState {
@@ -60,22 +46,6 @@ interface AppUiState {
   setReaderScale: (scale: number) => void
   selectHighlight: (highlightId: string | null) => void
   selectCard: (cardId: string | null) => void
-  hoverHighlight: (highlightId: string | null) => void
-  openReaderSearch: () => void
-  closeReaderSearch: () => void
-  setReaderSearchQuery: (query: string) => void
-  setReaderSearchResults: (
-    results: Array<{
-      page: number
-      rects: Array<{ x: number; y: number; width: number; height: number }>
-      excerpt: string
-    }>
-  ) => void
-  setReaderSearchMatchIndex: (index: number) => void
-  setAnnotationFilterTags: (tags: string[]) => void
-  setAnnotationScope: (scope: 'page' | 'all') => void
-  enterLinkingMode: (cardId: string) => void
-  exitLinkingMode: () => void
   setFeedbackPanelOpen: (open: boolean) => void
   toggleFeedbackPanel: () => void
   reportFeedback: (entry: {
@@ -96,15 +66,6 @@ const initialReaderState: ReaderState = {
   scale: 1.25,
   selectedHighlightId: null,
   selectedCardId: null,
-  hoveredHighlightId: null,
-  isSearchOpen: false,
-  searchQuery: '',
-  searchMatchIndex: 0,
-  searchResults: [],
-  annotationFilterTags: [],
-  annotationScope: 'page',
-  isLinkingMode: false,
-  linkingTargetCardId: null,
 }
 
 const MAX_FEEDBACK_LOG_ENTRIES = 120
@@ -164,7 +125,6 @@ export const useAppUiStore = create<AppUiState>((set) => ({
         currentPage: Math.max(1, Math.min(page, state.reader.totalPages || page)),
         selectedHighlightId: null,
         selectedCardId: null,
-        hoveredHighlightId: null,
       },
     })),
   setReaderScale: (scale) =>
@@ -173,72 +133,11 @@ export const useAppUiStore = create<AppUiState>((set) => ({
     })),
   selectHighlight: (selectedHighlightId) =>
     set((state) => ({
-      reader: { ...state.reader, selectedHighlightId },
+      reader: { ...state.reader, selectedHighlightId, selectedCardId: null },
     })),
   selectCard: (selectedCardId) =>
     set((state) => ({
-      reader: { ...state.reader, selectedCardId },
-    })),
-  hoverHighlight: (hoveredHighlightId) =>
-    set((state) => ({
-      reader: { ...state.reader, hoveredHighlightId },
-    })),
-  openReaderSearch: () =>
-    set((state) => ({
-      reader: { ...state.reader, isSearchOpen: true },
-    })),
-  closeReaderSearch: () =>
-    set((state) => ({
-      reader: {
-        ...state.reader,
-        isSearchOpen: false,
-        searchQuery: '',
-        searchMatchIndex: 0,
-        searchResults: [],
-      },
-    })),
-  setReaderSearchQuery: (searchQuery) =>
-    set((state) => ({
-      reader: { ...state.reader, searchQuery },
-    })),
-  setReaderSearchResults: (searchResults) =>
-    set((state) => ({
-      reader: {
-        ...state.reader,
-        searchResults,
-        searchMatchIndex: searchResults.length > 0 ? 0 : 0,
-      },
-    })),
-  setReaderSearchMatchIndex: (searchMatchIndex) =>
-    set((state) => ({
-      reader: {
-        ...state.reader,
-        searchMatchIndex: Math.max(0, Math.min(searchMatchIndex, state.reader.searchResults.length - 1)),
-      },
-    })),
-  setAnnotationFilterTags: (annotationFilterTags) =>
-    set((state) => ({
-      reader: { ...state.reader, annotationFilterTags },
-    })),
-  setAnnotationScope: (annotationScope) =>
-    set((state) => ({
-      reader: { ...state.reader, annotationScope },
-    })),
-  enterLinkingMode: (linkingTargetCardId) =>
-    set((state) => ({
-      reader: {
-        ...state.reader,
-        isLinkingMode: true,
-        linkingTargetCardId,
-      },
-    })),
-  exitLinkingMode: () =>
-    set((state) => ({
-      reader: {
-        ...state.reader,
-        isLinkingMode: false,
-        linkingTargetCardId: null,
-      },
+      reader: { ...state.reader, selectedCardId, selectedHighlightId: null },
     })),
   setFeedbackPanelOpen: (isFeedbackPanelOpen) => set({ isFeedbackPanelOpen }),
   toggleFeedbackPanel: () => set((state) => ({ isFeedbackPanelOpen: !state.isFeedbackPanelOpen })),

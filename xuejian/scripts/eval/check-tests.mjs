@@ -1,4 +1,10 @@
-import { commandName, countFailedFromText, countPassedFromText, isMainModule, runCommand } from './shared.mjs'
+import {
+  commandName,
+  countFailedFromText,
+  countPassedFromText,
+  isMainModule,
+  runCommand,
+} from './shared.mjs'
 
 const vitestTargets = [
   'tests/unit/card-content-renderer.test.tsx',

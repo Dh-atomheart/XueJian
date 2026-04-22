@@ -103,23 +103,23 @@ XueJian 目前已经具备以下基础：
 
 ```ts
 interface Highlight {
-  id: string
-  cardId: string | null
-  documentId: string
-  anchorId: string | null
-  pageNumber: number
+  id: string;
+  cardId: string | null;
+  documentId: string;
+  anchorId: string | null;
+  pageNumber: number;
   rectangles: Array<{
-    x: number
-    y: number
-    width: number
-    height: number
-  }>
-  textContent: string
-  color: string
-  createdAt: Date
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
+  textContent: string;
+  color: string;
+  createdAt: Date;
 
-  note: string | null
-  pageCardIndex: number | null
+  note: string | null;
+  pageCardIndex: number | null;
 }
 ```
 
@@ -144,25 +144,25 @@ interface Highlight {
 
 ```ts
 interface ReaderState {
-  documentId: string | null
-  currentPage: number
-  totalPages: number
-  scale: number
-  selectedHighlightId: string | null
-  selectedCardId: string | null
-  hoveredHighlightId: string | null
-  isSearchOpen: boolean
-  searchQuery: string
-  searchMatchIndex: number
+  documentId: string | null;
+  currentPage: number;
+  totalPages: number;
+  scale: number;
+  selectedHighlightId: string | null;
+  selectedCardId: string | null;
+  hoveredHighlightId: string | null;
+  isSearchOpen: boolean;
+  searchQuery: string;
+  searchMatchIndex: number;
   searchResults: Array<{
-    page: number
-    rects: Array<{ x: number; y: number; width: number; height: number }>
-    excerpt: string
-  }>
-  annotationFilterTags: string[]
-  annotationScope: 'page' | 'all'
-  isLinkingMode: boolean
-  linkingTargetCardId: string | null
+    page: number;
+    rects: Array<{ x: number; y: number; width: number; height: number }>;
+    excerpt: string;
+  }>;
+  annotationFilterTags: string[];
+  annotationScope: "page" | "all";
+  isLinkingMode: boolean;
+  linkingTargetCardId: string | null;
 }
 ```
 
@@ -224,8 +224,8 @@ interface ReaderState {
 循环规则：
 
 ```ts
-const palette = ['#F8E16C', '#BBDEFB', '#C8E6C9', '#F8BBD9']
-color = palette[pageCardIndex % palette.length]
+const palette = ["#F8E16C", "#BBDEFB", "#C8E6C9", "#F8BBD9"];
+color = palette[pageCardIndex % palette.length];
 ```
 
 该颜色要同时用于：

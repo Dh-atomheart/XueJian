@@ -44,7 +44,9 @@ function buildMarkdownReport(report) {
   lines.push('')
   lines.push('## Checks')
   lines.push('')
-  lines.push(`- Structure: ${report.checks.structure.passed ? 'passed' : 'failed'} (${report.checks.structure.summary.passed}/${report.checks.structure.summary.total})`)
+  lines.push(
+    `- Structure: ${report.checks.structure.passed ? 'passed' : 'failed'} (${report.checks.structure.summary.passed}/${report.checks.structure.summary.total})`
+  )
   lines.push(`- Frontend Build: ${report.checks.types.frontendBuild.passed ? 'passed' : 'failed'}`)
   lines.push(`- Rust Check: ${report.checks.types.rustCheck.passed ? 'passed' : 'failed'}`)
   lines.push(`- Vitest: ${report.checks.tests.vitest.passed ? 'passed' : 'failed'}`)
@@ -134,7 +136,8 @@ const phase4 = buildPhaseScore({
 
 const phase5 = buildPhaseScore({
   structurePassed:
-    findItem(structure, 'ai-choice-generation-contract') && findItem(structure, 'ai-choice-schema-contract'),
+    findItem(structure, 'ai-choice-generation-contract') &&
+    findItem(structure, 'ai-choice-schema-contract'),
   testPassed: unitPassed,
   buildPassed,
 })
@@ -154,7 +157,9 @@ const crossArchitecture = roundScore(
 
 const crossIpc = roundScore(
   buildPhaseScore({
-    structurePassed: findItem(structure, 'update-card-gateway') && findItem(structure, 'mock-gateway-mutable-card-flow'),
+    structurePassed:
+      findItem(structure, 'update-card-gateway') &&
+      findItem(structure, 'mock-gateway-mutable-card-flow'),
     testPassed: unitPassed,
     buildPassed,
   })
@@ -162,7 +167,8 @@ const crossIpc = roundScore(
 
 const crossEngineering = roundScore(
   buildPhaseScore({
-    structurePassed: findItem(structure, 'unit-test-card-studio') && findItem(structure, 'unit-test-review-page'),
+    structurePassed:
+      findItem(structure, 'unit-test-card-studio') && findItem(structure, 'unit-test-review-page'),
     testPassed: unitPassed && rustTestsPassed,
     buildPassed,
     e2ePassed,

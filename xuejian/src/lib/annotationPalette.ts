@@ -8,7 +8,10 @@ export const ANNOTATION_PALETTE = [
 export type AnnotationPaletteEntry = (typeof ANNOTATION_PALETTE)[number]
 
 export function getAnnotationColor(pageCardIndex: number) {
-  return ANNOTATION_PALETTE[((pageCardIndex % ANNOTATION_PALETTE.length) + ANNOTATION_PALETTE.length) % ANNOTATION_PALETTE.length].hex
+  return ANNOTATION_PALETTE[
+    ((pageCardIndex % ANNOTATION_PALETTE.length) + ANNOTATION_PALETTE.length) %
+      ANNOTATION_PALETTE.length
+  ].hex
 }
 
 export function getAnnotationPaletteEntry(color: string) {

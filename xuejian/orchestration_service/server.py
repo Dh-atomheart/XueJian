@@ -317,21 +317,38 @@ def build_handler(start_time: float):
             run_id = body.get("runId", "")
             episode_id = body.get("episodeId", "")
             title = body.get("title", "").strip()
-            context = body.get("context", "").strip()
+            document_ids = body.get("documentIds") or []
+            prompt = body.get("prompt", "").strip()
+            style = body.get("style", "interview").strip() or "interview"
+            language = body.get("language", "zh-CN").strip() or "zh-CN"
+            duration_tier = body.get("durationTier", "medium").strip() or "medium"
+            tts_provider = body.get("ttsProvider", "auto").strip() or "auto"
+            audio_format = body.get("audioFormat", "mp3").strip() or "mp3"
 
-            if not title:
-                self._write_json(400, {"error": "missing title"})
+            if not episode_id or not document_ids:
+                self._write_json(400, {"error": "missing episodeId or documentIds"})
                 return
 
             logger.info(
-                "Starting podcast generation: run=%s episode=%s title=%s",
+                "Starting podcast generation: run=%s episode=%s docs=%d style=%s",
                 run_id[:8] if run_id else "none",
                 episode_id[:8] if episode_id else "none",
-                title[:40],
+                len(document_ids),
+                style,
             )
             try:
                 result = run_podcast_workflow(
-                    run_id, episode_id, title, context, _host_gateway,
+                    run_id,
+                    episode_id,
+                    title,
+                    document_ids,
+                    prompt,
+                    style,
+                    language,
+                    duration_tier,
+                    tts_provider,
+                    audio_format,
+                    _host_gateway,
                 )
                 self._write_json(200, result)
             except Exception as exc:
@@ -350,20 +367,28 @@ def build_handler(start_time: float):
                 return
 
             run_id = body.get("runId", "")
+            build_run_id = body.get("buildRunId", "")
             document_ids = body.get("documentIds", [])
+            incremental = bool(body.get("incremental", False))
 
             if not document_ids:
                 self._write_json(400, {"error": "missing documentIds"})
                 return
 
             logger.info(
-                "Starting knowledge graph build: run=%s docs=%d",
+                "Starting knowledge graph build: run=%s build=%s docs=%d incremental=%s",
                 run_id[:8] if run_id else "none",
+                build_run_id[:8] if build_run_id else "none",
                 len(document_ids),
+                incremental,
             )
             try:
                 result = run_knowledge_graph_workflow(
-                    run_id, document_ids, _host_gateway,
+                    run_id,
+                    build_run_id,
+                    document_ids,
+                    incremental,
+                    _host_gateway,
                 )
                 self._write_json(200, result)
             except Exception as exc:

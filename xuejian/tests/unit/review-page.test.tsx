@@ -5,11 +5,13 @@ import { useAppUiStore } from '@/store'
 import { useLearningSessionStore } from '@/store/learning'
 import type { Card } from '@/types'
 
-const { useDueCardsQueryMock, useDailyStatsQueryMock, useSubmitReviewMutationMock } = vi.hoisted(() => ({
-  useDueCardsQueryMock: vi.fn(),
-  useDailyStatsQueryMock: vi.fn(),
-  useSubmitReviewMutationMock: vi.fn(),
-}))
+const { useDueCardsQueryMock, useDailyStatsQueryMock, useSubmitReviewMutationMock } = vi.hoisted(
+  () => ({
+    useDueCardsQueryMock: vi.fn(),
+    useDailyStatsQueryMock: vi.fn(),
+    useSubmitReviewMutationMock: vi.fn(),
+  })
+)
 
 vi.mock('@/queries/learning', async () => {
   const actual = await vi.importActual<typeof import('@/queries/learning')>('@/queries/learning')

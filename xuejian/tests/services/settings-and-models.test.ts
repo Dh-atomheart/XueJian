@@ -137,10 +137,21 @@ describe('stats UI stays restrained — no heavy dashboard', () => {
   })
 
   it('settings page preferences section shows at most 4 fields', async () => {
-    // AppSettings shape is deliberately minimal
+    // AppSettings keeps a restrained surface: learning preferences plus podcast defaults.
     const { settingsGateway } = await import('@/services/gateway/settings')
     const settings = await settingsGateway.get()
     const keys = Object.keys(settings)
-    expect(keys.length).toBeLessThanOrEqual(5) // theme, language, dailyNewCardLimit, reviewTimeLimit
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'theme',
+        'language',
+        'dailyNewCardLimit',
+        'reviewTimeLimit',
+        'podcastTtsProvider',
+        'podcastOutputFormat',
+        'podcastSkipReview',
+      ])
+    )
+    expect(keys.length).toBeLessThanOrEqual(10)
   })
 })

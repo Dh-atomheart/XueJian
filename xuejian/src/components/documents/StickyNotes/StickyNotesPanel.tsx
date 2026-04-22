@@ -31,7 +31,10 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
   const exitLinkingMode = useAppUiStore((state) => state.exitLinkingMode)
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const { data: currentDocument } = useDocumentQuery(documentId)
-  const { data: cards = [] } = useCardsQuery({ documentId, limit: 5000 }, { enabled: Boolean(documentId) })
+  const { data: cards = [] } = useCardsQuery(
+    { documentId, limit: 5000 },
+    { enabled: Boolean(documentId) }
+  )
   const { data: highlights = [] } = useHighlightsQuery(
     { documentId, limit: 5000 },
     { enabled: Boolean(documentId) }
@@ -103,8 +106,10 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
         return haystack.includes(normalizedQuery)
       })
       .sort((left, right) => {
-        const leftPage = left.highlight?.pageNumber ?? left.card.sourcePage ?? Number.MAX_SAFE_INTEGER
-        const rightPage = right.highlight?.pageNumber ?? right.card.sourcePage ?? Number.MAX_SAFE_INTEGER
+        const leftPage =
+          left.highlight?.pageNumber ?? left.card.sourcePage ?? Number.MAX_SAFE_INTEGER
+        const rightPage =
+          right.highlight?.pageNumber ?? right.card.sourcePage ?? Number.MAX_SAFE_INTEGER
         if (leftPage !== rightPage) {
           return leftPage - rightPage
         }
@@ -161,13 +166,18 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
   }, [reader.selectedCardId])
 
   return (
-    <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(251,251,249,0.96),rgba(245,243,236,0.98))]" data-testid="reader-context-rail">
+    <div
+      className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(251,251,249,0.96),rgba(245,243,236,0.98))]"
+      data-testid="reader-context-rail"
+    >
       <div className="border-b border-line-soft px-4 py-4">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">Context Rail</p>
             <h2 className="mt-2 font-ui text-lg text-ink">当前页贴笺</h2>
-            <p className="mt-1 text-xs leading-5 text-ink-soft">{currentDocument?.title ?? '正在加载文档标题'}</p>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">
+              {currentDocument?.title ?? '正在加载文档标题'}
+            </p>
           </div>
           <Button variant="ghost" size="sm" onClick={() => setContextRailOpen(false)}>
             收起
@@ -175,7 +185,10 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
         </div>
 
         <div className="grid gap-2 sm:grid-cols-3">
-          <RailMetric label="页码" value={`${reader.currentPage}/${Math.max(reader.totalPages, 1)}`} />
+          <RailMetric
+            label="页码"
+            value={`${reader.currentPage}/${Math.max(reader.totalPages, 1)}`}
+          />
           <RailMetric label="贴笺" value={`${cards.length}`} />
           <RailMetric label="缺失关联" value={`${unlinkedCount}`} />
         </div>
@@ -295,9 +308,11 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
           <div className="space-y-6">
             {groupedCardEntries.map((group) => (
               <section key={group.pageNumber} className="space-y-4">
-                {(groupedCardEntries.length > 1 || group.pageNumber < 0) ? (
+                {groupedCardEntries.length > 1 || group.pageNumber < 0 ? (
                   <div className="flex items-center justify-between gap-3 px-1">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">{group.title}</p>
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      {group.title}
+                    </p>
                     <span className="text-[11px] text-ink-soft">{group.entries.length} 张</span>
                   </div>
                 ) : null}
@@ -319,7 +334,9 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
                           isSelected={isSelected}
                           isExpanded={expandedCardId === card.id}
                           onSelect={() => {
-                            setReaderPage(highlight?.pageNumber ?? card.sourcePage ?? reader.currentPage)
+                            setReaderPage(
+                              highlight?.pageNumber ?? card.sourcePage ?? reader.currentPage
+                            )
                             selectCard(card.id)
                             selectHighlight(highlight?.id ?? null)
                           }}
@@ -327,7 +344,9 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
                             setExpandedCardId((current) => (current === card.id ? null : card.id))
                           }}
                           onLocate={() => {
-                            setReaderPage(highlight?.pageNumber ?? card.sourcePage ?? reader.currentPage)
+                            setReaderPage(
+                              highlight?.pageNumber ?? card.sourcePage ?? reader.currentPage
+                            )
                             selectCard(card.id)
                             selectHighlight(highlight?.id ?? null)
                           }}

@@ -1,164 +1,128 @@
-import { useEffect, useMemo, useState } from 'react'
-import {
-  DocumentList,
-  DocumentPreviewPane,
-  ImportDocumentButton,
-} from '@/components/documents'
-import { Button, Input, Panel } from '@/components/ui'
-import { useDocumentsQuery } from '@/queries'
-import { useAppUiStore } from '@/store'
+import { useEffect, useState } from 'react'
 import type { Document } from '@/types'
-import { ReaderPage } from './ReaderPage'
+import { useDocumentsQuery } from '@/queries'
+import { DocumentList, DocumentPreviewPane, ImportDocumentButton } from '@/components/documents'
+import { Button, Panel } from '@/components/ui'
+import { useAppUiStore } from '@/store'
 
 export function LibraryPage() {
-  const readerDocumentId = useAppUiStore((state) => state.reader.documentId)
-  const openReader = useAppUiStore((state) => state.openReader)
   const { data: documents = [], isLoading } = useDocumentsQuery()
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-
-  const filteredDocuments = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase()
-    if (!normalizedQuery) {
-      return documents
-    }
-
-    return documents.filter((document) => {
-      const haystack = [document.title, document.fileType, document.contentHash]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-
-      return haystack.includes(normalizedQuery)
-    })
-  }, [documents, searchQuery])
+  const openReader = useAppUiStore((state) => state.openReader)
+  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
 
   useEffect(() => {
-    if (selectedDocumentId && documents.some((document) => document.id === selectedDocumentId)) {
+    if (documents.length === 0) {
+      setSelectedDocumentId(null)
       return
     }
 
-    setSelectedDocumentId(documents[0]?.id ?? null)
+    const selectedDocumentStillExists = documents.some(
+      (document) => document.id === selectedDocumentId
+    )
+
+    if (!selectedDocumentStillExists) {
+      setSelectedDocumentId(documents[0].id)
+    }
   }, [documents, selectedDocumentId])
 
-  useEffect(() => {
-    if (filteredDocuments.length === 0) {
-      return
-    }
+  const selectedDocument = documents.find((document) => document.id === selectedDocumentId) ?? null
 
-    if (!selectedDocumentId || !filteredDocuments.some((document) => document.id === selectedDocumentId)) {
-      setSelectedDocumentId(filteredDocuments[0].id)
-    }
-  }, [filteredDocuments, selectedDocumentId])
-
-  const selectedDocument = useMemo<Document | null>(
-    () => documents.find((document) => document.id === selectedDocumentId) ?? null,
-    [documents, selectedDocumentId]
-  )
-
-  const readyCount = documents.filter((document) => document.status === 'ready').length
-
-  if (readerDocumentId) {
-    return <ReaderPage documentId={readerDocumentId} />
+  // Empty state
+  if (!isLoading && documents.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Panel variant="paperCard" className="max-w-md rounded-[24px] p-8 text-center">
+          <div className="mb-4 text-4xl">📄</div>
+          <h2 className="mb-2 font-display text-xl text-ink">文档库是空的</h2>
+          <p className="mb-6 text-sm leading-relaxed text-ink-muted">
+            上传第一份文档后，系统会自动解析内容、生成锚点，并启动卡片候选生成。
+          </p>
+          <ImportDocumentButton
+            onImported={(document) => {
+              setSelectedDocumentId(document.id)
+            }}
+            showFeedback
+            buttonProps={{
+              variant: 'default',
+              className: 'mx-auto',
+            }}
+          />
+          <p className="mt-4 text-xs text-ink-soft">目前支持 PDF 格式</p>
+        </Panel>
+      </div>
+    )
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-6" data-testid="library-page">
-      <Panel variant="panel" className="rounded-[32px]">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.32em] text-ink-soft">Document Library</p>
-            <h1 className="mt-3 font-display text-3xl text-ink">文档入口与阅读工作台</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-ink-muted">
-              这里负责导入 PDF、查看解析状态，并把已就绪文档送入三栏阅读器。阅读、贴笺和 AI 卡片从同一份源文档继续向前走。
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[420px]">
-            <LibraryMetric label="文档总数" value={`${documents.length}`} />
-            <LibraryMetric label="已就绪" value={`${readyCount}`} />
-            <LibraryMetric label="当前筛选" value={`${filteredDocuments.length}`} />
-          </div>
+    <div className="mx-auto max-w-5xl space-y-6">
+      {/* 顶部：标题 + 上传 + 搜索区 */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="font-ui text-xl text-ink">文档库</h1>
+          <p className="mt-0.5 text-sm text-ink-muted">{documents.length} 份文档</p>
         </div>
-      </Panel>
-
-      <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[minmax(340px,420px)_minmax(0,1fr)]">
-        <Panel variant="paperCard" className="flex min-h-0 flex-col rounded-[32px]">
-          <div className="flex flex-col gap-4 border-b border-line-soft pb-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">Ingress</p>
-                <h2 className="mt-2 font-ui text-lg text-ink">导入与筛选</h2>
-              </div>
-              <ImportDocumentButton
-                idleLabel="导入 PDF"
-                buttonProps={{ variant: 'default', size: 'sm' }}
-                onImported={(document) => {
-                  setSelectedDocumentId(document.id)
-                }}
-              />
-            </div>
-
-            <Input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="搜索标题、类型或内容哈希..."
-              data-testid="library-search-input"
-            />
-          </div>
-
-          <div className="mt-5 min-h-0 flex-1">
-            {isLoading ? (
-              <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-ink-soft">
-                正在载入文档库...
-              </div>
-            ) : (
-              <DocumentList
-                documents={filteredDocuments}
-                selectedDocumentId={selectedDocumentId}
-                onSelect={(document) => setSelectedDocumentId(document.id)}
-              />
-            )}
-          </div>
-        </Panel>
-
-        <div className="flex min-h-0 flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">Preview</p>
-              <h2 className="mt-2 font-ui text-lg text-ink">预览与阅读器入口</h2>
-            </div>
-
-            <Button
-              variant="default"
-              data-testid="library-open-reader"
-              disabled={!selectedDocument || selectedDocument.status !== 'ready'}
-              onClick={() => {
-                if (!selectedDocument) {
-                  return
-                }
-
-                openReader(selectedDocument.id, selectedDocument.pageCount ?? 0)
-              }}
-            >
-              进入阅读器
-            </Button>
-          </div>
-
-          <div className="min-h-0 flex-1">
-            <DocumentPreviewPane document={selectedDocument} />
-          </div>
-        </div>
+        <ImportDocumentButton
+          onImported={(document) => {
+            setSelectedDocumentId(document.id)
+          }}
+          showFeedback
+          buttonProps={{
+            variant: 'default',
+          }}
+        />
       </div>
-    </div>
-  )
-}
 
-function LibraryMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[24px] border border-line-soft bg-paper-base/80 px-4 py-4">
-      <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">{label}</p>
-      <p className="mt-2 font-display text-2xl text-ink">{value}</p>
+      {/* 文档列表 + 预览 */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+        <section>
+          {isLoading ? (
+            <Panel variant="paperCard" className="rounded-[24px] py-16 text-center text-ink-soft">
+              正在读取文档列表…
+            </Panel>
+          ) : (
+            <DocumentList
+              documents={documents}
+              selectedDocumentId={selectedDocumentId}
+              onSelect={(document: Document) => {
+                setSelectedDocumentId(document.id)
+              }}
+            />
+          )}
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-end justify-between gap-3">
+            <h2 className="font-ui text-base text-ink">文档详情</h2>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedDocument || selectedDocument.status !== 'ready'}
+                onClick={() => setActiveNavItem('cards')}
+              >
+                卡片工坊
+              </Button>
+              <Button
+                variant="sketch"
+                size="sm"
+                disabled={!selectedDocument || selectedDocument.status !== 'ready'}
+                onClick={() => {
+                  if (!selectedDocument) {
+                    return
+                  }
+
+                  openReader(selectedDocument.id, selectedDocument.pageCount ?? 1)
+                }}
+              >
+                进入阅读
+              </Button>
+            </div>
+          </div>
+
+          <DocumentPreviewPane document={selectedDocument} />
+        </section>
+      </div>
     </div>
   )
 }

@@ -66,9 +66,9 @@ test('library opens the reader workbench and keeps card-note linkage visible', a
   await expect(page.locator('[data-testid^="highlight-"]').first()).toBeVisible()
 
   await page.getByRole('button', { name: '#layout' }).click()
-  const highlightOpacities = await page.locator('[data-testid^="highlight-"]').evaluateAll((nodes) =>
-    nodes.map((node) => node.getAttribute('fill-opacity'))
-  )
+  const highlightOpacities = await page
+    .locator('[data-testid^="highlight-"]')
+    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('fill-opacity')))
   expect(highlightOpacities).toContain('0.08')
   expect(highlightOpacities).toContain('0.25')
   await page.getByRole('button', { name: '#layout' }).click()

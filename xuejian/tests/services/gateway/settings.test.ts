@@ -10,6 +10,12 @@ beforeEach(async () => {
     language: 'zh-CN',
     dailyNewCardLimit: 20,
     reviewTimeLimit: 30,
+    podcastTtsProvider: 'auto',
+    podcastOpenaiModel: 'tts-1',
+    podcastFishAudioEndpoint: null,
+    podcastVoiceOverrides: {},
+    podcastOutputFormat: 'mp3',
+    podcastSkipReview: true,
   })
 })
 
@@ -21,15 +27,29 @@ describe('gateway mocks', () => {
     expect(settings.theme).toBe('default')
     expect(settings.language).toBe('zh-CN')
     expect(settings.dailyNewCardLimit).toBe(20)
+    expect(settings.podcastTtsProvider).toBe('auto')
+    expect(settings.podcastOutputFormat).toBe('mp3')
+    expect(settings.podcastSkipReview).toBe(true)
   })
 
   // @acceptance:v4-2-a1
   it('updates and re-reads app settings outside Tauri', async () => {
-    const updated = await settingsGateway.update({ theme: 'comic-sketch' })
+    const updated = await settingsGateway.update({
+      theme: 'comic-sketch',
+      podcastTtsProvider: 'edge_tts',
+      podcastOutputFormat: 'wav',
+      podcastSkipReview: false,
+    })
     expect(updated.theme).toBe('comic-sketch')
+    expect(updated.podcastTtsProvider).toBe('edge_tts')
+    expect(updated.podcastOutputFormat).toBe('wav')
+    expect(updated.podcastSkipReview).toBe(false)
 
     const persisted = await settingsGateway.get()
     expect(persisted.theme).toBe('comic-sketch')
+    expect(persisted.podcastTtsProvider).toBe('edge_tts')
+    expect(persisted.podcastOutputFormat).toBe('wav')
+    expect(persisted.podcastSkipReview).toBe(false)
   })
 
   it('returns an empty API config list outside Tauri', async () => {
@@ -41,7 +61,7 @@ describe('gateway mocks', () => {
   // @acceptance:v4-5-a1
   it('persists an openai-compatible API config across mock create, store key, and list calls', async () => {
     const created = await apiConfigGateway.create({
-      provider: 'custom',
+      provider: 'openai_compatible',
       authMode: 'api_key',
       name: 'Local OpenAI Compatible',
       model: 'qwen2.5-14b-instruct',
@@ -51,7 +71,7 @@ describe('gateway mocks', () => {
       isEnabled: true,
     })
 
-    expect(created.provider).toBe('custom')
+    expect(created.provider).toBe('openai_compatible')
     expect(created.protocol).toBe('openai-compatible')
     expect(created.authMode).toBe('api_key')
     expect(created.baseUrl).toBe('http://localhost:11434/v1')
@@ -65,7 +85,7 @@ describe('gateway mocks', () => {
     expect(configs).toHaveLength(1)
     expect(configs[0]).toMatchObject({
       id: created.id,
-      provider: 'custom',
+      provider: 'openai_compatible',
       protocol: 'openai-compatible',
       authMode: 'api_key',
       name: 'Local OpenAI Compatible',
@@ -80,9 +100,9 @@ describe('gateway mocks', () => {
 
   it('assigns openai-compatible protocol to qianfan configs outside Tauri', async () => {
     const created = await apiConfigGateway.create({
-      provider: 'qianfan',
+      provider: 'openai_compatible',
       authMode: 'api_key',
-      name: 'Baidu Qianfan',
+      name: 'OpenAI Compatible Endpoint',
       model: 'ernie-speed',
       baseUrl: 'https://qianfan.baidubce.com/v2',
       budgetLimit: null,
@@ -91,7 +111,7 @@ describe('gateway mocks', () => {
       protocol: null,
     })
 
-    expect(created.provider).toBe('qianfan')
+    expect(created.provider).toBe('openai_compatible')
     expect(created.protocol).toBe('openai-compatible')
   })
 

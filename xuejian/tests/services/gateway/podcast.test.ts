@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
   startPodcastWorkflow,
   getPodcastEpisode,
@@ -6,31 +6,76 @@ import {
   cancelPodcastEpisode,
   deletePodcastEpisode,
 } from '@/services/gateway/podcast'
+import { resetMockGatewayState } from '@/services/gateway/mockData'
 import { PodcastScriptSchema, PodcastEpisodeSchema } from '@/types'
 import { z } from 'zod'
+
+const MOCK_DOCUMENT_ID = '22222222-2222-4222-8222-222222222222'
+
+function createStartInput(overrides: Record<string, unknown> = {}) {
+  return {
+    documentIds: [MOCK_DOCUMENT_ID],
+    prompt: '学习方法',
+    style: 'interview',
+    language: 'zh-CN',
+    durationTier: 'medium',
+    ttsProvider: 'auto',
+    ...overrides,
+  }
+}
+
+beforeEach(() => {
+  resetMockGatewayState()
+})
 
 // @acceptance:v3-2-a1
 describe('podcast generation: podcast script and episode can be generated', () => {
   it('startPodcastWorkflow returns a PodcastEpisode record', async () => {
-    const episode = await startPodcastWorkflow({ title: '测试播客' })
+    const episode = await startPodcastWorkflow(createStartInput({ prompt: '测试播客' }))
     expect(episode).not.toBeNull()
     expect(episode.id).toBeDefined()
     expect(typeof episode.id).toBe('string')
     expect(episode.id.length).toBeGreaterThan(0)
   })
 
-  it('episode has correct title', async () => {
-    const episode = await startPodcastWorkflow({ title: 'AI 学习播客' })
-    expect(episode.title).toBe('AI 学习播客')
+  it('episode preserves the selected generation settings', async () => {
+    const episode = await startPodcastWorkflow(
+      createStartInput({
+        prompt: 'AI 学习播客',
+        style: 'lecture',
+        language: 'en-US',
+        durationTier: 'long',
+        ttsProvider: 'edge_tts',
+        audioFormat: 'wav',
+      })
+    )
+    expect(episode.scopeDescription).toBe('AI 学习播客')
+    expect(episode.style).toBe('lecture')
+    expect(episode.language).toBe('en-US')
+    expect(episode.durationTier).toBe('long')
+    expect(episode.ttsProvider).toBe('edge_tts')
+    expect(episode.audioFormat).toBe('wav')
   })
 
   it('episode has valid status', async () => {
-    const episode = await startPodcastWorkflow({})
-    expect(['queued', 'generating', 'ready', 'failed', 'cancelled']).toContain(episode.status)
+    const episode = await startPodcastWorkflow(createStartInput())
+    expect([
+      'queued',
+      'retrieving',
+      'generating_outline',
+      'generating_script',
+      'evaluating',
+      'awaiting_review',
+      'generating_audio',
+      'stitching',
+      'ready',
+      'failed',
+      'cancelled',
+    ]).toContain(episode.status)
   })
 
   it('ready episode has parseable scriptJson with segments', async () => {
-    const episode = await startPodcastWorkflow({})
+    const episode = await startPodcastWorkflow(createStartInput())
     if (episode.status === 'ready') {
       const script = JSON.parse(episode.scriptJson)
       expect(script).toHaveProperty('title')
@@ -41,7 +86,7 @@ describe('podcast generation: podcast script and episode can be generated', () =
   })
 
   it('scriptJson conforms to PodcastScriptSchema', async () => {
-    const episode = await startPodcastWorkflow({})
+    const episode = await startPodcastWorkflow(createStartInput())
     if (episode.status === 'ready') {
       const script = JSON.parse(episode.scriptJson)
       const result = PodcastScriptSchema.safeParse(script)
@@ -50,7 +95,7 @@ describe('podcast generation: podcast script and episode can be generated', () =
   })
 
   it('ready episode scriptJson includes outline array per V3 spec', async () => {
-    const episode = await startPodcastWorkflow({})
+    const episode = await startPodcastWorkflow(createStartInput())
     if (episode.status === 'ready') {
       const script = JSON.parse(episode.scriptJson)
       expect(Array.isArray(script.outline)).toBe(true)
@@ -62,7 +107,7 @@ describe('podcast generation: podcast script and episode can be generated', () =
   })
 
   it('segments have required fields: id, speaker, text, durationMs', async () => {
-    const episode = await startPodcastWorkflow({})
+    const episode = await startPodcastWorkflow(createStartInput())
     if (episode.status === 'ready') {
       const script = JSON.parse(episode.scriptJson)
       for (const seg of script.segments) {
@@ -77,13 +122,13 @@ describe('podcast generation: podcast script and episode can be generated', () =
   })
 
   it('episode returned from gateway conforms to PodcastEpisodeSchema', async () => {
-    const episode = await startPodcastWorkflow({})
+    const episode = await startPodcastWorkflow(createStartInput())
     const result = PodcastEpisodeSchema.safeParse(episode)
     expect(result.success).toBe(true)
   })
 
   it('episode durationMs is non-negative', async () => {
-    const episode = await startPodcastWorkflow({})
+    const episode = await startPodcastWorkflow(createStartInput())
     expect(episode.durationMs).toBeGreaterThanOrEqual(0)
   })
 })
@@ -91,7 +136,7 @@ describe('podcast generation: podcast script and episode can be generated', () =
 // @acceptance:v3-2-a2
 describe('podcast workflow: task is recoverable, cancellable, and budget-aware', () => {
   it('episode links to a WorkflowRun via runId', async () => {
-    const episode = await startPodcastWorkflow({ title: '工作流测试' })
+    const episode = await startPodcastWorkflow(createStartInput({ prompt: '工作流测试' }))
     expect(episode.runId).toBeDefined()
     // runId should be a non-empty string
     if (episode.runId) {
@@ -101,29 +146,28 @@ describe('podcast workflow: task is recoverable, cancellable, and budget-aware',
   })
 
   it('cancelPodcastEpisode does not throw', async () => {
-    const episode = await startPodcastWorkflow({})
+    const episode = await startPodcastWorkflow(createStartInput())
     await expect(cancelPodcastEpisode(episode.id)).resolves.toBeUndefined()
   })
 
   it('episode status field supports cancelled state', async () => {
-    const episode = await startPodcastWorkflow({})
+    const episode = await startPodcastWorkflow(createStartInput())
     // Verify status field allows expected values
-    expect(['queued', 'generating', 'ready', 'failed', 'cancelled']).toContain(episode.status)
+    expect(PodcastEpisodeSchema.shape.status.safeParse(episode.status).success).toBe(true)
   })
 
   it('episode retains error context when failed', async () => {
-    const episode = await startPodcastWorkflow({})
+    const episode = await startPodcastWorkflow(createStartInput())
     // errorMessage should be string or null
-    expect(
-      episode.errorMessage === null || typeof episode.errorMessage === 'string',
-    ).toBe(true)
+    expect(episode.errorMessage === null || typeof episode.errorMessage === 'string').toBe(true)
   })
 
   it('startPodcastWorkflow can be retried (new episode each time)', async () => {
-    const first = await startPodcastWorkflow({ title: '重试测试' })
-    const second = await startPodcastWorkflow({ title: '重试测试' })
+    const first = await startPodcastWorkflow(createStartInput({ prompt: '重试测试' }))
+    const second = await startPodcastWorkflow(createStartInput({ prompt: '重试测试' }))
     expect(first).toBeDefined()
     expect(second).toBeDefined()
+    expect(first.id).not.toBe(second.id)
   })
 })
 

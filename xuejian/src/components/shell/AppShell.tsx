@@ -1,30 +1,54 @@
 ﻿import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
-import { SideNavigation, BottomNavigation } from './SidebarRail'
+import { SidebarRail } from './SidebarRail'
+import { TopBar } from './TopBar'
+import { AppFeedbackLayer } from '@/components/ui'
 
 interface AppShellProps {
   children: ReactNode
+  sidebar?: ReactNode
+  contextPanel?: ReactNode
   className?: string
 }
 
-export function AppShell({ children, className }: AppShellProps) {
+export function AppShell({ children, sidebar, contextPanel, className }: AppShellProps) {
   return (
     <div
       className={cn(
-        'paper-texture flex min-h-screen bg-paper-base font-body text-ink',
-        className,
+        'app-shell-frame paper-texture flex h-screen bg-paper-base font-body text-ink transition-colors duration-200',
+        className
       )}
       data-testid="app-shell"
     >
-      <SideNavigation />
+      {/* 左侧导航轨 */}
+      <SidebarRail />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <main className="flex-1 overflow-auto pb-20 md:pb-0">
-          {children}
+      {/* 主内容区域 */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <TopBar />
+        <main className="flex flex-1 overflow-hidden">
+          {/* 侧边栏（可选） */}
+          {sidebar && (
+            <aside className="theme-surface surface-panel w-64 border-r border-line-soft bg-paper-muted">
+              {sidebar}
+            </aside>
+          )}
+
+          {/* 中央内容 */}
+          <div className="app-shell-main flex-1 overflow-auto p-4">
+            {children}
+          </div>
+
+          {/* 上下文侧栏（可选） */}
+          {contextPanel && (
+            <aside className="theme-surface surface-panel w-80 border-l border-line-soft bg-paper-muted">
+              {contextPanel}
+            </aside>
+          )}
         </main>
       </div>
 
-      <BottomNavigation />
+      <AppFeedbackLayer />
     </div>
   )
 }

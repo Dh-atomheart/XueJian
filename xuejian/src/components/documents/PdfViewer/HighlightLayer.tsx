@@ -25,7 +25,8 @@ export function HighlightLayer({
   onHighlightClick,
   onHighlightHover,
 }: HighlightLayerProps) {
-  if (!viewport || (highlights.length === 0 && (!searchRects || searchRects.length === 0))) return null
+  if (!viewport || (highlights.length === 0 && (!searchRects || searchRects.length === 0)))
+    return null
 
   return (
     <svg className="absolute inset-0 z-10 h-full w-full" aria-hidden="true">
@@ -64,9 +65,7 @@ export function HighlightLayer({
               aria-label={`高亮 ${rectIndex + 1}`}
               className={cn(
                 'pointer-events-auto cursor-pointer transition-all duration-200',
-                isSelected || isHovered
-                  ? 'ring-2 ring-ink/30'
-                  : 'hover:ring-1 hover:ring-ink/20'
+                isSelected || isHovered ? 'ring-2 ring-ink/30' : 'hover:ring-1 hover:ring-ink/20'
               )}
               x={resolvedRect.x}
               y={resolvedRect.y}

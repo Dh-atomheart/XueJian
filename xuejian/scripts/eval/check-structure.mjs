@@ -17,7 +17,10 @@ const checks = [
   {
     id: 'update-card-gateway',
     file: 'src/services/gateway/cards.ts',
-    patterns: ['export interface UpdateCardInput', "async update(id: string, data: UpdateCardInput): Promise<Card>"],
+    patterns: [
+      'export interface UpdateCardInput',
+      'async update(id: string, data: UpdateCardInput): Promise<Card>',
+    ],
   },
   {
     id: 'update-card-mutation',
@@ -52,7 +55,11 @@ const checks = [
   {
     id: 'mock-gateway-mutable-card-flow',
     file: 'src/services/gateway/mockData.ts',
-    patterns: ["if (cmd === 'create_card')", "if (cmd === 'update_card')", "if (cmd === 'upload_card_media')"],
+    patterns: [
+      "if (cmd === 'create_card')",
+      "if (cmd === 'update_card')",
+      "if (cmd === 'upload_card_media')",
+    ],
   },
   {
     id: 'apkg-import-export-commands',
@@ -72,17 +79,17 @@ const checks = [
   {
     id: 'unit-test-card-studio',
     file: 'tests/unit/card-studio-page.test.tsx',
-    patterns: ['describe(\'CardStudioPage\'', 'creates a card through the editor modal'],
+    patterns: ["describe('CardStudioPage'", 'creates a card through the editor modal'],
   },
   {
     id: 'unit-test-review-page',
     file: 'tests/unit/review-page.test.tsx',
-    patterns: ['describe(\'ReviewPage\'', 'starts a study session and completes it'],
+    patterns: ["describe('ReviewPage'", 'starts a study session and completes it'],
   },
   {
     id: 'unit-test-renderers',
     file: 'tests/unit/image-occlusion-card-content.test.tsx',
-    patterns: ['describe(\'ImageOcclusionCardContent\''],
+    patterns: ["describe('ImageOcclusionCardContent'"],
   },
   {
     id: 'e2e-happy-path-spec',

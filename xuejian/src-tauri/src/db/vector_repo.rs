@@ -363,6 +363,8 @@ mod tests {
             .expect("apply v13 migration");
         conn.execute_batch(include_str!("../migrations/V14__chunk_embedding_state.sql"))
             .expect("apply v14 migration");
+        conn.execute_batch(include_str!("../migrations/V15__highlight_metadata.sql"))
+            .expect("apply v15 migration");
 
         Database { conn }
     }

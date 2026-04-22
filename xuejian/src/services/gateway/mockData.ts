@@ -1,5 +1,6 @@
 import type {
   ApiConfig,
+  AudioSegment,
   AppSettings,
   Card,
   CardCandidate,
@@ -8,6 +9,7 @@ import type {
   DocumentAnchor,
   DocumentChunk,
   Highlight,
+  PodcastEpisode,
   WorkflowEvent,
   WorkflowRun,
 } from '@/types'
@@ -28,6 +30,122 @@ const MOCK_HIGHLIGHT_IDS = [
   '88888888-8888-4888-8888-888888888888',
 ] as const
 const MOCK_WORKFLOW_RUN_ID = '11111111-1111-4111-8111-111111111111'
+const MOCK_PODCAST_EPISODE_ID = 'podcast-001'
+const MOCK_PODCAST_RUN_ID = 'run-podcast-001'
+
+function createMockPodcastScript(title = 'AI 学习播客') {
+  return {
+    title,
+    description: '自动生成的学习播客',
+    speakers: ['主持人', '专家'],
+    outline: ['话题介绍', '核心概念', '实际应用'],
+    segments: [
+      { id: 'seg1', speaker: '主持人', text: '欢迎收听今天的播客！', durationMs: 5000 },
+      { id: 'seg2', speaker: '专家', text: '今天我们来聊一聊学习方法。', durationMs: 6000 },
+    ],
+  }
+}
+
+function createMockPodcastOutline(title = 'AI 学习播客') {
+  return {
+    title,
+    description: '自动生成的学习播客提纲',
+    totalTargetDurationMs: 11000,
+    segments: [
+      {
+        segmentIndex: 0,
+        topic: '话题介绍',
+        keyPoints: ['介绍主题', '说明学习价值'],
+        targetDurationMs: 5000,
+        speakerAssignments: [
+          { speakerId: 'host', role: '主持人' },
+          { speakerId: 'expert', role: '专家' },
+        ],
+      },
+      {
+        segmentIndex: 1,
+        topic: '核心概念',
+        keyPoints: ['拆解概念', '给出例子'],
+        targetDurationMs: 6000,
+        speakerAssignments: [
+          { speakerId: 'expert', role: '专家' },
+          { speakerId: 'host', role: '主持人' },
+        ],
+      },
+    ],
+  }
+}
+
+function createMockPodcastEvaluation() {
+  return {
+    coherence: 8,
+    accuracy: 8,
+    styleConsistency: 8,
+    naturalness: 8,
+    overallScore: 8,
+    issues: [],
+    suggestions: ['可继续补充案例'],
+    revised: false,
+  }
+}
+
+function createMockPodcastEpisode(overrides: Partial<PodcastEpisode> = {}): PodcastEpisode {
+  const title = overrides.title ?? 'AI 学习播客'
+  const scriptJson = overrides.scriptJson ?? JSON.stringify(createMockPodcastScript(title))
+  const outlineJson = overrides.outlineJson ?? JSON.stringify(createMockPodcastOutline(title))
+  const evaluationJson = overrides.evaluationJson ?? JSON.stringify(createMockPodcastEvaluation())
+
+  return {
+    id: MOCK_PODCAST_EPISODE_ID,
+    documentIds: [MOCK_DOCUMENT_ID],
+    runId: MOCK_PODCAST_RUN_ID,
+    title,
+    scopeDescription: '测试播客',
+    style: 'interview',
+    language: 'zh-CN',
+    durationTier: 'medium',
+    ttsProvider: 'auto',
+    audioFormat: 'mp3',
+    scriptJson,
+    outlineJson,
+    evaluationJson,
+    audioPath: null,
+    durationMs: 11000,
+    status: 'ready',
+    errorMessage: null,
+    currentStage: 6,
+    completedSegments: 2,
+    totalSegments: 2,
+    createdAt: new Date(MOCK_NOW).toISOString(),
+    updatedAt: new Date(MOCK_NOW).toISOString(),
+    ...overrides,
+  }
+}
+
+function createMockPodcastAudioSegments(episodeId: string): AudioSegment[] {
+  return [
+    {
+      id: 'pod-audio-001',
+      episodeId,
+      dialogueSegmentId: 'seg1',
+      speaker: '主持人',
+      filePath: `mock://podcasts/${episodeId}/seg1.mp3`,
+      durationMs: 5000,
+      ttsProvider: 'edge_tts',
+      voiceId: 'zh-CN-XiaoxiaoNeural',
+    },
+    {
+      id: 'pod-audio-002',
+      episodeId,
+      dialogueSegmentId: 'seg2',
+      speaker: '专家',
+      filePath: `mock://podcasts/${episodeId}/seg2.mp3`,
+      durationMs: 6000,
+      ttsProvider: 'edge_tts',
+      voiceId: 'zh-CN-YunxiNeural',
+    },
+  ]
+}
 
 const normalizedRect = (x: number, y: number, width: number, height: number) => ({
   x: x / 612,
@@ -250,6 +368,9 @@ const mockCardMedia: CardMedia[] = []
 const mockCardCandidates: CardCandidate[] = createInitialMockCardCandidates()
 const mockWorkflowRuns: WorkflowRun[] = [createInitialMockWorkflowRun()]
 const mockWorkflowEvents: WorkflowEvent[] = createInitialMockWorkflowEvents()
+const mockPodcastEpisodes: PodcastEpisode[] = [createMockPodcastEpisode()]
+const mockPodcastAudioSegments: AudioSegment[] =
+  createMockPodcastAudioSegments(MOCK_PODCAST_EPISODE_ID)
 
 const mockHighlights: Highlight[] = [
   {
@@ -285,6 +406,12 @@ const defaultMockAppSettings: AppSettings = {
   language: 'zh-CN',
   dailyNewCardLimit: 20,
   reviewTimeLimit: 30,
+  podcastTtsProvider: 'auto',
+  podcastOpenaiModel: 'tts-1',
+  podcastFishAudioEndpoint: null,
+  podcastVoiceOverrides: {},
+  podcastOutputFormat: 'mp3',
+  podcastSkipReview: true,
 }
 
 let mockAppSettings: AppSettings = { ...defaultMockAppSettings }
@@ -304,6 +431,12 @@ export function resetMockGatewayState() {
   mockCardCandidates.splice(0, mockCardCandidates.length, ...createInitialMockCardCandidates())
   mockWorkflowRuns.splice(0, mockWorkflowRuns.length, createInitialMockWorkflowRun())
   mockWorkflowEvents.splice(0, mockWorkflowEvents.length, ...createInitialMockWorkflowEvents())
+  mockPodcastEpisodes.splice(0, mockPodcastEpisodes.length, createMockPodcastEpisode())
+  mockPodcastAudioSegments.splice(
+    0,
+    mockPodcastAudioSegments.length,
+    ...createMockPodcastAudioSegments(MOCK_PODCAST_EPISODE_ID)
+  )
   mockHighlights.splice(
     0,
     mockHighlights.length,
@@ -356,6 +489,130 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   const candidateStatus = getCandidateStatus(args?.status) ?? getCandidateStatus(filters?.status)
   const pointsData = getRecord(args?.data)
   const reviewLogId = getString(pointsData?.reviewLogId)
+
+  if (cmd === 'start_podcast_workflow') {
+    const data = getRecord(args?.data)
+    const documentIds = Array.isArray(data?.documentIds)
+      ? data.documentIds.filter((value): value is string => typeof value === 'string')
+      : [MOCK_DOCUMENT_ID]
+    const prompt = getString(data?.prompt)?.trim() ?? ''
+    const title = prompt || 'AI 学习播客'
+    const style = getPodcastStyle(data?.style) ?? 'interview'
+    const language = getPodcastLanguage(data?.language) ?? 'zh-CN'
+    const durationTier = getPodcastDurationTier(data?.durationTier) ?? 'medium'
+    const ttsProvider = getTtsProviderId(data?.ttsProvider) ?? 'auto'
+    const audioFormat = getAudioFormat(data?.audioFormat) ?? 'mp3'
+    const episodeId = `podcast-${crypto.randomUUID()}`
+    const runId = `run-${crypto.randomUUID()}`
+    const episode = createMockPodcastEpisode({
+      id: episodeId,
+      documentIds,
+      runId,
+      title,
+      scopeDescription: prompt,
+      style,
+      language,
+      durationTier,
+      ttsProvider,
+      audioFormat,
+    })
+
+    mockPodcastEpisodes.unshift(episode)
+    mockPodcastAudioSegments.push(...createMockPodcastAudioSegments(episodeId))
+    return episode as T
+  }
+
+  if (cmd === 'get_podcast_episode') {
+    const episodeId = getString(args?.episodeId)
+    const episode = episodeId
+      ? (mockPodcastEpisodes.find((item) => item.id === episodeId) ?? null)
+      : null
+    return episode as T
+  }
+
+  if (cmd === 'list_podcast_episodes') {
+    return [...mockPodcastEpisodes] as T
+  }
+
+  if (cmd === 'cancel_podcast_episode') {
+    const episodeId = getString(args?.episodeId)
+    const episode = episodeId ? mockPodcastEpisodes.find((item) => item.id === episodeId) : null
+    if (episode) {
+      episode.status = 'cancelled'
+      episode.errorMessage = 'User cancelled'
+      episode.updatedAt = new Date(MOCK_NOW).toISOString()
+    }
+    return undefined as T
+  }
+
+  if (cmd === 'delete_podcast_episode') {
+    const episodeId = getString(args?.episodeId)
+    if (episodeId) {
+      const episodeIndex = mockPodcastEpisodes.findIndex((item) => item.id === episodeId)
+      if (episodeIndex >= 0) {
+        mockPodcastEpisodes.splice(episodeIndex, 1)
+      }
+      for (let index = mockPodcastAudioSegments.length - 1; index >= 0; index -= 1) {
+        if (mockPodcastAudioSegments[index].episodeId === episodeId) {
+          mockPodcastAudioSegments.splice(index, 1)
+        }
+      }
+    }
+    return undefined as T
+  }
+
+  if (cmd === 'retry_podcast_episode') {
+    const episodeId = getString(args?.episodeId)
+    const original = episodeId
+      ? (mockPodcastEpisodes.find((item) => item.id === episodeId) ?? null)
+      : null
+    const retried = createMockPodcastEpisode({
+      id: `podcast-${crypto.randomUUID()}`,
+      runId: `run-${crypto.randomUUID()}`,
+      documentIds: original?.documentIds ?? [MOCK_DOCUMENT_ID],
+      title: original?.title ?? 'AI 学习播客',
+      scopeDescription: original?.scopeDescription ?? '',
+      style: original?.style ?? 'interview',
+      language: original?.language ?? 'zh-CN',
+      durationTier: original?.durationTier ?? 'medium',
+      ttsProvider: original?.ttsProvider ?? 'auto',
+      audioFormat: original?.audioFormat ?? 'mp3',
+    })
+    mockPodcastEpisodes.unshift(retried)
+    mockPodcastAudioSegments.push(...createMockPodcastAudioSegments(retried.id))
+    return retried as T
+  }
+
+  if (cmd === 'review_podcast_script') {
+    const episodeId = getString(args?.episodeId)
+    const action = getPodcastReviewAction(args?.action)
+    const editedScriptJson = getString(args?.editedScriptJson)
+    const episode = episodeId ? mockPodcastEpisodes.find((item) => item.id === episodeId) : null
+    if (!episode || !action) {
+      return null as T
+    }
+
+    if (action === 'reject') {
+      episode.status = 'cancelled'
+      episode.errorMessage = 'Review rejected'
+    } else {
+      episode.status = 'ready'
+      episode.currentStage = 6
+      if (action === 'edit' && editedScriptJson) {
+        episode.scriptJson = editedScriptJson
+      }
+    }
+    episode.updatedAt = new Date(MOCK_NOW).toISOString()
+    return episode as T
+  }
+
+  if (cmd === 'get_podcast_audio_segments') {
+    const episodeId = getString(args?.episodeId)
+    const segments = episodeId
+      ? mockPodcastAudioSegments.filter((item) => item.episodeId === episodeId)
+      : []
+    return segments as T
+  }
 
   if (cmd === 'list_workflow_runs') {
     const workflowType =
@@ -651,7 +908,9 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       : []
 
     if (!documentIdValue || !pageValue || !textValue || rectangles.length === 0) {
-      throw new Error('Mock create_highlight requires documentId, pageNumber, rectangles and textContent')
+      throw new Error(
+        'Mock create_highlight requires documentId, pageNumber, rectangles and textContent'
+      )
     }
 
     const highlight: Highlight = {
@@ -797,7 +1056,11 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     for (const [page, bucket] of pageBuckets) {
       bucket.forEach((card, index) => {
         const anchor = card.anchorId ? mockAnchors.find((item) => item.id === card.anchorId) : null
-        const rectangles = anchor?.rects.length ? anchor.rects : card.sourceCoordinates ? [card.sourceCoordinates] : []
+        const rectangles = anchor?.rects.length
+          ? anchor.rects
+          : card.sourceCoordinates
+            ? [card.sourceCoordinates]
+            : []
 
         if (rectangles.length === 0) {
           unlinked += 1
@@ -934,6 +1197,24 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         : {}),
       ...(typeof data?.reviewTimeLimit === 'number'
         ? { reviewTimeLimit: data.reviewTimeLimit }
+        : {}),
+      ...(data?.podcastTtsProvider
+        ? { podcastTtsProvider: data.podcastTtsProvider as AppSettings['podcastTtsProvider'] }
+        : {}),
+      ...(data?.podcastOpenaiModel
+        ? { podcastOpenaiModel: data.podcastOpenaiModel as string }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(data ?? {}, 'podcastFishAudioEndpoint')
+        ? { podcastFishAudioEndpoint: getNullableString(data?.podcastFishAudioEndpoint) }
+        : {}),
+      ...(data?.podcastVoiceOverrides && typeof data.podcastVoiceOverrides === 'object'
+        ? { podcastVoiceOverrides: data.podcastVoiceOverrides as Record<string, string> }
+        : {}),
+      ...(data?.podcastOutputFormat
+        ? { podcastOutputFormat: data.podcastOutputFormat as AppSettings['podcastOutputFormat'] }
+        : {}),
+      ...(typeof data?.podcastSkipReview === 'boolean'
+        ? { podcastSkipReview: data.podcastSkipReview }
         : {}),
     }
 
@@ -1418,8 +1699,10 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       nodesCreated: 0,
       edgesCreated: 0,
       nodesMerged: 0,
+      communitiesDetected: 0,
       status: 'queued',
       errorMessage: null,
+      currentStage: 0,
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
@@ -1430,7 +1713,12 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         label: '光合作用',
         aliases: ['Photosynthesis'],
         sourceIds: [MOCK_DOCUMENT_ID],
+        description: '植物利用光能将二氧化碳和水转化为有机物与氧气的过程。',
         metadata: {},
+        communityId: 'community-001',
+        parentCommunityId: 'community-100',
+        degree: 1,
+        hasEmbedding: true,
         createdAt: new Date(MOCK_NOW).toISOString(),
         updatedAt: new Date(MOCK_NOW).toISOString(),
       },
@@ -1440,6 +1728,25 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         label: '叶绿素',
         aliases: ['Chlorophyll'],
         sourceIds: [MOCK_DOCUMENT_ID],
+        description: '参与光合作用光反应的关键色素。',
+        metadata: {},
+        communityId: 'community-001',
+        parentCommunityId: 'community-100',
+        degree: 1,
+        hasEmbedding: true,
+        createdAt: new Date(MOCK_NOW).toISOString(),
+        updatedAt: new Date(MOCK_NOW).toISOString(),
+      },
+    ],
+    list_all_graph_edges: [
+      {
+        id: 'edge-001',
+        fromNodeId: 'node-001',
+        toNodeId: 'node-002',
+        relation: 'depends_on',
+        confidence: 0.85,
+        sourceIds: [MOCK_DOCUMENT_ID],
+        inferred: false,
         metadata: {},
         createdAt: new Date(MOCK_NOW).toISOString(),
         updatedAt: new Date(MOCK_NOW).toISOString(),
@@ -1450,9 +1757,11 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         id: 'edge-001',
         fromNodeId: 'node-001',
         toNodeId: 'node-002',
-        relation: 'requires',
+        relation: 'depends_on',
         confidence: 0.85,
         sourceIds: [MOCK_DOCUMENT_ID],
+        inferred: false,
+        metadata: {},
         createdAt: new Date(MOCK_NOW).toISOString(),
         updatedAt: new Date(MOCK_NOW).toISOString(),
       },
@@ -1464,15 +1773,177 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       label: '光合作用',
       aliases: ['Photosynthesis'],
       sourceIds: [MOCK_DOCUMENT_ID],
+      description: '植物利用光能将二氧化碳和水转化为有机物与氧气的过程。',
+      metadata: {},
+      communityId: 'community-001',
+      parentCommunityId: 'community-100',
+      degree: 1,
+      hasEmbedding: true,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    update_knowledge_node: {
+      id: 'node-001',
+      nodeType: 'concept',
+      label: '光合作用',
+      aliases: ['Photosynthesis'],
+      sourceIds: [MOCK_DOCUMENT_ID],
+      description: '植物利用光能将二氧化碳和水转化为有机物与氧气的过程。',
+      metadata: {},
+      communityId: 'community-001',
+      parentCommunityId: 'community-100',
+      degree: 1,
+      hasEmbedding: true,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    create_knowledge_edge: {
+      id: 'edge-002',
+      fromNodeId: 'node-002',
+      toNodeId: 'node-001',
+      relation: 'part_of',
+      confidence: 0.7,
+      sourceIds: [MOCK_DOCUMENT_ID],
+      inferred: false,
       metadata: {},
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
+    update_knowledge_edge: {
+      id: 'edge-001',
+      fromNodeId: 'node-001',
+      toNodeId: 'node-002',
+      relation: 'depends_on',
+      confidence: 0.85,
+      sourceIds: [MOCK_DOCUMENT_ID],
+      inferred: false,
+      metadata: {},
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    delete_knowledge_edge: undefined,
+    list_communities: [
+      {
+        id: 'community-001',
+        level: 0,
+        title: '光合作用核心过程',
+        memberNodeIds: ['node-001', 'node-002'],
+        parentCommunityId: 'community-100',
+        summaryJson: JSON.stringify({
+          title: '光合作用核心过程',
+          summary: '该社区围绕光合作用及其关键物质，描述能量转换与色素作用。',
+          keyEntities: ['光合作用', '叶绿素'],
+          coreRelations: ['光合作用 depends_on 叶绿素'],
+          knowledgeGaps: ['尚未展示光反应与暗反应的完整链路'],
+        }),
+        nodeCount: 2,
+        edgeCount: 1,
+        collapsed: false,
+        createdAt: new Date(MOCK_NOW).toISOString(),
+        updatedAt: new Date(MOCK_NOW).toISOString(),
+      },
+    ],
+    get_community_summary: {
+      title: '光合作用核心过程',
+      summary: '该社区围绕光合作用及其关键物质，描述能量转换与色素作用。',
+      keyEntities: ['光合作用', '叶绿素'],
+      coreRelations: ['光合作用 depends_on 叶绿素'],
+      knowledgeGaps: ['尚未展示光反应与暗反应的完整链路'],
+    },
+    toggle_community_collapse: undefined,
     delete_graph_node: undefined,
-    list_graph_build_runs: [],
+    list_graph_build_runs: [
+      {
+        id: 'graph-build-001',
+        runId: 'run-graph-001',
+        scopeDescription: '1 document(s)',
+        documentIds: [MOCK_DOCUMENT_ID],
+        nodesCreated: 2,
+        edgesCreated: 1,
+        nodesMerged: 0,
+        communitiesDetected: 1,
+        status: 'completed',
+        errorMessage: null,
+        currentStage: 5,
+        createdAt: new Date(MOCK_NOW).toISOString(),
+        updatedAt: new Date(MOCK_NOW).toISOString(),
+      },
+    ],
+    cancel_graph_build: undefined,
+    get_graph_stats: {
+      totalNodes: 2,
+      totalEdges: 1,
+      totalCommunities: 1,
+      nodeTypeDistribution: {
+        concept: 1,
+        person: 0,
+        event: 0,
+        formula: 0,
+        term: 1,
+      },
+      lastBuildRun: {
+        id: 'graph-build-001',
+        runId: 'run-graph-001',
+        scopeDescription: '1 document(s)',
+        documentIds: [MOCK_DOCUMENT_ID],
+        nodesCreated: 2,
+        edgesCreated: 1,
+        nodesMerged: 0,
+        communitiesDetected: 1,
+        status: 'completed',
+        errorMessage: null,
+        currentStage: 5,
+        createdAt: new Date(MOCK_NOW).toISOString(),
+        updatedAt: new Date(MOCK_NOW).toISOString(),
+      },
+    },
   }
 
   return mockResponses[cmd] as T
+}
+
+function getPodcastStyle(value: unknown): PodcastEpisode['style'] | undefined {
+  return value === 'deep_dive' ||
+    value === 'lecture' ||
+    value === 'interview' ||
+    value === 'casual' ||
+    value === 'exam_prep'
+    ? value
+    : undefined
+}
+
+function getPodcastLanguage(value: unknown): PodcastEpisode['language'] | undefined {
+  return value === 'zh-CN' ||
+    value === 'en-US' ||
+    value === 'ja-JP' ||
+    value === 'ko-KR' ||
+    value === 'other'
+    ? value
+    : undefined
+}
+
+function getPodcastDurationTier(value: unknown): PodcastEpisode['durationTier'] | undefined {
+  return value === 'short' || value === 'medium' || value === 'long' || value === 'ultra_long'
+    ? value
+    : undefined
+}
+
+function getTtsProviderId(value: unknown): PodcastEpisode['ttsProvider'] | undefined {
+  return value === 'auto' ||
+    value === 'openai' ||
+    value === 'edge_tts' ||
+    value === 'elevenlabs' ||
+    value === 'fish_audio'
+    ? value
+    : undefined
+}
+
+function getAudioFormat(value: unknown): PodcastEpisode['audioFormat'] | undefined {
+  return value === 'mp3' || value === 'wav' ? value : undefined
+}
+
+function getPodcastReviewAction(value: unknown): 'accept' | 'edit' | 'reject' | undefined {
+  return value === 'accept' || value === 'edit' || value === 'reject' ? value : undefined
 }
 
 function serializeDocument(document: Document) {

@@ -5,11 +5,10 @@ import { useDocumentImport } from '@/features/documents/useDocumentImport'
 import { cardsGateway } from '@/services/gateway/cards'
 import { documentGateway } from '@/services/gateway/documents'
 import type { Document } from '@/types'
-import { parsePdfDocument, resolvePdfDocumentSource } from '@/services/renderer/pdf'
+import { parsePdfDocument } from '@/services/renderer/pdf'
 
 vi.mock('@/services/renderer/pdf', () => ({
   parsePdfDocument: vi.fn(),
-  resolvePdfDocumentSource: vi.fn(),
 }))
 
 const importedDocument: Document = {
@@ -93,7 +92,6 @@ describe('useDocumentImport', () => {
     vi.spyOn(documentGateway, 'readBinary').mockResolvedValue(new Uint8Array([1, 2, 3]))
     vi.spyOn(documentGateway, 'updateStatus').mockResolvedValue()
     vi.spyOn(documentGateway, 'saveAnalysis').mockResolvedValue(readyDocument)
-    vi.mocked(resolvePdfDocumentSource).mockImplementation(async (_filePath, fallback) => fallback())
     vi.spyOn(cardsGateway, 'startGeneration').mockResolvedValue({
       id: '11111111-1111-4111-8111-111111111111',
       workflowType: 'card_generation',

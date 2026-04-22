@@ -1,2 +1,2 @@
 ﻿export { AppShell } from './AppShell'
-export { SideNavigation, SidebarRail, BottomNavigation } from './SidebarRail'
+export { SidebarRail } from './SidebarRail'

@@ -115,7 +115,8 @@ export function DashboardPage() {
           </div>
           <button
             type="button"
-            onClick={() => setActiveNavItem('profile')}
+            onClick={() => setActiveNavItem('settings')}
+            title="前往设置"
             className="text-ink-muted hover:text-ink transition-colors"
           >
             <svg

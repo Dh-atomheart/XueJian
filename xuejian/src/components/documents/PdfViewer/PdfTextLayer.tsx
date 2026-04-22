@@ -67,7 +67,13 @@ export function PdfTextLayer({ pdfSource, pageNumber, viewport, className }: Pdf
   }
 
   return (
-    <div className={cn('pointer-events-none absolute inset-0 z-[6] select-text overflow-hidden', className)} data-testid="pdf-text-layer">
+    <div
+      className={cn(
+        'pointer-events-none absolute inset-0 z-[6] select-text overflow-hidden',
+        className
+      )}
+      data-testid="pdf-text-layer"
+    >
       {layer.items.map((item, index) => {
         const text = `${item.text}${item.hasEol ? '\n' : ' '}`
 

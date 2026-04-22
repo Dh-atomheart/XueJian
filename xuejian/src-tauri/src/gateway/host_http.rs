@@ -8,8 +8,10 @@ use tauri::{AppHandle, Manager};
 
 use crate::app_state::AppState;
 use crate::db::{
-    ApiConfig, ChunkEmbeddingRecord, CreateCardCandidateRequest, EmbeddingProfile,
-    SettingsRepository, VectorRepository,
+    ApiConfig, ChunkEmbeddingRecord, Community, CommunityRepository, CreateCardCandidateRequest,
+    EmbeddingProfile, InsertKnowledgeEdgeRequest, InsertKnowledgeNodeRequest,
+    KnowledgeEdge, KnowledgeGraphRepository, KnowledgeNode, SettingsRepository,
+    UpdateKnowledgeEdgeRequest, UpdateKnowledgeNodeRequest, VectorRepository,
 };
 use crate::gateway::ORCHESTRATION_PROTOCOL_VERSION;
 
@@ -237,6 +239,13 @@ fn route_request(
         }
 
         // ── ToolGateway ───────────────────────────────────
+        ("GET", "/tool-gateway/settings") => {
+            match get_app_settings_json(&app_state) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
         ("GET", path) if path.starts_with("/tool-gateway/documents/") => {
             let document_id = path.strip_prefix("/tool-gateway/documents/").unwrap_or("");
             // Check if this is a sub-route (status update or analysis)
@@ -358,9 +367,266 @@ fn route_request(
             }
         }
 
+        // ── ToolGateway: knowledge graph ───────────────
+        ("GET", "/tool-gateway/graph/nodes") => {
+            match list_knowledge_nodes_json(&app_state) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/tool-gateway/graph/nodes") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match create_knowledge_node_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/tool-gateway/graph/nodes/find") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match find_knowledge_node_by_label_json(&app_state, request) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/graph/nodes/") && path.ends_with("/update") => {
+            let node_id = path
+                .strip_prefix("/tool-gateway/graph/nodes/")
+                .and_then(|p| p.strip_suffix("/update"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match update_knowledge_node_json(&app_state, node_id, request) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", "/tool-gateway/graph/edges") => {
+            match list_knowledge_edges_json(&app_state) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/tool-gateway/graph/edges") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match create_knowledge_edge_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/graph/edges/") && path.ends_with("/update") => {
+            let edge_id = path
+                .strip_prefix("/tool-gateway/graph/edges/")
+                .and_then(|p| p.strip_suffix("/update"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match update_knowledge_edge_json(&app_state, edge_id, request) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/graph/edges/") && path.ends_with("/delete") => {
+            let edge_id = path
+                .strip_prefix("/tool-gateway/graph/edges/")
+                .and_then(|p| p.strip_suffix("/delete"))
+                .unwrap_or("");
+            match delete_knowledge_edge_json(&app_state, edge_id) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/tool-gateway/graph/communities") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match create_community_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/tool-gateway/graph/communities/list") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match list_communities_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", path) if path.starts_with("/tool-gateway/graph/communities/") && path.ends_with("/summary") => {
+            let community_id = path
+                .strip_prefix("/tool-gateway/graph/communities/")
+                .and_then(|p| p.strip_suffix("/summary"))
+                .unwrap_or("");
+            match get_community_summary_json(&app_state, community_id) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/tool-gateway/graph/entity-embeddings") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match save_entity_embedding_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", path) if path.starts_with("/tool-gateway/graph/entity-embeddings/") => {
+            let node_id = path
+                .strip_prefix("/tool-gateway/graph/entity-embeddings/")
+                .unwrap_or("");
+            match get_entity_embedding_json(&app_state, node_id) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/tool-gateway/graph/entity-search") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match vector_search_entity_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", "/tool-gateway/graph/stats") => {
+            match get_graph_stats_json(&app_state) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
         // ── ToolGateway: cards (for export) ───────────────
         ("GET", path) if path.starts_with("/tool-gateway/cards") => {
             match list_cards_json(&app_state, path) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        // ── ToolGateway: podcasts ─────────────────────────
+        ("GET", "/tool-gateway/podcasts") => {
+            match list_podcast_episodes_json(&app_state) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/tool-gateway/podcasts") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match create_podcast_episode_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", path) if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/audio-segments") => {
+            let episode_id = path
+                .strip_prefix("/tool-gateway/podcasts/")
+                .and_then(|p| p.strip_suffix("/audio-segments"))
+                .unwrap_or("");
+            match list_podcast_audio_segments_json(&app_state, episode_id) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/update") => {
+            let episode_id = path
+                .strip_prefix("/tool-gateway/podcasts/")
+                .and_then(|p| p.strip_suffix("/update"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match update_podcast_episode_json(&app_state, episode_id, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/review") => {
+            let episode_id = path
+                .strip_prefix("/tool-gateway/podcasts/")
+                .and_then(|p| p.strip_suffix("/review"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match review_podcast_script_json(&app_state, episode_id, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/delete") => {
+            let episode_id = path
+                .strip_prefix("/tool-gateway/podcasts/")
+                .and_then(|p| p.strip_suffix("/delete"))
+                .unwrap_or("");
+            match delete_podcast_episode_json(&app_state, episode_id) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", path) if path.starts_with("/tool-gateway/podcasts/") => {
+            let episode_id = path.strip_prefix("/tool-gateway/podcasts/").unwrap_or("");
+            match get_podcast_episode_json(&app_state, episode_id) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/tool-gateway/podcast-audio-segments") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match save_podcast_audio_segment_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
                 Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
             }
@@ -400,6 +666,21 @@ fn route_request(
                 .and_then(|p| p.strip_suffix("/cancel"))
                 .unwrap_or("");
             match cancel_run_json(&app_state, run_id) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/runs/") && path.ends_with("/events") => {
+            let run_id = path
+                .strip_prefix("/tool-gateway/runs/")
+                .and_then(|p| p.strip_suffix("/events"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+            match append_workflow_event_json(&app_state, run_id, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
                 Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
             }
@@ -901,6 +1182,346 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
     Ok(merged_results.into())
 }
 
+fn knowledge_node_to_json(node: KnowledgeNode) -> Value {
+    json!({
+        "id": node.id,
+        "nodeType": node.node_type,
+        "label": node.label,
+        "aliases": serde_json::from_str::<Vec<String>>(&node.aliases_json).unwrap_or_default(),
+        "sourceIds": serde_json::from_str::<Vec<String>>(&node.source_ids_json).unwrap_or_default(),
+        "description": node.description,
+        "metadata": serde_json::from_str::<Value>(&node.metadata_json).unwrap_or_else(|_| json!({})),
+        "communityId": node.community_id,
+        "parentCommunityId": node.parent_community_id,
+        "degree": node.degree,
+        "hasEmbedding": node.has_embedding,
+        "createdAt": node.created_at,
+        "updatedAt": node.updated_at,
+    })
+}
+
+fn knowledge_edge_to_json(edge: KnowledgeEdge) -> Value {
+    json!({
+        "id": edge.id,
+        "fromNodeId": edge.from_node_id,
+        "toNodeId": edge.to_node_id,
+        "relation": edge.relation,
+        "confidence": edge.confidence,
+        "sourceIds": serde_json::from_str::<Vec<String>>(&edge.source_ids_json).unwrap_or_default(),
+        "inferred": edge.inferred,
+        "metadata": serde_json::from_str::<Value>(&edge.metadata_json).unwrap_or_else(|_| json!({})),
+        "createdAt": edge.created_at,
+        "updatedAt": edge.updated_at,
+    })
+}
+
+fn community_to_json(community: Community) -> Value {
+    json!({
+        "id": community.id,
+        "level": community.level,
+        "title": community.title,
+        "memberNodeIds": serde_json::from_str::<Vec<String>>(&community.member_node_ids_json).unwrap_or_default(),
+        "parentCommunityId": community.parent_community_id,
+        "summary": community.summary_json.as_deref().and_then(|value| serde_json::from_str::<Value>(value).ok()),
+        "nodeCount": community.node_count,
+        "edgeCount": community.edge_count,
+        "collapsed": community.collapsed,
+        "createdAt": community.created_at,
+        "updatedAt": community.updated_at,
+    })
+}
+
+fn list_knowledge_nodes_json(state: &AppState) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    Ok(repo
+        .list_nodes()?
+        .into_iter()
+        .map(knowledge_node_to_json)
+        .collect::<Vec<_>>()
+        .into())
+}
+
+fn create_knowledge_node_json(state: &AppState, request: Value) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    let node = repo.insert_node(InsertKnowledgeNodeRequest {
+        id: request.get("id").and_then(Value::as_str).map(String::from),
+        node_type: request
+            .get("nodeType")
+            .or_else(|| request.get("type"))
+            .and_then(Value::as_str)
+            .unwrap_or("concept")
+            .to_string(),
+        label: request.get("label").and_then(Value::as_str).unwrap_or("").to_string(),
+        aliases_json: serde_json::to_string(&string_array_field(&request, "aliases"))?,
+        source_ids_json: serde_json::to_string(&string_array_field(&request, "sourceIds"))?,
+        description: request
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        metadata_json: request.get("metadata").cloned().unwrap_or_else(|| json!({})).to_string(),
+        community_id: request.get("communityId").and_then(Value::as_str).map(String::from),
+        parent_community_id: request
+            .get("parentCommunityId")
+            .and_then(Value::as_str)
+            .map(String::from),
+        degree: request.get("degree").and_then(Value::as_i64).unwrap_or(0),
+        has_embedding: request
+            .get("hasEmbedding")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })?;
+    Ok(knowledge_node_to_json(node))
+}
+
+fn find_knowledge_node_by_label_json(state: &AppState, request: Value) -> Result<Option<Value>> {
+    let label = request.get("label").and_then(Value::as_str).unwrap_or("").trim();
+    if label.is_empty() {
+        return Ok(None);
+    }
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    Ok(repo.find_node_by_label(label)?.map(knowledge_node_to_json))
+}
+
+fn update_knowledge_node_json(
+    state: &AppState,
+    node_id: &str,
+    request: Value,
+) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    let updates = UpdateKnowledgeNodeRequest {
+        node_type: request.get("nodeType").and_then(Value::as_str).map(String::from),
+        label: request.get("label").and_then(Value::as_str).map(String::from),
+        aliases_json: request
+            .get("aliases")
+            .map(|_| serde_json::to_string(&string_array_field(&request, "aliases")))
+            .transpose()?,
+        source_ids_json: request
+            .get("sourceIds")
+            .map(|_| serde_json::to_string(&string_array_field(&request, "sourceIds")))
+            .transpose()?,
+        description: request.get("description").and_then(Value::as_str).map(String::from),
+        metadata_json: request.get("metadata").map(Value::to_string),
+        community_id: optional_string_patch(&request, "communityId"),
+        parent_community_id: optional_string_patch(&request, "parentCommunityId"),
+        degree: request.get("degree").and_then(Value::as_i64),
+        has_embedding: request.get("hasEmbedding").and_then(Value::as_bool),
+    };
+    Ok(repo.update_node(node_id, updates)?.map(knowledge_node_to_json))
+}
+
+fn list_knowledge_edges_json(state: &AppState) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    Ok(repo
+        .list_all_edges()?
+        .into_iter()
+        .map(knowledge_edge_to_json)
+        .collect::<Vec<_>>()
+        .into())
+}
+
+fn create_knowledge_edge_json(state: &AppState, request: Value) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    let edge = repo.insert_edge(InsertKnowledgeEdgeRequest {
+        id: request.get("id").and_then(Value::as_str).map(String::from),
+        from_node_id: request
+            .get("fromNodeId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        to_node_id: request
+            .get("toNodeId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        relation: request
+            .get("relation")
+            .and_then(Value::as_str)
+            .unwrap_or("related_to")
+            .to_string(),
+        confidence: request.get("confidence").and_then(Value::as_f64).unwrap_or(0.5),
+        source_ids_json: serde_json::to_string(&string_array_field(&request, "sourceIds"))?,
+        inferred: request.get("inferred").and_then(Value::as_bool).unwrap_or(false),
+        metadata_json: request.get("metadata").cloned().unwrap_or_else(|| json!({})).to_string(),
+    })?;
+    Ok(knowledge_edge_to_json(edge))
+}
+
+fn update_knowledge_edge_json(
+    state: &AppState,
+    edge_id: &str,
+    request: Value,
+) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    let updates = UpdateKnowledgeEdgeRequest {
+        from_node_id: request.get("fromNodeId").and_then(Value::as_str).map(String::from),
+        to_node_id: request.get("toNodeId").and_then(Value::as_str).map(String::from),
+        relation: request.get("relation").and_then(Value::as_str).map(String::from),
+        confidence: request.get("confidence").and_then(Value::as_f64),
+        source_ids_json: request
+            .get("sourceIds")
+            .map(|_| serde_json::to_string(&string_array_field(&request, "sourceIds")))
+            .transpose()?,
+        inferred: request.get("inferred").and_then(Value::as_bool),
+        metadata_json: request.get("metadata").map(Value::to_string),
+    };
+    Ok(repo.update_edge(edge_id, updates)?.map(knowledge_edge_to_json))
+}
+
+fn delete_knowledge_edge_json(state: &AppState, edge_id: &str) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    repo.delete_edge(edge_id)?;
+    Ok(json!({"ok": true}))
+}
+
+fn create_community_json(state: &AppState, request: Value) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = CommunityRepository::new(&db);
+    let community = repo.create_community(crate::db::NewCommunity {
+        id: request.get("id").and_then(Value::as_str).map(String::from),
+        level: request.get("level").and_then(Value::as_i64).unwrap_or(1) as i32,
+        title: request.get("title").and_then(Value::as_str).unwrap_or("").to_string(),
+        member_node_ids_json: serde_json::to_string(&string_array_field(&request, "memberNodeIds"))?,
+        parent_community_id: request
+            .get("parentCommunityId")
+            .and_then(Value::as_str)
+            .map(String::from),
+        summary_json: request.get("summary").map(Value::to_string),
+        node_count: request.get("nodeCount").and_then(Value::as_i64).unwrap_or(0),
+        edge_count: request.get("edgeCount").and_then(Value::as_i64).unwrap_or(0),
+        collapsed: request.get("collapsed").and_then(Value::as_bool).unwrap_or(false),
+    })?;
+    Ok(community_to_json(community))
+}
+
+fn list_communities_json(state: &AppState, request: Value) -> Result<Value> {
+    let level = request.get("level").and_then(Value::as_i64).map(|value| value as i32);
+    let db = state.lock_db()?;
+    let repo = CommunityRepository::new(&db);
+    Ok(repo
+        .list_communities(level)?
+        .into_iter()
+        .map(community_to_json)
+        .collect::<Vec<_>>()
+        .into())
+}
+
+fn get_community_summary_json(state: &AppState, community_id: &str) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = CommunityRepository::new(&db);
+    Ok(repo
+        .get_community_summary(community_id)?
+        .and_then(|summary| serde_json::from_str::<Value>(&summary).ok()))
+}
+
+fn save_entity_embedding_json(state: &AppState, request: Value) -> Result<Value> {
+    let node_id = request.get("nodeId").and_then(Value::as_str).unwrap_or("");
+    let model = request
+        .get("embeddingModel")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let vector = float_array_field(&request, "vector");
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    repo.save_entity_embedding(node_id, model, &vector)?;
+    Ok(json!({"ok": true, "nodeId": node_id, "storedDimensions": vector.len()}))
+}
+
+fn get_entity_embedding_json(state: &AppState, node_id: &str) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    Ok(repo.get_entity_embedding(node_id)?.map(|record| {
+        json!({
+            "nodeId": record.node_id,
+            "embeddingModel": record.embedding_model,
+            "vector": serde_json::from_str::<Vec<f32>>(&record.vector_json).unwrap_or_default(),
+            "updatedAt": record.updated_at,
+        })
+    }))
+}
+
+fn vector_search_entity_json(state: &AppState, request: Value) -> Result<Value> {
+    let query_embedding = float_array_field(&request, "queryEmbedding");
+    let top_k = request.get("topK").and_then(Value::as_u64).unwrap_or(10) as usize;
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    Ok(repo
+        .vector_search_entity(&query_embedding, top_k)?
+        .into_iter()
+        .map(|item| {
+            json!({
+                "nodeId": item.node_id,
+                "label": item.label,
+                "nodeType": item.node_type,
+                "description": item.description,
+                "similarity": item.similarity,
+            })
+        })
+        .collect::<Vec<_>>()
+        .into())
+}
+
+fn get_graph_stats_json(state: &AppState) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = KnowledgeGraphRepository::new(&db);
+    let stats = repo.get_graph_stats()?;
+    Ok(json!({
+        "totalNodes": stats.total_nodes,
+        "totalEdges": stats.total_edges,
+        "totalCommunities": stats.total_communities,
+        "nodeTypeDistribution": stats.node_type_distribution,
+        "lastBuildRun": stats.last_build_run.map(|run| json!({
+            "id": run.id,
+            "runId": run.run_id,
+            "scopeDescription": run.scope_description,
+            "documentIds": serde_json::from_str::<Vec<String>>(&run.document_ids_json).unwrap_or_default(),
+            "nodesCreated": run.nodes_created,
+            "edgesCreated": run.edges_created,
+            "nodesMerged": run.nodes_merged,
+            "communitiesDetected": run.communities_detected,
+            "status": run.status,
+            "errorMessage": run.error_message,
+            "currentStage": run.current_stage,
+            "createdAt": run.created_at,
+            "updatedAt": run.updated_at,
+        })),
+    }))
+}
+
+fn string_array_field(request: &Value, key: &str) -> Vec<String> {
+    request
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(|item| item.as_str().map(String::from)).collect())
+        .unwrap_or_default()
+}
+
+fn float_array_field(request: &Value, key: &str) -> Vec<f32> {
+    request
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_f64)
+                .map(|item| item as f32)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn optional_string_patch(request: &Value, key: &str) -> Option<Option<String>> {
+    request.get(key).map(|value| value.as_str().map(String::from))
+}
+
 /// Parse simple key=value query string (no URL decoding needed for our use).
 fn qs_param<'a>(qs: &'a str, key: &str) -> Option<&'a str> {
     qs.split('&').find_map(|pair| {
@@ -942,6 +1563,271 @@ fn list_cards_json(state: &AppState, path_with_qs: &str) -> Result<Value> {
             "tags": c.tags,
         })
     }).collect::<Vec<_>>().into())
+}
+
+fn get_app_settings_json(state: &AppState) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::SettingsRepository::new(&db);
+    let settings = repo.get_settings()?;
+
+    Ok(json!({
+        "dailyNewCardLimit": settings.daily_new_card_limit,
+        "reviewTimeLimit": settings.review_time_limit,
+        "theme": settings.theme,
+        "language": settings.language,
+        "podcastTtsProvider": settings.podcast_tts_provider,
+        "podcastOpenaiModel": settings.podcast_openai_model,
+        "podcastFishAudioEndpoint": settings.podcast_fish_audio_endpoint,
+        "podcastVoiceOverrides": settings.podcast_voice_overrides,
+        "podcastOutputFormat": settings.podcast_output_format,
+        "podcastSkipReview": settings.podcast_skip_review,
+    }))
+}
+
+fn podcast_episode_to_json(episode: crate::db::PodcastEpisode) -> Value {
+    json!({
+        "id": episode.id,
+        "documentIds": episode.document_ids,
+        "runId": episode.run_id,
+        "title": episode.title,
+        "scopeDescription": episode.scope_description,
+        "style": episode.style,
+        "language": episode.language,
+        "durationTier": episode.duration_tier,
+        "ttsProvider": episode.tts_provider,
+        "audioFormat": episode.audio_format,
+        "scriptJson": episode.script_json,
+        "outlineJson": episode.outline_json,
+        "evaluationJson": episode.evaluation_json,
+        "audioPath": episode.audio_path,
+        "durationMs": episode.duration_ms,
+        "status": episode.status,
+        "errorMessage": episode.error_message,
+        "currentStage": episode.current_stage,
+        "completedSegments": episode.completed_segments,
+        "totalSegments": episode.total_segments,
+        "createdAt": episode.created_at,
+        "updatedAt": episode.updated_at,
+    })
+}
+
+fn podcast_audio_segment_to_json(segment: crate::db::AudioSegment) -> Value {
+    json!({
+        "id": segment.id,
+        "episodeId": segment.episode_id,
+        "dialogueSegmentId": segment.dialogue_segment_id,
+        "speaker": segment.speaker,
+        "filePath": segment.file_path,
+        "durationMs": segment.duration_ms,
+        "ttsProvider": segment.tts_provider,
+        "voiceId": segment.voice_id,
+    })
+}
+
+fn create_podcast_episode_json(state: &AppState, request: Value) -> Result<Value> {
+    let document_ids = request
+        .get("documentIds")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(|value| value.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let db = state.lock_db()?;
+    let repo = crate::db::PodcastRepository::new(&db);
+    let episode = repo.create_episode(crate::db::CreatePodcastEpisodeRequest {
+        id: request
+            .get("id")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        document_ids,
+        run_id: request.get("runId").and_then(Value::as_str).map(String::from),
+        title: request.get("title").and_then(Value::as_str).unwrap_or("AI 学习播客").to_string(),
+        scope_description: request
+            .get("scopeDescription")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        style: request.get("style").and_then(Value::as_str).unwrap_or("interview").to_string(),
+        language: request.get("language").and_then(Value::as_str).unwrap_or("zh-CN").to_string(),
+        duration_tier: request
+            .get("durationTier")
+            .and_then(Value::as_str)
+            .unwrap_or("medium")
+            .to_string(),
+        tts_provider: request
+            .get("ttsProvider")
+            .and_then(Value::as_str)
+            .unwrap_or("auto")
+            .to_string(),
+        audio_format: request
+            .get("audioFormat")
+            .and_then(Value::as_str)
+            .unwrap_or("mp3")
+            .to_string(),
+    })?;
+    Ok(podcast_episode_to_json(episode))
+}
+
+fn get_podcast_episode_json(state: &AppState, episode_id: &str) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = crate::db::PodcastRepository::new(&db);
+    Ok(repo.get_episode(episode_id)?.map(podcast_episode_to_json))
+}
+
+fn list_podcast_episodes_json(state: &AppState) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::PodcastRepository::new(&db);
+    Ok(repo
+        .list_episodes()?
+        .into_iter()
+        .map(podcast_episode_to_json)
+        .collect::<Vec<_>>()
+        .into())
+}
+
+fn update_podcast_episode_json(state: &AppState, episode_id: &str, request: Value) -> Result<Value> {
+    let mut updates = crate::db::PodcastEpisodeUpdates::default();
+
+    if let Some(value) = request.get("documentIds") {
+        updates.document_ids = Some(
+            value
+                .as_array()
+                .map(|items| items.iter().filter_map(|item| item.as_str().map(String::from)).collect())
+                .unwrap_or_default(),
+        );
+    }
+    if let Some(value) = request.get("runId") {
+        updates.run_id = Some(value.as_str().map(String::from));
+    }
+    if let Some(value) = request.get("title").and_then(Value::as_str) {
+        updates.title = Some(value.to_string());
+    }
+    if let Some(value) = request.get("scopeDescription").and_then(Value::as_str) {
+        updates.scope_description = Some(value.to_string());
+    }
+    if let Some(value) = request.get("style").and_then(Value::as_str) {
+        updates.style = Some(value.to_string());
+    }
+    if let Some(value) = request.get("language").and_then(Value::as_str) {
+        updates.language = Some(value.to_string());
+    }
+    if let Some(value) = request.get("durationTier").and_then(Value::as_str) {
+        updates.duration_tier = Some(value.to_string());
+    }
+    if let Some(value) = request.get("ttsProvider").and_then(Value::as_str) {
+        updates.tts_provider = Some(value.to_string());
+    }
+    if let Some(value) = request.get("audioFormat").and_then(Value::as_str) {
+        updates.audio_format = Some(value.to_string());
+    }
+    if let Some(value) = request.get("scriptJson").and_then(Value::as_str) {
+        updates.script_json = Some(value.to_string());
+    }
+    if let Some(value) = request.get("outlineJson") {
+        updates.outline_json = Some(value.as_str().map(String::from));
+    }
+    if let Some(value) = request.get("evaluationJson") {
+        updates.evaluation_json = Some(value.as_str().map(String::from));
+    }
+    if let Some(value) = request.get("audioPath") {
+        updates.audio_path = Some(value.as_str().map(String::from));
+    }
+    if let Some(value) = request.get("durationMs").and_then(Value::as_i64) {
+        updates.duration_ms = Some(value);
+    }
+    if let Some(value) = request.get("status").and_then(Value::as_str) {
+        updates.status = Some(value.to_string());
+    }
+    if let Some(value) = request.get("errorMessage") {
+        updates.error_message = Some(value.as_str().map(String::from));
+    }
+    if let Some(value) = request.get("currentStage").and_then(Value::as_i64) {
+        updates.current_stage = Some(value);
+    }
+    if let Some(value) = request.get("completedSegments").and_then(Value::as_i64) {
+        updates.completed_segments = Some(value);
+    }
+    if let Some(value) = request.get("totalSegments").and_then(Value::as_i64) {
+        updates.total_segments = Some(value);
+    }
+
+    let db = state.lock_db()?;
+    let repo = crate::db::PodcastRepository::new(&db);
+    let episode = repo.update_episode(episode_id, &updates)?;
+    Ok(podcast_episode_to_json(episode))
+}
+
+fn delete_podcast_episode_json(state: &AppState, episode_id: &str) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::PodcastRepository::new(&db);
+    repo.delete_episode(episode_id)?;
+    Ok(json!({"ok": true}))
+}
+
+fn save_podcast_audio_segment_json(state: &AppState, request: Value) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::PodcastRepository::new(&db);
+    let segment = repo.save_audio_segment(crate::db::NewAudioSegment {
+        id: request
+            .get("id")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        episode_id: request.get("episodeId").and_then(Value::as_str).unwrap_or("").to_string(),
+        dialogue_segment_id: request
+            .get("dialogueSegmentId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        speaker: request.get("speaker").and_then(Value::as_str).unwrap_or("").to_string(),
+        file_path: request.get("filePath").and_then(Value::as_str).unwrap_or("").to_string(),
+        duration_ms: request.get("durationMs").and_then(Value::as_i64).unwrap_or(0),
+        tts_provider: request
+            .get("ttsProvider")
+            .and_then(Value::as_str)
+            .unwrap_or("auto")
+            .to_string(),
+        voice_id: request.get("voiceId").and_then(Value::as_str).unwrap_or("default").to_string(),
+    })?;
+    Ok(podcast_audio_segment_to_json(segment))
+}
+
+fn list_podcast_audio_segments_json(state: &AppState, episode_id: &str) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::PodcastRepository::new(&db);
+    Ok(repo
+        .list_audio_segments(episode_id)?
+        .into_iter()
+        .map(podcast_audio_segment_to_json)
+        .collect::<Vec<_>>()
+        .into())
+}
+
+fn review_podcast_script_json(state: &AppState, episode_id: &str, request: Value) -> Result<Value> {
+    let action = request.get("action").and_then(Value::as_str).unwrap_or("accept");
+    let db = state.lock_db()?;
+    let repo = crate::db::PodcastRepository::new(&db);
+    let updates = match action {
+        "accept" => crate::db::PodcastEpisodeUpdates {
+            status: Some("ready".to_string()),
+            error_message: Some(None),
+            ..crate::db::PodcastEpisodeUpdates::default()
+        },
+        "edit" => crate::db::PodcastEpisodeUpdates {
+            script_json: request.get("editedScriptJson").and_then(Value::as_str).map(String::from),
+            status: Some("ready".to_string()),
+            error_message: Some(None),
+            ..crate::db::PodcastEpisodeUpdates::default()
+        },
+        "reject" => crate::db::PodcastEpisodeUpdates {
+            status: Some("cancelled".to_string()),
+            error_message: Some(Some("Review rejected".to_string())),
+            ..crate::db::PodcastEpisodeUpdates::default()
+        },
+        _ => crate::db::PodcastEpisodeUpdates::default(),
+    };
+    let episode = repo.update_episode(episode_id, &updates)?;
+    Ok(podcast_episode_to_json(episode))
 }
 
 // ── Run / Checkpoint / Cancel helpers ─────────────────────
@@ -1035,4 +1921,29 @@ fn cancel_run_json(state: &AppState, run_id: &str) -> Result<Value> {
         Some(r) => Ok(json!({"id": r.id, "status": r.status})),
         None => Ok(json!({"error": "not_found"})),
     }
+}
+
+fn append_workflow_event_json(state: &AppState, run_id: &str, request: Value) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::WorkflowRepository::new(&db);
+    let event = repo.append_event(crate::db::AppendWorkflowEventRequest {
+        run_id: run_id.to_string(),
+        event_type: request
+            .get("eventType")
+            .and_then(Value::as_str)
+            .unwrap_or("progress")
+            .to_string(),
+        message: request.get("message").and_then(Value::as_str).map(String::from),
+        progress: request.get("progress").and_then(Value::as_f64),
+        payload: request.get("payload").cloned(),
+    })?;
+    Ok(json!({
+        "id": event.id,
+        "runId": event.run_id,
+        "eventType": event.event_type,
+        "message": event.message,
+        "progress": event.progress,
+        "payload": event.payload,
+        "createdAt": event.created_at,
+    }))
 }

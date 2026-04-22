@@ -4,7 +4,7 @@ import { useDocumentAnchorsQuery, useDocumentChunksQuery } from '@/queries'
 import { documentCache } from '@/lib/cache/documentCache'
 import { reportAppError } from '@/lib/appFeedback'
 import { documentGateway } from '@/services/gateway/documents'
-import { renderPdfPageToCanvas, resolvePdfDocumentSource, type PdfDocumentSource } from '@/services/renderer/pdf'
+import { renderPdfPageToCanvas } from '@/services/renderer/pdf'
 import { Button, Panel } from '@/components/ui'
 import { DocumentStatusBadge } from './DocumentStatusBadge'
 
@@ -15,7 +15,7 @@ interface DocumentPreviewPaneProps {
 export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [previewPage, setPreviewPage] = useState(1)
-  const [pdfSource, setPdfSource] = useState<PdfDocumentSource | null>(null)
+  const [bytes, setBytes] = useState<Uint8Array | null>(null)
   const [isLoadingBinary, setIsLoadingBinary] = useState(false)
   const [isRendering, setIsRendering] = useState(false)
   const [renderError, setRenderError] = useState<string | null>(null)
@@ -30,17 +30,8 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
     let cancelled = false
 
     if (!document) {
-      setPdfSource(null)
+      setBytes(null)
       setRenderError(null)
-      return () => {
-        cancelled = true
-      }
-    }
-
-    if (document.fileType !== 'pdf') {
-      setPdfSource(null)
-      setRenderError('当前预览仅支持 PDF 文档。')
-      setIsLoadingBinary(false)
       return () => {
         cancelled = true
       }
@@ -49,15 +40,16 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
     setIsLoadingBinary(true)
     setRenderError(null)
 
-    void resolvePdfDocumentSource(document.filePath, () => documentGateway.readBinary(document.id))
-      .then((nextSource) => {
+    void documentGateway
+      .readBinary(document.id)
+      .then((nextBytes) => {
         if (!cancelled) {
-          setPdfSource(nextSource)
+          setBytes(nextBytes)
         }
       })
       .catch((error) => {
         if (!cancelled) {
-          setPdfSource(null)
+          setBytes(null)
           setRenderError(error instanceof Error ? error.message : '读取文档失败')
         }
       })
@@ -77,7 +69,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
     const controller = new AbortController()
 
     async function render() {
-      if (!document || !pdfSource || !canvasRef.current) {
+      if (!document || !bytes || !canvasRef.current) {
         return
       }
 
@@ -96,7 +88,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
           return
         }
 
-        await renderPdfPageToCanvas(pdfSource, previewPage, canvas, 1.25, controller.signal)
+        await renderPdfPageToCanvas(bytes, previewPage, canvas, 1.25, controller.signal)
         if (cancelled) {
           return
         }
@@ -124,7 +116,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
       cancelled = true
       controller.abort()
     }
-  }, [document, pdfSource, previewPage])
+  }, [bytes, document, previewPage])
 
   if (!document) {
     return (
@@ -165,7 +157,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
         </div>
 
         {previewWarnings.length > 0 ? (
-          <div className="rounded-[22px] border border-highlight-yellow/40 bg-highlight-yellow/12 px-4 py-3 text-sm text-ink-muted">
+          <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             {previewWarnings[0]}
           </div>
         ) : null}
@@ -200,7 +192,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
             </div>
           </div>
 
-          <div className="relative flex min-h-[420px] items-center justify-center overflow-auto rounded-[18px] border border-line-soft bg-paper-card">
+          <div className="relative flex min-h-[420px] items-center justify-center overflow-auto rounded-[18px] border border-line-soft bg-white">
             {canPreview ? (
               <canvas
                 ref={canvasRef}
@@ -211,7 +203,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
             ) : null}
 
             {!canPreview ? (
-              <p className="px-6 text-center text-sm text-ink-muted">
+              <p className="px-6 text-center text-sm text-rose-600">
                 文档解析失败，当前无法提供预览。
               </p>
             ) : isLoadingBinary || isRendering ? (
@@ -219,7 +211,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
                 正在生成第 {previewPage} 页预览…
               </p>
             ) : renderError ? (
-              <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-ink-muted">
+              <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-rose-600">
                 {renderError}
               </p>
             ) : null}
@@ -236,7 +228,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
                 {chunks.slice(0, 3).map((chunk) => (
                   <div
                     key={chunk.id}
-                    className="rounded-[18px] border border-line-soft bg-paper-card/80 px-3 py-3"
+                    className="rounded-[18px] border border-line-soft bg-white/80 px-3 py-3"
                   >
                     <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-ink-soft">
                       <span>分块 #{chunk.chunkIndex + 1}</span>
@@ -262,7 +254,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
                 {anchors.slice(0, 3).map((anchor) => (
                   <div
                     key={anchor.id}
-                    className="rounded-[18px] border border-line-soft bg-paper-card/80 px-3 py-3"
+                    className="rounded-[18px] border border-line-soft bg-white/80 px-3 py-3"
                   >
                     <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-ink-soft">
                       <span>

@@ -13,7 +13,15 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 }))
 
 vi.mock('@uiw/react-md-editor', () => ({
-  default: ({ value, onChange, textareaProps }: { value?: string; onChange?: (value: string) => void; textareaProps?: Record<string, unknown> }) => (
+  default: ({
+    value,
+    onChange,
+    textareaProps,
+  }: {
+    value?: string
+    onChange?: (value: string) => void
+    textareaProps?: Record<string, unknown>
+  }) => (
     <textarea
       data-testid={String(textareaProps?.['data-testid'] ?? 'mock-md-editor')}
       placeholder={String(textareaProps?.placeholder ?? '')}
@@ -149,9 +157,7 @@ describe('CardEditorModal', () => {
       },
     ])
 
-    render(
-      <CardEditorModal card={makeCard()} onSave={vi.fn()} onClose={vi.fn()} />
-    )
+    render(<CardEditorModal card={makeCard()} onSave={vi.fn()} onClose={vi.fn()} />)
 
     await waitFor(() => {
       expect(screen.getByText('diagram.png')).toBeInTheDocument()

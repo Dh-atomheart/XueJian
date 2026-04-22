@@ -171,7 +171,7 @@ export function ReviewPage() {
 
           <div className="flex gap-3 justify-center">
             <SketchButton onClick={() => setActiveNavItem('home')}>返回首页</SketchButton>
-            <SketchButton variant="outline" onClick={() => setActiveNavItem('profile')}>
+            <SketchButton variant="outline" onClick={() => setActiveNavItem('settings')}>
               查看统计
             </SketchButton>
           </div>
@@ -223,7 +223,11 @@ export function ReviewPage() {
       {/* Card area */}
       <main className="flex-1 flex items-center justify-center p-6">
         {currentCard && (
-          <div onClick={handleFlip} className="w-full max-w-lg cursor-pointer" data-testid="review-current-card">
+          <div
+            onClick={handleFlip}
+            className="w-full max-w-lg cursor-pointer"
+            data-testid="review-current-card"
+          >
             <div
               className={cn(
                 'relative min-h-[300px] p-8 rounded-xl border border-line-soft/60 bg-paper-card shadow-sm transition-all duration-500',

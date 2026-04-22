@@ -21,7 +21,9 @@ export function PageNavBar({
       <div className="border-b border-line-soft px-4 py-4">
         <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">Pages</p>
         <h2 className="mt-2 font-ui text-base text-ink">页码索引</h2>
-        <p className="mt-1 text-xs leading-5 text-ink-soft">纯文字页码加卡片提示点，滚动成本最低。</p>
+        <p className="mt-1 text-xs leading-5 text-ink-soft">
+          纯文字页码加卡片提示点，滚动成本最低。
+        </p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-3 py-3" data-testid="reader-page-nav">
@@ -42,17 +44,24 @@ export function PageNavBar({
                       : 'border-transparent bg-white/60 text-ink-soft hover:border-ink/10 hover:bg-white'
                   )}
                 >
-                  <span className="font-latin text-sm tabular-nums">{String(pageNumber).padStart(2, '0')}</span>
+                  <span className="font-latin text-sm tabular-nums">
+                    {String(pageNumber).padStart(2, '0')}
+                  </span>
                   <span className="flex items-center gap-1">
                     {colors.slice(0, 4).map((color, index) => (
                       <span
                         key={`${pageNumber}-${color}-${index}`}
                         aria-hidden
-                        className={cn('h-2 w-2 rounded-full ring-1 ring-ink/8', getAnnotationSwatchClass(color))}
+                        className={cn(
+                          'h-2 w-2 rounded-full ring-1 ring-ink/8',
+                          getAnnotationSwatchClass(color)
+                        )}
                       />
                     ))}
                     {colors.length > 4 ? (
-                      <span className="font-latin text-[10px] text-ink-soft">+{colors.length - 4}</span>
+                      <span className="font-latin text-[10px] text-ink-soft">
+                        +{colors.length - 4}
+                      </span>
                     ) : null}
                   </span>
                 </button>

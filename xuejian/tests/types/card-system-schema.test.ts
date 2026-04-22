@@ -12,7 +12,8 @@ describe('card system schemas', () => {
       exportGuid: null,
       documentId: null,
       anchorId: null,
-      front: '{"image":"https://example.com/heart.png","zones":[{"x":0.1,"y":0.2,"width":0.3,"height":0.2}]}',
+      front:
+        '{"image":"https://example.com/heart.png","zones":[{"x":0.1,"y":0.2,"width":0.3,"height":0.2}]}',
       back: '这是图像遮挡卡片的解析。',
       sourcePage: null,
       sourceParagraph: null,

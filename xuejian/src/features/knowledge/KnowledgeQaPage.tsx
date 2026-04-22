@@ -1,219 +1,517 @@
-import { useState, useRef, useEffect } from 'react'
-import { useAppStore } from '@/lib/store'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Input, Panel, SketchEmptyState } from '@/components/ui'
+import {
+  KnowledgeChatPanel,
+  type KnowledgeChatCitation,
+  type KnowledgeChatTurn,
+} from '@/components/knowledge'
+import { useStartKnowledgeQaMutation, useKnowledgeSearchQuery } from '@/queries/knowledge'
+import { useDocumentsQuery, useOrchestrationServiceHealthQuery } from '@/queries'
+import { getErrorMessage, reportAppError, reportFeedback } from '@/lib/appFeedback'
+import { useAppUiStore } from '@/store'
 import { cn } from '@/lib/utils'
+import { isTauriEnvironment } from '@/services/gateway'
+import { orchestrationGateway } from '@/services/gateway/orchestration'
+import type { ChunkSearchResult, WorkflowEvent } from '@/types'
 
-interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: Date
+type TurnState = KnowledgeChatTurn & {
+  documentTitleCache: Map<string, string>
+  workflowRunId: string | null
 }
 
+const KNOWLEDGE_POLL_INTERVAL_MS = 1_800
+
+const EXAMPLE_PROMPTS = [
+  '这份材料的核心论点是什么？',
+  '第 3 节的结论和第 5 节如何对应？',
+  '帮我对比两篇文档里相似的概念。',
+]
+
 export function KnowledgeQaPage() {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+  const [question, setQuestion] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const { documents, aiConfig } = useAppStore()
+  const [turns, setTurns] = useState<TurnState[]>([])
+  const [isRestartingService, setIsRestartingService] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const reportedWorkflowFailuresRef = useRef(new Set<string>())
+
+  const { data: documents = [] } = useDocumentsQuery()
+  const { data: orchestrationHealth } = useOrchestrationServiceHealthQuery()
+  const { data: searchResults = [] } = useKnowledgeSearchQuery(
+    searchQuery,
+    selectedDocIds,
+    searchQuery.length > 0
+  )
+  const startQaMutation = useStartKnowledgeQaMutation()
+  const openReader = useAppUiStore((state) => state.openReader)
+
+  const documentTitleLookup = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const document of documents) {
+      map.set(document.id, document.title)
+    }
+    return map
+  }, [documents])
+
+  const shouldWarnOrchestration =
+    isTauriEnvironment() &&
+    orchestrationHealth != null &&
+    (!orchestrationHealth.endpoint ||
+      orchestrationHealth.status === 'stopped' ||
+      !orchestrationHealth.protocolCompatible)
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  const handleSend = async () => {
-    if (!input.trim()) return
-
-    const userMsg: Message = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content: input.trim(),
-      timestamp: new Date(),
-    }
-    setMessages((prev) => [...prev, userMsg])
-    setInput('')
-    setIsLoading(true)
-
-    // Simulate AI response
-    setTimeout(
-      () => {
-        const aiMsg: Message = {
-          id: `msg-${Date.now()}`,
-          role: 'assistant',
-          content: generateResponse(userMsg.content),
-          timestamp: new Date(),
-        }
-        setMessages((prev) => [...prev, aiMsg])
-        setIsLoading(false)
-      },
-      800 + Math.random() * 1200
+    const pendingTurns = turns.filter(
+      (turn) => turn.status === 'pending' && turn.workflowRunId != null
     )
-  }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+    if (pendingTurns.length === 0) {
+      return
     }
-  }
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void Promise.all(
+        pendingTurns.map(async (turn) => {
+          const workflowRunId = turn.workflowRunId
+          if (!workflowRunId) {
+            return null
+          }
+
+          try {
+            const run = await orchestrationGateway.getRun(workflowRunId)
+            if (!run) {
+              return null
+            }
+
+            if (run.status === 'failed' || run.status === 'cancelled') {
+              const failedMessage = run.errorMessage ?? '知识问答后台流程执行失败'
+
+              if (!reportedWorkflowFailuresRef.current.has(run.id)) {
+                reportedWorkflowFailuresRef.current.add(run.id)
+                reportFeedback({
+                  scope: '知识问答',
+                  title: '知识问答后台流程失败',
+                  detail: failedMessage,
+                  level: 'error',
+                  showToast: false,
+                })
+              }
+
+              return {
+                turnId: turn.id,
+                status: 'error' as const,
+                errorMessage: failedMessage,
+              }
+            }
+
+            if (run.status !== 'completed') {
+              return null
+            }
+
+            const events = await orchestrationGateway.listEvents(run.id, 20)
+            const result = extractKnowledgeQaResult(events, turn.documentTitleCache)
+
+            return {
+              turnId: turn.id,
+              status: 'answered' as const,
+              answer: result.answer,
+              citations: result.citations,
+              errorMessage: null,
+            }
+          } catch (error) {
+            return {
+              turnId: turn.id,
+              status: 'error' as const,
+              errorMessage: getErrorMessage(error, '读取知识问答结果失败'),
+            }
+          }
+        })
+      ).then((updates) => {
+        if (cancelled) {
+          return
+        }
+
+        const updateMap = new Map(
+          updates.filter((update): update is NonNullable<typeof update> => update != null).map((update) => [update.turnId, update])
+        )
+
+        if (updateMap.size === 0) {
+          return
+        }
+
+        setTurns((prev) =>
+          prev.map((turn) => {
+            const update = updateMap.get(turn.id)
+            return update ? { ...turn, ...update } : turn
+          })
+        )
+      })
+    }, KNOWLEDGE_POLL_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [turns])
+
+  const handleRestartService = useCallback(async () => {
+    setIsRestartingService(true)
+
+    try {
+      const restarted = await orchestrationGateway.restart()
+
+      if (restarted.status !== 'healthy' && restarted.status !== 'degraded') {
+        throw new Error(restarted.errorMessage ?? `当前服务状态：${restarted.status}`)
+      }
+
+      reportFeedback({
+        scope: '知识问答',
+        title: '知识问答服务已重启',
+        detail: restarted.endpoint ? `服务地址：${restarted.endpoint}` : '服务已恢复响应。',
+        level: 'info',
+        showToast: true,
+      })
+    } catch (error) {
+      reportAppError('知识问答', error, {
+        title: '知识问答服务重启失败',
+        showToast: true,
+      })
+    } finally {
+      setIsRestartingService(false)
+    }
+  }, [])
+
+  const handleAsk = useCallback(
+    async (rawQuestion?: string) => {
+      const q = (rawQuestion ?? question).trim()
+      if (!q || startQaMutation.isPending || isRestartingService) return
+
+      const turnId = `turn-${Date.now()}`
+      const pendingTurn: TurnState = {
+        id: turnId,
+        question: q,
+        answer: null,
+        citations: [],
+        status: 'pending',
+        documentTitleCache: new Map(documentTitleLookup),
+        workflowRunId: null,
+      }
+
+      setTurns((prev) => [pendingTurn, ...prev])
+      setSearchQuery(q)
+      setQuestion('')
+
+      try {
+        if (shouldWarnOrchestration) {
+          await handleRestartService()
+        }
+
+        const run = await startQaMutation.mutateAsync({
+          question: q,
+          documentIds: selectedDocIds.length > 0 ? selectedDocIds : undefined,
+        })
+
+        setTurns((prev) =>
+          prev.map((turn) =>
+            turn.id === turnId
+              ? {
+                  ...turn,
+                  workflowRunId: run.id,
+                }
+              : turn
+          )
+        )
+      } catch (error) {
+        const detail = reportAppError('知识问答', error, {
+          title: '知识问答启动失败',
+          showToast: true,
+        })
+
+        setTurns((prev) =>
+          prev.map((turn) =>
+            turn.id === turnId
+              ? {
+                  ...turn,
+                  status: 'error',
+                  errorMessage: detail,
+                }
+              : turn
+          )
+        )
+      }
+    },
+    [
+      documentTitleLookup,
+      handleRestartService,
+      isRestartingService,
+      question,
+      selectedDocIds,
+      shouldWarnOrchestration,
+      startQaMutation,
+    ]
+  )
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        handleAsk()
+      }
+    },
+    [handleAsk]
+  )
+
+  const toggleDoc = useCallback((docId: string) => {
+    setSelectedDocIds((prev) =>
+      prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId]
+    )
+  }, [])
+
+  const handleCitationClick = useCallback(
+    (citation: KnowledgeChatCitation) => {
+      openReader(citation.documentId)
+    },
+    [openReader]
+  )
+
+  const handleRetry = useCallback(
+    (turn: KnowledgeChatTurn) => {
+      void handleAsk(turn.question)
+    },
+    [handleAsk]
+  )
+
+  const handleFillExample = useCallback((prompt: string) => {
+    setQuestion(prompt)
+    inputRef.current?.focus()
+  }, [])
 
   return (
-    <div className="flex flex-col h-full max-h-[calc(100vh-4rem)] animate-fade-in">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-line-soft">
-        <p className="text-xs tracking-[0.3em] text-ink-muted uppercase mb-1 font-ui">AI Chat</p>
-        <h1 className="text-xl font-display font-semibold">知识问答</h1>
+    <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-5 overflow-y-auto p-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">
+            知识问答工作台
+          </p>
+          <h1 className="mt-2 font-display text-2xl text-ink">知识问答</h1>
+          <p className="mt-1 font-body text-sm leading-6 text-ink-muted">
+            在选定的文档范围内提问，回答附带可跳转的原文引用。
+          </p>
+        </div>
+        {selectedDocIds.length > 0 && (
+          <span className="rounded-full border border-ink/15 bg-paper-muted/60 px-3 py-1 font-latin text-[11px] tracking-wide text-ink-soft">
+            已限定 {selectedDocIds.length} 份文档
+          </span>
+        )}
+      </header>
 
-        {/* Document selector */}
-        {documents.length > 0 && (
-          <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
-            <button
-              onClick={() => setSelectedDocIds([])}
-              className={cn(
-                'px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
-                selectedDocIds.length === 0
-                  ? 'border-ink/30 bg-paper-muted/80'
-                  : 'border-line-soft/60 text-ink-muted'
-              )}
+      {shouldWarnOrchestration ? (
+        <Panel variant="paperCard" className="rounded-[20px] border border-amber-200 bg-amber-50/80 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                服务状态
+              </p>
+              <p className="text-sm text-ink">
+                当前知识问答服务不可用或协议不兼容，系统无法稳定生成回答。
+              </p>
+              {orchestrationHealth?.errorMessage ? (
+                <p className="text-xs leading-5 text-ink-muted break-all">
+                  {orchestrationHealth.errorMessage}
+                </p>
+              ) : null}
+            </div>
+            <Button
+              variant="outline"
+              disabled={isRestartingService}
+              onClick={() => {
+                void handleRestartService()
+              }}
             >
-              全部文档
-            </button>
+              {isRestartingService ? '正在重启服务...' : '重启问答服务'}
+            </Button>
+          </div>
+        </Panel>
+      ) : null}
+
+      {documents.length > 0 && (
+        <Panel variant="paperCard" className="rounded-[20px] p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+              文档范围（可选）
+            </p>
+            {selectedDocIds.length > 0 && (
+              <button
+                type="button"
+                className="font-ui text-xs text-ink-soft hover:text-ink"
+                onClick={() => setSelectedDocIds([])}
+              >
+                清除选择
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
             {documents.map((doc) => {
-              const isSelected = selectedDocIds.includes(doc.id)
+              const active = selectedDocIds.includes(doc.id)
               return (
                 <button
                   key={doc.id}
-                  onClick={() => {
-                    setSelectedDocIds((prev) =>
-                      isSelected ? prev.filter((id) => id !== doc.id) : [...prev, doc.id]
-                    )
-                  }}
+                  type="button"
+                  onClick={() => toggleDoc(doc.id)}
                   className={cn(
-                    'px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
-                    isSelected
-                      ? 'border-ink/30 bg-paper-muted/80'
-                      : 'border-line-soft/60 text-ink-muted'
+                    'rounded-full border px-3 py-1.5 font-ui text-xs transition-colors',
+                    active
+                      ? 'border-ink/35 bg-ink/[0.08] text-ink'
+                      : 'border-line-soft bg-paper-card text-ink-muted hover:border-ink/20 hover:text-ink'
                   )}
                 >
-                  {isSelected && '✓ '}
-                  {doc.name.replace('.pdf', '')}
+                  {doc.title}
                 </button>
               )
             })}
           </div>
-        )}
-      </div>
+        </Panel>
+      )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1"
-              className="text-ink-muted/40 mb-4"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            <p className="text-sm text-ink-muted mb-2">向 AI 提问关于学习材料的问题</p>
-            <p className="text-xs text-ink-muted/70">支持基于文档的上下文问答</p>
-          </div>
-        )}
-
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
-          >
-            <div
-              className={cn(
-                'max-w-[80%] px-4 py-3 rounded-xl text-sm leading-relaxed',
-                msg.role === 'user'
-                  ? 'bg-ink text-paper-base rounded-br-sm'
-                  : 'bg-paper-muted/60 border border-line-soft/60 rounded-bl-sm'
-              )}
-            >
-              {msg.content}
-            </div>
-          </div>
-        ))}
-
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-paper-muted/60 border border-line-soft/60 rounded-xl rounded-bl-sm px-4 py-3">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 bg-ink-muted/40 rounded-full animate-pulse" />
-                <div
-                  className="w-2 h-2 bg-ink-muted/40 rounded-full animate-pulse"
-                  style={{ animationDelay: '0.2s' }}
-                />
-                <div
-                  className="w-2 h-2 bg-ink-muted/40 rounded-full animate-pulse"
-                  style={{ animationDelay: '0.4s' }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input */}
-      <div className="px-6 py-4 border-t border-line-soft">
-        <div className="flex gap-3 max-w-3xl mx-auto">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-3">
+          <Input
+            ref={inputRef}
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="输入你的问题..."
-            rows={1}
-            className="flex-1 px-4 py-3 bg-paper-muted/50 border border-line-soft/60 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ink/10 transition-all"
+            placeholder="输入你的问题…（Enter 发送）"
+            className="flex-1 rounded-[14px]"
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            className={cn(
-              'px-4 py-3 rounded-lg transition-all',
-              input.trim() && !isLoading
-                ? 'bg-ink text-paper-base hover:bg-ink/90'
-                : 'bg-paper-muted text-ink-muted cursor-not-allowed'
-            )}
+          <Button
+            onClick={() => handleAsk()}
+            disabled={!question.trim() || startQaMutation.isPending || isRestartingService}
+            variant="sketch"
+            className="rounded-[14px]"
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
-          </button>
+            {startQaMutation.isPending || isRestartingService ? '处理中...' : '提问'}
+          </Button>
         </div>
-        {!aiConfig?.apiKey && (
-          <p className="text-xs text-ink-muted/60 text-center mt-2">
-            未配置 API Key，当前为模拟模式
-          </p>
+        {turns.length === 0 && (
+          <div className="flex flex-wrap gap-2">
+            {EXAMPLE_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => handleFillExample(prompt)}
+                className="rounded-full border border-dashed border-line-soft bg-paper-card/70 px-3 py-1 font-ui text-xs text-ink-muted hover:border-ink/25 hover:text-ink"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
         )}
       </div>
+
+      {searchResults.length > 0 && (
+        <Panel variant="paperCard" className="rounded-[20px] p-4">
+          <p className="mb-3 font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+            相关文档片段 · {searchResults.length}
+          </p>
+          <div className="space-y-2">
+            {searchResults.map((chunk: ChunkSearchResult) => (
+              <button
+                key={chunk.id}
+                type="button"
+                onClick={() => openReader(chunk.documentId)}
+                className="block w-full rounded-[14px] border border-line-soft bg-paper-muted/40 p-3 text-left transition-colors hover:border-ink/20 hover:bg-paper-muted"
+              >
+                <p className="font-body text-sm leading-6 text-ink">
+                  {chunk.snippet || chunk.content}
+                </p>
+                <p className="mt-1 font-latin text-xs text-ink-soft">
+                  {documentTitleLookup.get(chunk.documentId) ?? '文档'} · 页{' '}
+                  {chunk.pageStart ?? '?'}–{chunk.pageEnd ?? '?'}
+                </p>
+              </button>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      <KnowledgeChatPanel
+        turns={turns}
+        onOpenCitation={handleCitationClick}
+        onRetry={handleRetry}
+        className="flex-1"
+        emptyContent={
+          <SketchEmptyState
+            illustration="chat"
+            title="从你的文档里问一个问题"
+            description="输入问题后，系统会先在选定的文档里检索，再给出带引用的回答。点击下方的引用可以直接跳回原文。"
+            className="max-w-md"
+          />
+        }
+      />
     </div>
   )
 }
 
-function generateResponse(_question: string): string {
-  const responses = [
-    '根据你上传的学习材料，这个问题可以从以下几个方面来理解...\n\n首先，核心概念是关于知识结构化和记忆强化的。通过间隔重复（Spaced Repetition）的方法，可以有效提高长期记忆的保持率。',
-    '这是一个很好的问题。基于文档中的内容，我来为你解答：\n\n关键要点在于理解概念之间的关联性。建议你重点关注以下几个方面的学习...',
-    '让我帮你分析一下这个问题。\n\n从知识结构的角度来看，这涉及到几个重要的概念层次。首先需要建立基础理解，然后通过练习来巩固记忆。',
-    '根据学习材料中的信息，这个主题有以下几个关键点需要掌握：\n\n1. 基础概念的理解\n2. 概念间的关联\n3. 实际应用场景\n\n建议你创建相关的知识卡片来加强记忆。',
+function extractKnowledgeQaResult(
+  events: WorkflowEvent[],
+  documentTitleCache: Map<string, string>
+) {
+  const completedEvent = events.find(
+    (event) => event.eventType === 'completed' && event.payload != null
+  )
+  const payload = completedEvent?.payload
+  const answerPayload =
+    payload && typeof payload === 'object' && payload['answer'] && typeof payload['answer'] === 'object'
+      ? (payload['answer'] as Record<string, unknown>)
+      : null
+
+  const answer =
+    answerPayload && typeof answerPayload['answer'] === 'string' && answerPayload['answer'].trim()
+      ? answerPayload['answer']
+      : '回答已生成，但没有返回可显示的正文。'
+
+  const citations = Array.isArray(answerPayload?.['citations'])
+    ? answerPayload['citations'].flatMap((citation, index) =>
+        normalizeKnowledgeCitation(citation, index, documentTitleCache)
+      )
+    : []
+
+  return { answer, citations }
+}
+
+function normalizeKnowledgeCitation(
+  rawCitation: unknown,
+  index: number,
+  documentTitleCache: Map<string, string>
+): KnowledgeChatCitation[] {
+  if (!rawCitation || typeof rawCitation !== 'object') {
+    return []
+  }
+
+  const citation = rawCitation as Record<string, unknown>
+  const documentId = typeof citation['documentId'] === 'string' ? citation['documentId'] : null
+  const snippetCandidate =
+    typeof citation['snippet'] === 'string'
+      ? citation['snippet']
+      : typeof citation['quote'] === 'string'
+        ? citation['quote']
+        : ''
+
+  if (!documentId || !snippetCandidate) {
+    return []
+  }
+
+  return [
+    {
+      id: `${documentId}-${index}`,
+      documentId,
+      documentTitle: documentTitleCache.get(documentId) ?? '文档',
+      page: typeof citation['page'] === 'number' ? citation['page'] : null,
+      snippet: snippetCandidate,
+      relevance:
+        typeof citation['relevanceScore'] === 'number' ? citation['relevanceScore'] : null,
+    },
   ]
-  return responses[Math.floor(Math.random() * responses.length)]
 }

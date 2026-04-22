@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::db::{Database, Result};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -6,6 +8,9 @@ use uuid::Uuid;
 const DEFAULT_USER_ID: &str = "default";
 const DEFAULT_LANGUAGE: &str = "zh-CN";
 const DEFAULT_THEME: &str = "default";
+const DEFAULT_PODCAST_TTS_PROVIDER: &str = "auto";
+const DEFAULT_PODCAST_OPENAI_MODEL: &str = "tts-1";
+const DEFAULT_PODCAST_OUTPUT_FORMAT: &str = "mp3";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
@@ -51,6 +56,12 @@ pub struct AppSettings {
     pub review_time_limit: i32,
     pub theme: String,
     pub language: String,
+    pub podcast_tts_provider: String,
+    pub podcast_openai_model: String,
+    pub podcast_fish_audio_endpoint: Option<String>,
+    pub podcast_voice_overrides: BTreeMap<String, String>,
+    pub podcast_output_format: String,
+    pub podcast_skip_review: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +70,12 @@ pub struct UpdateAppSettingsRequest {
     pub review_time_limit: Option<i32>,
     pub theme: Option<String>,
     pub language: Option<String>,
+    pub podcast_tts_provider: Option<String>,
+    pub podcast_openai_model: Option<String>,
+    pub podcast_fish_audio_endpoint: Option<Option<String>>,
+    pub podcast_voice_overrides: Option<BTreeMap<String, String>>,
+    pub podcast_output_format: Option<String>,
+    pub podcast_skip_review: Option<bool>,
 }
 
 pub struct SettingsRepository<'a> {
@@ -263,6 +280,24 @@ impl<'a> SettingsRepository<'a> {
             review_time_limit: req.review_time_limit.unwrap_or(current.review_time_limit),
             theme: req.theme.unwrap_or(current.theme),
             language: req.language.unwrap_or(current.language),
+            podcast_tts_provider: req
+                .podcast_tts_provider
+                .unwrap_or(current.podcast_tts_provider),
+            podcast_openai_model: req
+                .podcast_openai_model
+                .unwrap_or(current.podcast_openai_model),
+            podcast_fish_audio_endpoint: req
+                .podcast_fish_audio_endpoint
+                .unwrap_or(current.podcast_fish_audio_endpoint),
+            podcast_voice_overrides: req
+                .podcast_voice_overrides
+                .unwrap_or(current.podcast_voice_overrides),
+            podcast_output_format: req
+                .podcast_output_format
+                .unwrap_or(current.podcast_output_format),
+            podcast_skip_review: req
+                .podcast_skip_review
+                .unwrap_or(current.podcast_skip_review),
         });
 
         let serialized = serde_json::to_string(&next_settings)?;
@@ -284,6 +319,12 @@ fn default_app_settings() -> AppSettings {
         review_time_limit: 30,
         theme: DEFAULT_THEME.to_string(),
         language: DEFAULT_LANGUAGE.to_string(),
+        podcast_tts_provider: DEFAULT_PODCAST_TTS_PROVIDER.to_string(),
+        podcast_openai_model: DEFAULT_PODCAST_OPENAI_MODEL.to_string(),
+        podcast_fish_audio_endpoint: None,
+        podcast_voice_overrides: BTreeMap::new(),
+        podcast_output_format: DEFAULT_PODCAST_OUTPUT_FORMAT.to_string(),
+        podcast_skip_review: true,
     }
 }
 
@@ -293,6 +334,12 @@ fn sanitize_settings(settings: AppSettings) -> AppSettings {
         review_time_limit: settings.review_time_limit.max(0),
         theme: sanitize_theme(settings.theme),
         language: sanitize_language(settings.language),
+        podcast_tts_provider: sanitize_podcast_tts_provider(settings.podcast_tts_provider),
+        podcast_openai_model: sanitize_podcast_openai_model(settings.podcast_openai_model),
+        podcast_fish_audio_endpoint: sanitize_optional_text(settings.podcast_fish_audio_endpoint),
+        podcast_voice_overrides: sanitize_voice_overrides(settings.podcast_voice_overrides),
+        podcast_output_format: sanitize_podcast_output_format(settings.podcast_output_format),
+        podcast_skip_review: settings.podcast_skip_review,
     }
 }
 
@@ -308,6 +355,55 @@ fn sanitize_language(language: String) -> String {
         "zh-CN" | "en-US" => language,
         _ => DEFAULT_LANGUAGE.to_string(),
     }
+}
+
+fn sanitize_podcast_tts_provider(provider: String) -> String {
+    match provider.as_str() {
+        "auto" | "openai" | "edge_tts" | "elevenlabs" | "fish_audio" => provider,
+        _ => DEFAULT_PODCAST_TTS_PROVIDER.to_string(),
+    }
+}
+
+fn sanitize_podcast_openai_model(model: String) -> String {
+    let trimmed = model.trim();
+    if trimmed.is_empty() {
+        DEFAULT_PODCAST_OPENAI_MODEL.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn sanitize_podcast_output_format(format: String) -> String {
+    match format.as_str() {
+        "mp3" | "wav" => format,
+        _ => DEFAULT_PODCAST_OUTPUT_FORMAT.to_string(),
+    }
+}
+
+fn sanitize_optional_text(value: Option<String>) -> Option<String> {
+    value.and_then(|text| {
+        let trimmed = text.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
+fn sanitize_voice_overrides(overrides: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    overrides
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let trimmed_key = key.trim().to_string();
+            let trimmed_value = value.trim().to_string();
+            if trimmed_key.is_empty() || trimmed_value.is_empty() {
+                None
+            } else {
+                Some((trimmed_key, trimmed_value))
+            }
+        })
+        .collect()
 }
 
 fn normalize_provider(provider: String) -> String {

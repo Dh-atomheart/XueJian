@@ -92,26 +92,26 @@ Where:
 
 ### 4.2 Sub-Score Definitions
 
-| Dimension | Meaning | Questions to ask |
-| --- | --- | --- |
-| F | Does the feature exist and behave according to spec? | Is the code path implemented? Does it work on the happy path? Are boundary cases handled? |
-| T | Can the feature be trusted not to regress? | Is there unit/integration/E2E coverage? Is the contract validated automatically? |
-| UX | Can the user actually use this feature end to end? | Are loading, success, failure, empty states, and interaction feedback present? |
+| Dimension | Meaning                                              | Questions to ask                                                                          |
+| --------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| F         | Does the feature exist and behave according to spec? | Is the code path implemented? Does it work on the happy path? Are boundary cases handled? |
+| T         | Can the feature be trusted not to regress?           | Is there unit/integration/E2E coverage? Is the contract validated automatically?          |
+| UX        | Can the user actually use this feature end to end?   | Are loading, success, failure, empty states, and interaction feedback present?            |
 
 ### 4.3 Integer Scale Rubric
 
-| Score | Meaning |
-| --- | --- |
-| 10 | Fully implemented, verified, and production-ready |
-| 9 | Complete with only trivial non-blocking issues |
-| 8 | Strong implementation with minor gaps |
-| 7 | Mostly complete but still has meaningful gaps |
-| 6 | Partially complete, not yet reliable for delivery |
-| 5 | Rough implementation exists but major confidence issues remain |
-| 4 | Skeleton is present, critical behavior missing |
-| 3 | Early scaffold only |
-| 2 | Placeholder or heavily incomplete |
-| 1 | Not implemented |
+| Score | Meaning                                                        |
+| ----- | -------------------------------------------------------------- |
+| 10    | Fully implemented, verified, and production-ready              |
+| 9     | Complete with only trivial non-blocking issues                 |
+| 8     | Strong implementation with minor gaps                          |
+| 7     | Mostly complete but still has meaningful gaps                  |
+| 6     | Partially complete, not yet reliable for delivery              |
+| 5     | Rough implementation exists but major confidence issues remain |
+| 4     | Skeleton is present, critical behavior missing                 |
+| 3     | Early scaffold only                                            |
+| 2     | Placeholder or heavily incomplete                              |
+| 1     | Not implemented                                                |
 
 ### 4.4 Aggregation Rules
 
@@ -149,11 +149,11 @@ Each evaluation item must have at least one evidence source.
 
 ### 5.2 Evidence Confidence Levels
 
-| Level | Evidence |
-| --- | --- |
-| A | Automated passing test or type check |
-| B | Direct code path inspection with strong traceability |
-| C | Manual UI validation only |
+| Level | Evidence                                             |
+| ----- | ---------------------------------------------------- |
+| A     | Automated passing test or type check                 |
+| B     | Direct code path inspection with strong traceability |
+| C     | Manual UI validation only                            |
 
 Rules:
 
@@ -184,13 +184,13 @@ The evaluation automation for the `xuejian` workspace must provide the following
 
 ### 7.1 Required Scripts
 
-| Script | Purpose |
-| --- | --- |
+| Script                                     | Purpose                                                      |
+| ------------------------------------------ | ------------------------------------------------------------ |
 | `xuejian/scripts/eval/check-structure.mjs` | Verify file existence, symbol presence, and expected exports |
-| `xuejian/scripts/eval/check-types.mjs` | Run targeted card-system TypeScript checks and `cargo check` |
-| `xuejian/scripts/eval/check-tests.mjs` | Run targeted Vitest and `cargo test` |
-| `xuejian/scripts/eval/check-e2e.mjs` | Run happy-path card-system E2E validation |
-| `xuejian/scripts/eval/run-eval.mjs` | Compose all steps and generate machine-readable reports |
+| `xuejian/scripts/eval/check-types.mjs`     | Run targeted card-system TypeScript checks and `cargo check` |
+| `xuejian/scripts/eval/check-tests.mjs`     | Run targeted Vitest and `cargo test`                         |
+| `xuejian/scripts/eval/check-e2e.mjs`       | Run happy-path card-system E2E validation                    |
+| `xuejian/scripts/eval/run-eval.mjs`        | Compose all steps and generate machine-readable reports      |
 
 ### 7.2 Entry Command
 
@@ -213,7 +213,10 @@ The evaluation pipeline must generate:
     "hasUncommittedChanges": true
   },
   "checks": {
-    "structure": { "passed": true, "summary": { "passed": 17, "failed": 0, "total": 17 } },
+    "structure": {
+      "passed": true,
+      "summary": { "passed": 17, "failed": 0, "total": 17 }
+    },
     "types": {
       "passed": true,
       "frontendBuild": { "passed": true, "exitCode": 0 },
@@ -254,18 +257,18 @@ The evaluation pipeline must generate:
 
 ## 8. Phase Map
 
-| Phase | Title | Goal |
-| --- | --- | --- |
-| P0 | Real API Integration | Replace mock card flows with real SQLite-backed workflows |
-| P1 | Markdown and KaTeX | Rich rendering and math support |
-| P2 | Card Editor | Manual create and edit card workflows |
-| P3 | Choice Cards | Full `choice` card type support |
-| P4 | Media Support | Image, media, APKG import/export support |
-| P5 | AI Generation Enhancement | Multi-type AI generation quality |
-| P6 | Knowledge QA | Retrieval-backed card-adjacent QA |
-| P7 | Animation | Card-linked animation workflows |
-| P8 | Podcast | Card-linked podcast workflows |
-| P9 | Knowledge Graph | Graph-backed knowledge structuring |
+| Phase | Title                     | Goal                                                      |
+| ----- | ------------------------- | --------------------------------------------------------- |
+| P0    | Real API Integration      | Replace mock card flows with real SQLite-backed workflows |
+| P1    | Markdown and KaTeX        | Rich rendering and math support                           |
+| P2    | Card Editor               | Manual create and edit card workflows                     |
+| P3    | Choice Cards              | Full `choice` card type support                           |
+| P4    | Media Support             | Image, media, APKG import/export support                  |
+| P5    | AI Generation Enhancement | Multi-type AI generation quality                          |
+| P6    | Knowledge QA              | Retrieval-backed card-adjacent QA                         |
+| P7    | Animation                 | Card-linked animation workflows                           |
+| P8    | Podcast                   | Card-linked podcast workflows                             |
+| P9    | Knowledge Graph           | Graph-backed knowledge structuring                        |
 
 ---
 
@@ -275,114 +278,114 @@ This section defines the detailed feature checklist. Every item is scored indepe
 
 ### 9.1 Phase 0 - Real API Integration
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Status |
-| --- | --- | --- | --- | --- | --- |
-| P0-01 | Card list loads from real query instead of mock state | `src/features/cards/CardStudioPage.tsx`, `src/queries/cards.ts` | code inspection, page test | page renders query-backed cards | Passed |
-| P0-02 | Review page loads due cards from real query | `src/features/review/ReviewPage.tsx`, `src/queries/learning.ts` | code inspection, page test | due cards drive session queue | Passed |
-| P0-03 | Card state labels align with FSRS states | `src/features/cards/CardStudioPage.tsx` | code inspection, page test | `new/learning/review/relearning` handled correctly | Passed |
-| P0-04 | Search filters front and back content | `src/features/cards/CardStudioPage.tsx` | page test | search is case-insensitive and correct | Passed |
-| P0-05 | Status filter works across all states | `src/features/cards/CardStudioPage.tsx` | page test | filter matches state field | Passed |
-| P0-06 | Grid and list view toggle works | `src/features/cards/CardStudioPage.tsx` | page test | view changes without regression | Passed |
-| P0-07 | Card flip state is maintained client-side | `src/features/cards/CardStudioPage.tsx` | page test | individual cards flip correctly | Passed |
-| P0-08 | Review phases intro, studying, complete work | `src/features/review/ReviewPage.tsx` | page test | session transitions are correct | Passed |
-| P0-09 | Keyboard shortcuts work and are gated during pending state | `src/features/review/ReviewPage.tsx` | page test | Space and 1-4 behave correctly | Passed |
-| P0-10 | Completion summary aggregates review ratings | `src/features/review/ReviewPage.tsx` | page test | summary counts again/hard/good/easy | Passed |
+| ID    | Feature                                                    | Primary Files                                                   | Required Evidence          | Pass Definition                                    | Status |
+| ----- | ---------------------------------------------------------- | --------------------------------------------------------------- | -------------------------- | -------------------------------------------------- | ------ |
+| P0-01 | Card list loads from real query instead of mock state      | `src/features/cards/CardStudioPage.tsx`, `src/queries/cards.ts` | code inspection, page test | page renders query-backed cards                    | Passed |
+| P0-02 | Review page loads due cards from real query                | `src/features/review/ReviewPage.tsx`, `src/queries/learning.ts` | code inspection, page test | due cards drive session queue                      | Passed |
+| P0-03 | Card state labels align with FSRS states                   | `src/features/cards/CardStudioPage.tsx`                         | code inspection, page test | `new/learning/review/relearning` handled correctly | Passed |
+| P0-04 | Search filters front and back content                      | `src/features/cards/CardStudioPage.tsx`                         | page test                  | search is case-insensitive and correct             | Passed |
+| P0-05 | Status filter works across all states                      | `src/features/cards/CardStudioPage.tsx`                         | page test                  | filter matches state field                         | Passed |
+| P0-06 | Grid and list view toggle works                            | `src/features/cards/CardStudioPage.tsx`                         | page test                  | view changes without regression                    | Passed |
+| P0-07 | Card flip state is maintained client-side                  | `src/features/cards/CardStudioPage.tsx`                         | page test                  | individual cards flip correctly                    | Passed |
+| P0-08 | Review phases intro, studying, complete work               | `src/features/review/ReviewPage.tsx`                            | page test                  | session transitions are correct                    | Passed |
+| P0-09 | Keyboard shortcuts work and are gated during pending state | `src/features/review/ReviewPage.tsx`                            | page test                  | Space and 1-4 behave correctly                     | Passed |
+| P0-10 | Completion summary aggregates review ratings               | `src/features/review/ReviewPage.tsx`                            | page test                  | summary counts again/hard/good/easy                | Passed |
 
 ### 9.2 Phase 1 - Markdown and KaTeX
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Status |
-| --- | --- | --- | --- | --- | --- |
-| P1-01 | Markdown renderer supports headings, emphasis, lists | `src/components/cards/CardContentRenderer.tsx` | renderer test | HTML output is correct | Passed |
-| P1-02 | Markdown renderer supports code blocks | `src/components/cards/CardContentRenderer.tsx` | renderer test | fenced blocks render safely | Passed |
-| P1-03 | Markdown renderer supports tables | `src/components/cards/CardContentRenderer.tsx` | renderer test | GFM table renders correctly | Passed |
-| P1-04 | Inline math renders via KaTeX | `src/components/cards/CardContentRenderer.tsx` | renderer test | inline math visible and parsed | Passed |
-| P1-05 | Block math renders via KaTeX | `src/components/cards/CardContentRenderer.tsx` | renderer test | block math visible and parsed | Passed |
-| P1-06 | Compact mode preserves usable truncation | `src/components/cards/CardContentRenderer.tsx` | renderer test | compact cards do not break layout | Passed |
-| P1-07 | Cloze parser extracts all indices | `src/components/cards/ClozeCardContent.tsx` | component test | all `cN` groups are discovered | Passed |
-| P1-08 | Cloze hidden form uses hint or placeholder correctly | `src/components/cards/ClozeCardContent.tsx` | component test | masked rendering is correct | Passed |
-| P1-09 | Cloze reveal toggles independently per index | `src/components/cards/ClozeCardContent.tsx` | component test | one reveal does not leak another | Passed |
-| P1-10 | Review reveal exposes all clozes on flip | `src/components/cards/ClozeCardContent.tsx`, `src/features/review/ReviewPage.tsx` | component test, page test | reveal-all works in review mode | Passed |
+| ID    | Feature                                              | Primary Files                                                                     | Required Evidence         | Pass Definition                   | Status |
+| ----- | ---------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------- | --------------------------------- | ------ |
+| P1-01 | Markdown renderer supports headings, emphasis, lists | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | HTML output is correct            | Passed |
+| P1-02 | Markdown renderer supports code blocks               | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | fenced blocks render safely       | Passed |
+| P1-03 | Markdown renderer supports tables                    | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | GFM table renders correctly       | Passed |
+| P1-04 | Inline math renders via KaTeX                        | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | inline math visible and parsed    | Passed |
+| P1-05 | Block math renders via KaTeX                         | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | block math visible and parsed     | Passed |
+| P1-06 | Compact mode preserves usable truncation             | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | compact cards do not break layout | Passed |
+| P1-07 | Cloze parser extracts all indices                    | `src/components/cards/ClozeCardContent.tsx`                                       | component test            | all `cN` groups are discovered    | Passed |
+| P1-08 | Cloze hidden form uses hint or placeholder correctly | `src/components/cards/ClozeCardContent.tsx`                                       | component test            | masked rendering is correct       | Passed |
+| P1-09 | Cloze reveal toggles independently per index         | `src/components/cards/ClozeCardContent.tsx`                                       | component test            | one reveal does not leak another  | Passed |
+| P1-10 | Review reveal exposes all clozes on flip             | `src/components/cards/ClozeCardContent.tsx`, `src/features/review/ReviewPage.tsx` | component test, page test | reveal-all works in review mode   | Passed |
 
 ### 9.3 Phase 2 - Card Editor
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Status |
-| --- | --- | --- | --- | --- | --- |
-| P2-01 | Editor opens from card studio | `src/features/cards/CardStudioPage.tsx`, `src/components/cards/CardEditorModal.tsx` | page test | modal opens reliably | Passed |
-| P2-02 | Front/back editing tabs preserve state | `src/components/cards/CardEditorModal.tsx` | component test | switching tabs does not lose content | Passed |
-| P2-03 | Card type selector supports qa/cloze/fact/choice | `src/components/cards/CardEditorModal.tsx` | component test | all four options work | Passed |
-| P2-04 | Live markdown preview is functional | `src/components/cards/CardEditorModal.tsx` | component test | preview updates correctly | Passed |
-| P2-05 | Tag parsing trims and filters empty values | `src/components/cards/CardEditorModal.tsx` | component test | output tags are clean | Passed |
-| P2-06 | Save validation blocks empty front/back | `src/components/cards/CardEditorModal.tsx` | component test | invalid data cannot submit | Passed |
-| P2-07 | Create mutation invalidates card queries | `src/queries/cards.ts` | unit test | cards list refreshes after save | Passed |
-| P2-08 | Edit existing card workflow is functional | `src/features/cards/CardStudioPage.tsx`, `src/components/cards/CardEditorModal.tsx` | page test | existing card can be edited correctly | Passed |
+| ID    | Feature                                          | Primary Files                                                                       | Required Evidence | Pass Definition                       | Status |
+| ----- | ------------------------------------------------ | ----------------------------------------------------------------------------------- | ----------------- | ------------------------------------- | ------ |
+| P2-01 | Editor opens from card studio                    | `src/features/cards/CardStudioPage.tsx`, `src/components/cards/CardEditorModal.tsx` | page test         | modal opens reliably                  | Passed |
+| P2-02 | Front/back editing tabs preserve state           | `src/components/cards/CardEditorModal.tsx`                                          | component test    | switching tabs does not lose content  | Passed |
+| P2-03 | Card type selector supports qa/cloze/fact/choice | `src/components/cards/CardEditorModal.tsx`                                          | component test    | all four options work                 | Passed |
+| P2-04 | Live markdown preview is functional              | `src/components/cards/CardEditorModal.tsx`                                          | component test    | preview updates correctly             | Passed |
+| P2-05 | Tag parsing trims and filters empty values       | `src/components/cards/CardEditorModal.tsx`                                          | component test    | output tags are clean                 | Passed |
+| P2-06 | Save validation blocks empty front/back          | `src/components/cards/CardEditorModal.tsx`                                          | component test    | invalid data cannot submit            | Passed |
+| P2-07 | Create mutation invalidates card queries         | `src/queries/cards.ts`                                                              | unit test         | cards list refreshes after save       | Passed |
+| P2-08 | Edit existing card workflow is functional        | `src/features/cards/CardStudioPage.tsx`, `src/components/cards/CardEditorModal.tsx` | page test         | existing card can be edited correctly | Passed |
 
 ### 9.4 Phase 3 - Choice Cards
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Status |
-| --- | --- | --- | --- | --- | --- |
-| P3-01 | Card type includes `choice` at TS level | `src/types/document.ts`, `src/types/schema.ts` | schema test | choice is part of contract | Passed |
-| P3-02 | Rust DTO includes required fields for modern card schema | `src-tauri/src/commands/cards.rs` | code inspection, rust test | DTO matches schema contract | Passed |
-| P3-03 | Choice format parser supports prompt and options | `src/components/cards/ChoiceCardContent.tsx` | component test | prompt and options parsed correctly | Passed |
-| P3-04 | Correct option marking is respected | `src/components/cards/ChoiceCardContent.tsx` | component test | marked answer is correct | Passed |
-| P3-05 | Invalid choice format falls back safely | `src/components/cards/ChoiceCardContent.tsx` | component test | malformed input degrades gracefully | Passed |
-| P3-06 | User selection gives immediate feedback | `src/components/cards/ChoiceCardContent.tsx` | component test | correct and incorrect states render correctly | Passed |
-| P3-07 | Review mode reveals correct choice and explanation | `src/components/cards/ChoiceCardContent.tsx`, `src/features/review/ReviewPage.tsx` | component test, page test | reveal behavior is correct | Passed |
-| P3-08 | AI generation schema accepts choice cards | `orchestration_service/workflows/card_generation.py`, `orchestration_service/schemas/card_draft.py` | code inspection, python validation path | choice cards flow through generation contract | Passed |
+| ID    | Feature                                                  | Primary Files                                                                                       | Required Evidence                       | Pass Definition                               | Status |
+| ----- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------- | ------ |
+| P3-01 | Card type includes `choice` at TS level                  | `src/types/document.ts`, `src/types/schema.ts`                                                      | schema test                             | choice is part of contract                    | Passed |
+| P3-02 | Rust DTO includes required fields for modern card schema | `src-tauri/src/commands/cards.rs`                                                                   | code inspection, rust test              | DTO matches schema contract                   | Passed |
+| P3-03 | Choice format parser supports prompt and options         | `src/components/cards/ChoiceCardContent.tsx`                                                        | component test                          | prompt and options parsed correctly           | Passed |
+| P3-04 | Correct option marking is respected                      | `src/components/cards/ChoiceCardContent.tsx`                                                        | component test                          | marked answer is correct                      | Passed |
+| P3-05 | Invalid choice format falls back safely                  | `src/components/cards/ChoiceCardContent.tsx`                                                        | component test                          | malformed input degrades gracefully           | Passed |
+| P3-06 | User selection gives immediate feedback                  | `src/components/cards/ChoiceCardContent.tsx`                                                        | component test                          | correct and incorrect states render correctly | Passed |
+| P3-07 | Review mode reveals correct choice and explanation       | `src/components/cards/ChoiceCardContent.tsx`, `src/features/review/ReviewPage.tsx`                  | component test, page test               | reveal behavior is correct                    | Passed |
+| P3-08 | AI generation schema accepts choice cards                | `orchestration_service/workflows/card_generation.py`, `orchestration_service/schemas/card_draft.py` | code inspection, python validation path | choice cards flow through generation contract | Passed |
 
 ### 9.5 Phase 4 - Media Support
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Status |
-| --- | --- | --- | --- | --- | --- |
-| P4-01 | Migration V12 exists and is valid | `src-tauri/src/migrations/V12__card_media.sql` | migration inspection, cargo test | media table is present and queryable | Passed |
-| P4-02 | Rust supports upload card media command | `src-tauri/src/commands/cards.rs` | rust check, command inspection | upload command compiles and stores metadata | Passed |
-| P4-03 | Rust supports list card media command | `src-tauri/src/commands/cards.rs` | rust check, command inspection | media can be listed per card | Passed |
-| P4-04 | Rust supports delete card media command | `src-tauri/src/commands/cards.rs` | rust check, command inspection | media delete removes record and file | Passed |
-| P4-05 | Tauri asset scope includes media storage | `src-tauri/tauri.conf.json` | config inspection | media assets are accessible safely | Passed |
-| P4-06 | Frontend gateway exposes media commands | `src/services/gateway/cards.ts`, `src/types/document.ts` | unit test | media command typing is correct | Passed |
-| P4-07 | APKG import command exists and works end-to-end | `src-tauri/src/commands/cards.rs`, `orchestration_service/exports/apkg_importer.py` | integration path validation | import is callable and returns usable result | Passed |
-| P4-08 | APKG export command exists and works end-to-end | `src-tauri/src/commands/cards.rs`, `orchestration_service/exports/genanki_exporter.py` | integration path validation | export flow is callable and returns usable result | Passed |
-| P4-09 | Card studio exposes APKG import/export and CSV export actions | `src/features/cards/CardStudioPage.tsx` | page test | buttons render and trigger handlers | Passed |
-| P4-10 | Card editor supports media upload UI | `src/components/cards/CardEditorModal.tsx` | component test, browser validation | user can attach media from UI | Passed |
-| P4-11 | Image occlusion frontend renderer exists | `src/components/cards/ImageOcclusionCardContent.tsx` | component test | image occlusion cards are usable | Passed |
+| ID    | Feature                                                       | Primary Files                                                                          | Required Evidence                  | Pass Definition                                   | Status |
+| ----- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------- | ------ |
+| P4-01 | Migration V12 exists and is valid                             | `src-tauri/src/migrations/V12__card_media.sql`                                         | migration inspection, cargo test   | media table is present and queryable              | Passed |
+| P4-02 | Rust supports upload card media command                       | `src-tauri/src/commands/cards.rs`                                                      | rust check, command inspection     | upload command compiles and stores metadata       | Passed |
+| P4-03 | Rust supports list card media command                         | `src-tauri/src/commands/cards.rs`                                                      | rust check, command inspection     | media can be listed per card                      | Passed |
+| P4-04 | Rust supports delete card media command                       | `src-tauri/src/commands/cards.rs`                                                      | rust check, command inspection     | media delete removes record and file              | Passed |
+| P4-05 | Tauri asset scope includes media storage                      | `src-tauri/tauri.conf.json`                                                            | config inspection                  | media assets are accessible safely                | Passed |
+| P4-06 | Frontend gateway exposes media commands                       | `src/services/gateway/cards.ts`, `src/types/document.ts`                               | unit test                          | media command typing is correct                   | Passed |
+| P4-07 | APKG import command exists and works end-to-end               | `src-tauri/src/commands/cards.rs`, `orchestration_service/exports/apkg_importer.py`    | integration path validation        | import is callable and returns usable result      | Passed |
+| P4-08 | APKG export command exists and works end-to-end               | `src-tauri/src/commands/cards.rs`, `orchestration_service/exports/genanki_exporter.py` | integration path validation        | export flow is callable and returns usable result | Passed |
+| P4-09 | Card studio exposes APKG import/export and CSV export actions | `src/features/cards/CardStudioPage.tsx`                                                | page test                          | buttons render and trigger handlers               | Passed |
+| P4-10 | Card editor supports media upload UI                          | `src/components/cards/CardEditorModal.tsx`                                             | component test, browser validation | user can attach media from UI                     | Passed |
+| P4-11 | Image occlusion frontend renderer exists                      | `src/components/cards/ImageOcclusionCardContent.tsx`                                   | component test                     | image occlusion cards are usable                  | Passed |
 
 ### 9.6 Phase 5 - AI Generation Enhancement
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Status |
-| --- | --- | --- | --- | --- | --- |
-| P5-01 | System prompt describes multi-type generation | `orchestration_service/workflows/card_generation.py` | code inspection | prompt includes qa/cloze/fact/choice | Passed |
-| P5-02 | Generated card schema accepts choice type | `orchestration_service/schemas/card_draft.py` | code inspection | schema validates choice | Passed |
-| P5-03 | `from_llm_json` normalizes choice type correctly | `orchestration_service/schemas/card_draft.py` | code inspection, python path | choice survives parsing | Passed |
-| P5-04 | Candidate status flow persists correctly | frontend + rust + db path | test or inspection | pending/accepted/rejected works | Passed |
-| P5-05 | Finalize generation path creates real cards | frontend + rust + db path | integration validation | accepted candidates become cards | Passed |
-| P5-06 | Dedupe path prevents duplicate imported/generated cards | rust + python + db | unit or integration validation | duplicate detection works | Passed |
+| ID    | Feature                                                 | Primary Files                                        | Required Evidence              | Pass Definition                      | Status |
+| ----- | ------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------ | ------ |
+| P5-01 | System prompt describes multi-type generation           | `orchestration_service/workflows/card_generation.py` | code inspection                | prompt includes qa/cloze/fact/choice | Passed |
+| P5-02 | Generated card schema accepts choice type               | `orchestration_service/schemas/card_draft.py`        | code inspection                | schema validates choice              | Passed |
+| P5-03 | `from_llm_json` normalizes choice type correctly        | `orchestration_service/schemas/card_draft.py`        | code inspection, python path   | choice survives parsing              | Passed |
+| P5-04 | Candidate status flow persists correctly                | frontend + rust + db path                            | test or inspection             | pending/accepted/rejected works      | Passed |
+| P5-05 | Finalize generation path creates real cards             | frontend + rust + db path                            | integration validation         | accepted candidates become cards     | Passed |
+| P5-06 | Dedupe path prevents duplicate imported/generated cards | rust + python + db                                   | unit or integration validation | duplicate detection works            | Passed |
 
 ### 9.7 Phase 6 - Knowledge QA
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Initial Status |
-| --- | --- | --- | --- | --- | --- |
-| P6-01 | Workflow file exists with non-placeholder logic | `orchestration_service/workflows/knowledge_qa.py` | code inspection | no longer skeleton-only | Pending |
-| P6-02 | Retrieval path is connected to document/card evidence | QA-related files | integration validation | answer cites retrievable content | Pending |
+| ID    | Feature                                               | Primary Files                                     | Required Evidence      | Pass Definition                  | Initial Status |
+| ----- | ----------------------------------------------------- | ------------------------------------------------- | ---------------------- | -------------------------------- | -------------- |
+| P6-01 | Workflow file exists with non-placeholder logic       | `orchestration_service/workflows/knowledge_qa.py` | code inspection        | no longer skeleton-only          | Pending        |
+| P6-02 | Retrieval path is connected to document/card evidence | QA-related files                                  | integration validation | answer cites retrievable content | Pending        |
 
 ### 9.8 Phase 7 - Animation
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Initial Status |
-| --- | --- | --- | --- | --- | --- |
-| P7-01 | Animation workflow is executable | `orchestration_service/workflows/card_animation.py` | integration validation | task runs beyond scaffold | Pending |
-| P7-02 | Frontend animation preview consumes real data | `src/components/cards/AnimationRenderer.tsx` | UI test | preview works with live payload | Pending |
+| ID    | Feature                                       | Primary Files                                       | Required Evidence      | Pass Definition                 | Initial Status |
+| ----- | --------------------------------------------- | --------------------------------------------------- | ---------------------- | ------------------------------- | -------------- |
+| P7-01 | Animation workflow is executable              | `orchestration_service/workflows/card_animation.py` | integration validation | task runs beyond scaffold       | Pending        |
+| P7-02 | Frontend animation preview consumes real data | `src/components/cards/AnimationRenderer.tsx`        | UI test                | preview works with live payload | Pending        |
 
 ### 9.9 Phase 8 - Podcast
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Initial Status |
-| --- | --- | --- | --- | --- | --- |
-| P8-01 | Podcast workflow is executable | `orchestration_service/workflows/podcast.py` | integration validation | task runs beyond scaffold | Pending |
-| P8-02 | Frontend podcast UI consumes generated result | podcast-related frontend files | UI test | playable result exists | Pending |
+| ID    | Feature                                       | Primary Files                                | Required Evidence      | Pass Definition           | Initial Status |
+| ----- | --------------------------------------------- | -------------------------------------------- | ---------------------- | ------------------------- | -------------- |
+| P8-01 | Podcast workflow is executable                | `orchestration_service/workflows/podcast.py` | integration validation | task runs beyond scaffold | Pending        |
+| P8-02 | Frontend podcast UI consumes generated result | podcast-related frontend files               | UI test                | playable result exists    | Pending        |
 
 ### 9.10 Phase 9 - Knowledge Graph
 
-| ID | Feature | Primary Files | Required Evidence | Pass Definition | Initial Status |
-| --- | --- | --- | --- | --- | --- |
-| P9-01 | Knowledge graph workflow is executable | `orchestration_service/workflows/knowledge_graph.py` | integration validation | graph extraction runs beyond scaffold | Pending |
-| P9-02 | Frontend graph view consumes real graph data | graph-related frontend files | UI test | graph view is usable | Pending |
+| ID    | Feature                                      | Primary Files                                        | Required Evidence      | Pass Definition                       | Initial Status |
+| ----- | -------------------------------------------- | ---------------------------------------------------- | ---------------------- | ------------------------------------- | -------------- |
+| P9-01 | Knowledge graph workflow is executable       | `orchestration_service/workflows/knowledge_graph.py` | integration validation | graph extraction runs beyond scaffold | Pending        |
+| P9-02 | Frontend graph view consumes real graph data | graph-related frontend files                         | UI test                | graph view is usable                  | Pending        |
 
 ---
 
@@ -390,43 +393,43 @@ This section defines the detailed feature checklist. Every item is scored indepe
 
 ### 10.1 Architecture Consistency
 
-| ID | Feature | Pass Definition | Status |
-| --- | --- | --- | --- |
-| X-ARC-01 | Rust DTO and TS Zod schemas are aligned | no missing required fields | Passed |
-| X-ARC-02 | Migrations are sequential and complete | V1-V12 are present and applicable | Passed |
+| ID       | Feature                                       | Pass Definition                   | Status |
+| -------- | --------------------------------------------- | --------------------------------- | ------ |
+| X-ARC-01 | Rust DTO and TS Zod schemas are aligned       | no missing required fields        | Passed |
+| X-ARC-02 | Migrations are sequential and complete        | V1-V12 are present and applicable | Passed |
 | X-ARC-03 | New card types require minimal change surface | extensibility path remains intact | Passed |
-| X-ARC-04 | Design doc matches implementation claims | no false “done” statements remain | Passed |
+| X-ARC-04 | Design doc matches implementation claims      | no false “done” statements remain | Passed |
 
 ### 10.2 IPC and Safety
 
-| ID | Feature | Pass Definition | Status |
-| --- | --- | --- | --- |
-| X-IPC-01 | Gateway contracts are typed | all card gateway calls are typed | Passed |
+| ID       | Feature                                             | Pass Definition                           | Status |
+| -------- | --------------------------------------------------- | ----------------------------------------- | ------ |
+| X-IPC-01 | Gateway contracts are typed                         | all card gateway calls are typed          | Passed |
 | X-IPC-02 | Schema validation exists at boundary where intended | unsafe unvalidated payloads are minimized | Passed |
-| X-IPC-03 | Error handling surfaces actionable failures | failures do not silently disappear | Passed |
+| X-IPC-03 | Error handling surfaces actionable failures         | failures do not silently disappear        | Passed |
 
 ### 10.3 Engineering Quality
 
-| ID | Feature | Pass Definition | Status |
-| --- | --- | --- | --- |
-| X-ENG-01 | TypeScript build passes | zero blocking TS errors | Passed |
-| X-ENG-02 | Rust check passes | zero blocking Rust errors | Passed |
-| X-ENG-03 | Rust tests pass | test suite green | Passed |
-| X-ENG-04 | Targeted Vitest suite for card system passes | targeted suite green | Passed |
-| X-ENG-05 | Core feature pages have direct tests | CardStudioPage and ReviewPage covered | Passed |
-| X-ENG-06 | Core renderers have direct tests | CardContentRenderer, Cloze, Choice covered | Passed |
+| ID       | Feature                                      | Pass Definition                            | Status |
+| -------- | -------------------------------------------- | ------------------------------------------ | ------ |
+| X-ENG-01 | TypeScript build passes                      | zero blocking TS errors                    | Passed |
+| X-ENG-02 | Rust check passes                            | zero blocking Rust errors                  | Passed |
+| X-ENG-03 | Rust tests pass                              | test suite green                           | Passed |
+| X-ENG-04 | Targeted Vitest suite for card system passes | targeted suite green                       | Passed |
+| X-ENG-05 | Core feature pages have direct tests         | CardStudioPage and ReviewPage covered      | Passed |
+| X-ENG-06 | Core renderers have direct tests             | CardContentRenderer, Cloze, Choice covered | Passed |
 
 ### 10.4 External Comparison Snapshot
 
 This is an auxiliary, non-gating section.
 
-| Capability | XueJian Target | External Benchmark | Importance |
-| --- | --- | --- | --- |
-| FSRS scheduling | Present | Anki | High |
-| Rich markdown and math | Present | RemNote, Anki | High |
-| Image occlusion | Planned or done | Anki | Medium |
-| AI card generation | Present | Better than baseline | High |
-| Document-linked learning | Present | Better than baseline | High |
+| Capability               | XueJian Target  | External Benchmark   | Importance |
+| ------------------------ | --------------- | -------------------- | ---------- |
+| FSRS scheduling          | Present         | Anki                 | High       |
+| Rich markdown and math   | Present         | RemNote, Anki        | High       |
+| Image occlusion          | Planned or done | Anki                 | Medium     |
+| AI card generation       | Present         | Better than baseline | High       |
+| Document-linked learning | Present         | Better than baseline | High       |
 
 ---
 
@@ -484,13 +487,13 @@ Repair rules:
 
 ### 13.1 Item Status Values
 
-| Status | Meaning |
-| --- | --- |
-| Pending | Not yet evaluated |
-| In Review | Evidence is being collected |
-| Failed | Evaluated and did not pass |
-| Passed | Evaluated and accepted |
-| Waived | Explicitly excluded from the gate |
+| Status    | Meaning                           |
+| --------- | --------------------------------- |
+| Pending   | Not yet evaluated                 |
+| In Review | Evidence is being collected       |
+| Failed    | Evaluated and did not pass        |
+| Passed    | Evaluated and accepted            |
+| Waived    | Explicitly excluded from the gate |
 
 ### 13.2 Waiver Policy
 

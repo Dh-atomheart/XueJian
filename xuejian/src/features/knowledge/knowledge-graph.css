@@ -1,0 +1,72 @@
+.kg-display {
+  font-family: 'Kose', 'LXGW WenKai', serif;
+}
+
+.kg-canvas-surface {
+  background:
+    radial-gradient(circle at 12% 14%, rgba(232, 168, 56, 0.18), transparent 20%),
+    radial-gradient(circle at 82% 10%, rgba(91, 141, 239, 0.18), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 245, 240, 0.96));
+}
+
+.kg-stat-accent-blue {
+  background-color: rgba(91, 141, 239, 0.2);
+}
+
+.kg-stat-accent-blue::after {
+  background-color: #5b8def;
+}
+
+.kg-stat-accent-amber {
+  background-color: rgba(232, 168, 56, 0.2);
+}
+
+.kg-stat-accent-amber::after {
+  background-color: #e8a838;
+}
+
+.kg-stat-accent-green {
+  background-color: rgba(76, 175, 125, 0.2);
+}
+
+.kg-stat-accent-green::after {
+  background-color: #4caf7d;
+}
+
+.kg-stat-accent {
+  position: relative;
+}
+
+.kg-stat-accent::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+}
+
+.kg-node-dot {
+  display: inline-flex;
+  height: 10px;
+  width: 10px;
+  border-radius: 999px;
+}
+
+.kg-node-dot-concept {
+  background-color: #5b8def;
+}
+
+.kg-node-dot-person {
+  background-color: #e8a838;
+}
+
+.kg-node-dot-event {
+  background-color: #4caf7d;
+}
+
+.kg-node-dot-formula {
+  background-color: #9c6ade;
+}
+
+.kg-node-dot-term {
+  background-color: #e06c75;
+}

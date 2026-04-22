@@ -34,7 +34,11 @@ export function PdfSearchBar({
 
       <div className="flex items-center gap-2">
         <span className="min-w-[5.5rem] text-center font-latin text-xs text-ink-soft">
-          {isSearching ? '搜索中…' : totalResults > 0 ? `${currentIndex + 1} / ${totalResults}` : '0 / 0'}
+          {isSearching
+            ? '搜索中…'
+            : totalResults > 0
+              ? `${currentIndex + 1} / ${totalResults}`
+              : '0 / 0'}
         </span>
         <Button variant="ghost" size="sm" onClick={onPrevious} disabled={totalResults === 0}>
           上一个

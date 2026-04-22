@@ -62,7 +62,9 @@ export function StickyNoteCard({
               {card.title?.trim() || card.front}
             </h3>
           </div>
-          <span className="shrink-0 font-latin text-[11px] text-ink-soft">P.{card.sourcePage ?? '--'}</span>
+          <span className="shrink-0 font-latin text-[11px] text-ink-soft">
+            P.{card.sourcePage ?? '--'}
+          </span>
         </div>
       </button>
 

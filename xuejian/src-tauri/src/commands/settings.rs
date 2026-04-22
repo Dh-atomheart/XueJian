@@ -110,6 +110,12 @@ pub struct AppSettingsDto {
     pub review_time_limit: i32,
     pub theme: String,
     pub language: String,
+    pub podcast_tts_provider: String,
+    pub podcast_openai_model: String,
+    pub podcast_fish_audio_endpoint: Option<String>,
+    pub podcast_voice_overrides: std::collections::BTreeMap<String, String>,
+    pub podcast_output_format: String,
+    pub podcast_skip_review: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -147,6 +153,12 @@ impl From<AppSettings> for AppSettingsDto {
             review_time_limit: settings.review_time_limit,
             theme: settings.theme,
             language: settings.language,
+            podcast_tts_provider: settings.podcast_tts_provider,
+            podcast_openai_model: settings.podcast_openai_model,
+            podcast_fish_audio_endpoint: settings.podcast_fish_audio_endpoint,
+            podcast_voice_overrides: settings.podcast_voice_overrides,
+            podcast_output_format: settings.podcast_output_format,
+            podcast_skip_review: settings.podcast_skip_review,
         }
     }
 }
@@ -158,6 +170,12 @@ pub struct UpdateSettingsDto {
     pub review_time_limit: Option<i32>,
     pub theme: Option<String>,
     pub language: Option<String>,
+    pub podcast_tts_provider: Option<String>,
+    pub podcast_openai_model: Option<String>,
+    pub podcast_fish_audio_endpoint: Option<Option<String>>,
+    pub podcast_voice_overrides: Option<std::collections::BTreeMap<String, String>>,
+    pub podcast_output_format: Option<String>,
+    pub podcast_skip_review: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,6 +225,12 @@ pub fn update_settings(
         review_time_limit: data.review_time_limit,
         theme: data.theme,
         language: data.language,
+        podcast_tts_provider: data.podcast_tts_provider,
+        podcast_openai_model: data.podcast_openai_model,
+        podcast_fish_audio_endpoint: data.podcast_fish_audio_endpoint,
+        podcast_voice_overrides: data.podcast_voice_overrides,
+        podcast_output_format: data.podcast_output_format,
+        podcast_skip_review: data.podcast_skip_review,
     })?;
     Ok(settings.into())
 }

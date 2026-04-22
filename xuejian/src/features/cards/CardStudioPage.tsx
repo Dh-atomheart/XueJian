@@ -1,1036 +1,588 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CardCandidatePanel } from '@/components/cards/CardCandidatePanel'
-import { CardContentRenderer } from '@/components/cards/CardContentRenderer'
-import { CardEditorModal } from '@/components/cards/CardEditorModal'
-import { ImageOcclusionCardContent } from '@/components/cards/ImageOcclusionCardContent'
-import { Button, Panel } from '@/components/ui'
-import { SketchButton } from '@/components/ui/Sketch'
-import {
-  useBulkUpdateCardCandidateStatusesMutation,
-  useCardCandidatesQuery,
-  useCardsQuery,
-  useCreateCardMutation,
-  useFinalizeCardGenerationMutation,
-  useResumeCardGenerationMutation,
-  useUpdateCardCandidateMutation,
-  useUpdateCardMutation,
-} from '@/queries/cards'
-import { useRecentWorkflowRunsQuery, useWorkflowEventsQuery } from '@/queries/orchestration'
-import { cardsGateway } from '@/services/gateway/cards'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button, Input, Panel } from '@/components/ui'
 import { cn } from '@/lib/utils'
-import type { Card, CardCandidate, WorkflowEvent, WorkflowRun } from '@/types'
+import {
+  cardsQueryKeys,
+  documentsQueryKeys,
+  orchestrationQueryKeys,
+  useCardCandidatesQuery,
+  useDocumentAnchorsQuery,
+  useDocumentChunksQuery,
+  useDocumentsQuery,
+  useRecentWorkflowRunsQuery,
+  useWorkflowCheckpointQuery,
+  useWorkflowEventsQuery,
+} from '@/queries'
+import { cardsGateway } from '@/services/gateway/cards'
+import { useAppUiStore } from '@/store'
+import type { CardCandidate, WorkflowEvent, WorkflowRun } from '@/types'
 
-type ViewMode = 'grid' | 'list'
-type FilterStatus = 'all' | 'new' | 'learning' | 'review' | 'relearning'
-
-type WorkflowRunSummary = {
-  documentTitle: string | null
-  phase: string | null
-  generationMode: string | null
-  fallbackReason: string | null
-  chunkCursor: number
-  totalChunks: number
-  generatedCount: number
-  duplicateCount: number
-  pendingCount: number
-  acceptedCount: number
-  rejectedCount: number
-}
-
-const STATE_LABELS: Record<Card['state'], string> = {
-  new: '新卡片',
-  learning: '学习中',
-  review: '复习',
-  relearning: '重学',
-}
-
-const WORKFLOW_STATUS_LABELS: Record<WorkflowRun['status'], string> = {
-  queued: '排队中',
-  running: '生成中',
-  waiting_confirmation: '等待人工确认',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-}
-
-const WORKFLOW_STATUS_TONES: Record<WorkflowRun['status'], string> = {
-  queued: 'border-ink/10 bg-paper-card text-ink-muted',
-  running: 'border-sky-200 bg-sky-50 text-sky-700',
-  waiting_confirmation: 'border-highlight-yellow/40 bg-highlight-yellow/10 text-ink',
-  completed: 'border-highlight-green/40 bg-highlight-green/10 text-ink',
-  failed: 'border-rose-200 bg-rose-50 text-rose-700',
-  cancelled: 'border-line-soft bg-paper-muted/60 text-ink-muted',
-}
-
-const CANDIDATE_CARD_TYPES: Card['cardType'][] = ['qa', 'cloze', 'fact', 'choice']
+const LIVE_STATUSES = new Set<WorkflowRun['status']>(['queued', 'running'])
 
 export function CardStudioPage() {
-  const [viewMode, setViewMode] = useState<ViewMode>('grid')
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [flippedCards, setFlippedCards] = useState<Set<string>>(new Set())
-  const [isEditorOpen, setIsEditorOpen] = useState(false)
-  const [editingCard, setEditingCard] = useState<Card | null>(null)
-  const [editingCandidate, setEditingCandidate] = useState<CardCandidate | null>(null)
+  const queryClient = useQueryClient()
+  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const { data: documents = [] } = useDocumentsQuery()
+  const readyDocuments = useMemo(
+    () => documents.filter((document) => document.status === 'ready'),
+    [documents]
+  )
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
-  const [showLowQualityCandidates, setShowLowQualityCandidates] = useState(false)
-  const [importStatus, setImportStatus] = useState<string | null>(null)
-
-  const { data: cards = [], isLoading, refetch } = useCardsQuery({}, { enabled: true })
-  const { data: recentRuns = [] } = useRecentWorkflowRunsQuery(8, 5_000)
-  const createCard = useCreateCardMutation()
-  const updateCard = useUpdateCardMutation()
-  const updateCandidate = useUpdateCardCandidateMutation()
-  const bulkUpdateCandidateStatuses = useBulkUpdateCardCandidateStatusesMutation()
-  const resumeGeneration = useResumeCardGenerationMutation()
-  const finalizeGeneration = useFinalizeCardGenerationMutation()
-
-  const cardGenerationRuns = useMemo(
-    () => recentRuns.filter((run) => run.workflowType === 'card_generation'),
-    [recentRuns]
-  )
-
-  const preferredRunId = useMemo(
-    () =>
-      cardGenerationRuns.find((run) =>
-        ['queued', 'running', 'waiting_confirmation', 'failed'].includes(run.status)
-      )?.id ??
-      cardGenerationRuns[0]?.id ??
-      null,
-    [cardGenerationRuns]
-  )
+  const [candidateLimitInput, setCandidateLimitInput] = useState('24')
 
   useEffect(() => {
-    if (!preferredRunId) {
-      if (selectedRunId) {
-        setSelectedRunId(null)
-      }
+    if (readyDocuments.length === 0) {
+      setSelectedDocumentId(null)
       return
     }
 
-    if (!selectedRunId || !cardGenerationRuns.some((run) => run.id === selectedRunId)) {
-      setSelectedRunId(preferredRunId)
+    if (!selectedDocumentId || !readyDocuments.some((document) => document.id === selectedDocumentId)) {
+      setSelectedDocumentId(readyDocuments[0].id)
     }
-  }, [cardGenerationRuns, preferredRunId, selectedRunId])
+  }, [readyDocuments, selectedDocumentId])
 
-  const selectedRun = useMemo(
-    () => cardGenerationRuns.find((run) => run.id === selectedRunId) ?? null,
-    [cardGenerationRuns, selectedRunId]
-  )
+  const { data: workflowRuns = [] } = useRecentWorkflowRunsQuery(40, 2_500)
+  const runsForDocument = useMemo(() => {
+    const cardRuns = workflowRuns.filter((run) => run.workflowType === 'card_generation')
+    return selectedDocumentId
+      ? cardRuns.filter((run) => extractDocumentIdFromRun(run) === selectedDocumentId)
+      : []
+  }, [workflowRuns, selectedDocumentId])
 
-  const isWorkflowPolling = selectedRun?.status === 'queued' || selectedRun?.status === 'running'
+  useEffect(() => {
+    if (!selectedDocumentId) {
+      setSelectedRunId(null)
+      return
+    }
+
+    if (runsForDocument.length === 0) {
+      setSelectedRunId(null)
+      return
+    }
+
+    if (!selectedRunId || !runsForDocument.some((run) => run.id === selectedRunId)) {
+      setSelectedRunId(runsForDocument[0].id)
+    }
+  }, [runsForDocument, selectedDocumentId, selectedRunId])
+
+  const selectedDocument =
+    readyDocuments.find((document) => document.id === selectedDocumentId) ?? null
+  const activeRun = runsForDocument.find((run) => run.id === selectedRunId) ?? null
+  const pollInterval = activeRun && LIVE_STATUSES.has(activeRun.status) ? 2_000 : false
+
+  const { data: anchors = [] } = useDocumentAnchorsQuery(selectedDocumentId)
+  const { data: chunks = [] } = useDocumentChunksQuery(selectedDocumentId)
   const { data: candidates = [] } = useCardCandidatesQuery(
-    { workflowRunId: selectedRunId, limit: 120 },
-    { refetchInterval: isWorkflowPolling ? 3_000 : false }
+    { workflowRunId: activeRun?.id ?? null, limit: 120 },
+    { refetchInterval: pollInterval }
   )
-  const { data: workflowEvents = [] } = useWorkflowEventsQuery(selectedRunId, 6, {
-    refetchInterval: isWorkflowPolling ? 3_000 : false,
+  const { data: checkpoint } = useWorkflowCheckpointQuery(
+    activeRun?.id ?? null,
+    activeRun?.checkpointRef ?? null,
+    { refetchInterval: pollInterval }
+  )
+  const { data: events = [] } = useWorkflowEventsQuery(activeRun?.id ?? null, 24, {
+    refetchInterval: pollInterval,
   })
 
-  const workflowSummary = useMemo(() => readWorkflowRunSummary(selectedRun), [selectedRun])
+  const pendingCount = candidates.filter((candidate) => candidate.status === 'pending').length
+  const acceptedCount = candidates.filter((candidate) => candidate.status === 'accepted').length
+  const rejectedCount = candidates.filter((candidate) => candidate.status === 'rejected').length
 
-  const candidateCounts = useMemo(
-    () => ({
-      total: candidates.length,
-      pending: candidates.filter((candidate) => candidate.status === 'pending').length,
-      accepted: candidates.filter((candidate) => candidate.status === 'accepted').length,
-      rejected: candidates.filter((candidate) => candidate.status === 'rejected').length,
-    }),
-    [candidates]
-  )
-
-  const hiddenLowQualityCount = useMemo(
-    () =>
-      candidates.filter(
-        (candidate) =>
-          candidate.status === 'pending' && candidate.visibilityBucket === 'hidden_low_quality'
-      ).length,
-    [candidates]
-  )
-
-  const reviewCandidates = useMemo(() => {
-    const sorted = [...candidates].sort((left, right) => compareCandidates(right, left))
-
-    if (showLowQualityCandidates) {
-      return sorted
-    }
-
-    return sorted.filter(
-      (candidate) =>
-        candidate.status !== 'pending' || candidate.visibilityBucket !== 'hidden_low_quality'
-    )
-  }, [candidates, showLowQualityCandidates])
-
-  const effectivePendingCount =
-    candidateCounts.total > 0 ? candidateCounts.pending : workflowSummary.pendingCount
-  const effectiveAcceptedCount =
-    candidateCounts.total > 0 ? candidateCounts.accepted : workflowSummary.acceptedCount
-  const effectiveRejectedCount =
-    candidateCounts.total > 0 ? candidateCounts.rejected : workflowSummary.rejectedCount
-
-  const filteredCards = useMemo(() => {
-    return cards.filter((card) => {
-      const matchesStatus = filterStatus === 'all' || card.state === filterStatus
-      const matchesSearch =
-        !searchQuery ||
-        card.front.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        card.back.toLowerCase().includes(searchQuery.toLowerCase())
-      return matchesStatus && matchesSearch
-    })
-  }, [cards, filterStatus, searchQuery])
-
-  const groups = useMemo(() => {
-    const groupMap = new Map<string, { id: string; name: string; count: number }>()
-    for (const card of cards) {
-      if (!card.groupId) {
-        continue
-      }
-
-      const existing = groupMap.get(card.groupId)
-      if (existing) {
-        existing.count += 1
-      } else {
-        groupMap.set(card.groupId, { id: card.groupId, name: card.groupId, count: 1 })
-      }
-    }
-    return Array.from(groupMap.values())
-  }, [cards])
-
-  const statusFilters: { key: FilterStatus; label: string }[] = [
-    { key: 'all', label: '全部' },
-    { key: 'new', label: '新卡片' },
-    { key: 'learning', label: '学习中' },
-    { key: 'review', label: '复习' },
-    { key: 'relearning', label: '重学' },
-  ]
-
-  const statusColors: Record<string, string> = {
-    new: 'bg-blue-100 text-blue-700',
-    learning: 'bg-amber-100 text-amber-700',
-    review: 'bg-green-100 text-green-700',
-    relearning: 'bg-purple-100 text-purple-700',
+  async function invalidateM3Queries() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all }),
+      queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all }),
+      queryClient.invalidateQueries({ queryKey: documentsQueryKeys.all }),
+    ])
   }
 
-  const reviewBusy =
-    updateCandidate.isPending ||
-    bulkUpdateCandidateStatuses.isPending ||
-    resumeGeneration.isPending ||
-    finalizeGeneration.isPending
-
-  const latestWorkflowEvent = workflowEvents[0] ?? null
-
-  const toggleFlip = (id: string) => {
-    setFlippedCards((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const closeEditor = useCallback(() => {
-    setIsEditorOpen(false)
-    setEditingCard(null)
-    setEditingCandidate(null)
-  }, [])
-
-  const handleImportApkg = useCallback(async () => {
-    try {
-      setImportStatus('正在导入...')
-      const result = await cardsGateway.importApkg()
-      setImportStatus(
-        `导入成功: ${result.importedCount} 张卡片 (跳过 ${result.skippedDuplicates} 重复)`
-      )
-      refetch()
-      setTimeout(() => setImportStatus(null), 4_000)
-    } catch {
-      setImportStatus('导入失败，请确保编排服务已启动')
-      setTimeout(() => setImportStatus(null), 4_000)
-    }
-  }, [refetch])
-
-  const handleExportApkg = useCallback(async () => {
-    try {
-      setImportStatus('正在导出...')
-      const result = await cardsGateway.pickAndExportApkg()
-      if (result) {
-        setImportStatus(`导出成功: ${result.cardCount} 张卡片`)
-      } else {
-        setImportStatus(null)
-      }
-      setTimeout(() => setImportStatus(null), 4_000)
-    } catch {
-      setImportStatus('导出失败，请确保编排服务已启动')
-      setTimeout(() => setImportStatus(null), 4_000)
-    }
-  }, [])
-
-  const handleExportCsv = useCallback(async () => {
-    try {
-      setImportStatus('正在导出 CSV...')
-      const result = await cardsGateway.pickAndExportCsv()
-      if (result) {
-        setImportStatus(`导出成功: ${result.cardCount} 张卡片`)
-      } else {
-        setImportStatus(null)
-      }
-      setTimeout(() => setImportStatus(null), 4_000)
-    } catch {
-      setImportStatus('导出 CSV 失败')
-      setTimeout(() => setImportStatus(null), 4_000)
-    }
-  }, [])
-
-  const renderCardContent = useCallback((card: Card, isFlipped: boolean, compact = false) => {
-    if (card.cardType === 'image_occlusion') {
-      return (
-        <>
-          <ImageOcclusionCardContent content={card.front} revealed={isFlipped} compact={compact} />
-          {isFlipped && card.back ? (
-            <div className="mt-3 border-t border-line-soft/40 pt-3">
-              <CardContentRenderer content={card.back} compact={compact} />
-            </div>
-          ) : null}
-        </>
-      )
-    }
-
-    return <CardContentRenderer content={isFlipped ? card.back : card.front} compact={compact} />
-  }, [])
-
-  const handleSaveCard = useCallback(
-    async (data: {
-      front: string
-      back: string
-      tags: string[]
-      cardType: Card['cardType']
-      mediaFilePaths: string[]
-    }) => {
-      try {
-        if (editingCandidate) {
-          await updateCandidate.mutateAsync({
-            id: editingCandidate.id,
-            data: {
-              front: data.front,
-              back: data.back,
-              tags: data.tags,
-              cardType:
-                data.cardType === 'image_occlusion' ? editingCandidate.cardType : data.cardType,
-            },
-          })
-          closeEditor()
-          setImportStatus('候选已更新，等待你的最终确认')
-          setTimeout(() => setImportStatus(null), 4_000)
-          return
-        }
-
-        const actionLabel = editingCard ? '更新' : '创建'
-        const savedCard = editingCard
-          ? await updateCard.mutateAsync({
-              id: editingCard.id,
-              data: {
-                front: data.front,
-                back: data.back,
-                tags: data.tags,
-                cardType: data.cardType,
-              },
-            })
-          : await createCard.mutateAsync({
-              front: data.front,
-              back: data.back,
-              tags: data.tags,
-              cardType: data.cardType,
-            })
-
-        let partialUploadFailure = false
-        if (data.mediaFilePaths.length > 0) {
-          try {
-            await Promise.all(
-              data.mediaFilePaths.map((filePath) =>
-                cardsGateway.uploadCardMedia(savedCard.id, filePath)
-              )
-            )
-          } catch {
-            partialUploadFailure = true
-          }
-        }
-
-        await refetch()
-        closeEditor()
-        setImportStatus(
-          partialUploadFailure
-            ? `卡片${actionLabel}成功，但部分媒体上传失败`
-            : `卡片${actionLabel}成功`
-        )
-        setTimeout(() => setImportStatus(null), 4_000)
-      } catch {
-        setImportStatus(
-          editingCandidate ? '候选更新失败' : `卡片${editingCard ? '更新' : '创建'}失败`
-        )
-        setTimeout(() => setImportStatus(null), 4_000)
-      }
+  const startMutation = useMutation({
+    mutationFn: ({ documentId, maxCandidates }: { documentId: string; maxCandidates?: number }) =>
+      cardsGateway.startGeneration(documentId, maxCandidates),
+    onSuccess: async (run) => {
+      setSelectedRunId(run.id)
+      await invalidateM3Queries()
     },
-    [closeEditor, createCard, editingCandidate, editingCard, refetch, updateCandidate, updateCard]
-  )
+  })
 
-  const handleAcceptCandidate = useCallback(
-    async (candidate: CardCandidate) => {
-      try {
-        await updateCandidate.mutateAsync({ id: candidate.id, data: { status: 'accepted' } })
-        setImportStatus('候选已接受')
-        setTimeout(() => setImportStatus(null), 4_000)
-      } catch {
-        setImportStatus('接受候选失败')
-        setTimeout(() => setImportStatus(null), 4_000)
-      }
+  const resumeMutation = useMutation({
+    mutationFn: (runId: string) => cardsGateway.resumeGeneration(runId),
+    onSuccess: async (run) => {
+      setSelectedRunId(run.id)
+      await invalidateM3Queries()
     },
-    [updateCandidate]
-  )
+  })
 
-  const handleRejectCandidate = useCallback(
-    async (candidate: CardCandidate) => {
-      try {
-        await updateCandidate.mutateAsync({ id: candidate.id, data: { status: 'rejected' } })
-        setImportStatus('候选已丢弃')
-        setTimeout(() => setImportStatus(null), 4_000)
-      } catch {
-        setImportStatus('丢弃候选失败')
-        setTimeout(() => setImportStatus(null), 4_000)
-      }
+  const finalizeMutation = useMutation({
+    mutationFn: (runId: string) => cardsGateway.finalizeGeneration(runId),
+    onSuccess: async () => {
+      await invalidateM3Queries()
     },
-    [updateCandidate]
-  )
+  })
 
-  const handleBulkUpdateCandidates = useCallback(
-    async (selectedCandidates: CardCandidate[], status: 'accepted' | 'rejected') => {
-      if (!selectedRun) {
-        return
-      }
-
-      try {
-        await bulkUpdateCandidateStatuses.mutateAsync({
-          workflowRunId: selectedRun.id,
-          ids: selectedCandidates.map((candidate) => candidate.id),
-          status,
-        })
-        setImportStatus(status === 'accepted' ? '已批量接受候选' : '已批量丢弃候选')
-        setTimeout(() => setImportStatus(null), 4_000)
-      } catch {
-        setImportStatus(status === 'accepted' ? '批量接受失败' : '批量丢弃失败')
-        setTimeout(() => setImportStatus(null), 4_000)
-      }
+  const updateCandidateMutation = useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string
+      data: Partial<Pick<CardCandidate, 'front' | 'back' | 'tags' | 'status'>>
+    }) => cardsGateway.updateCandidate(id, data),
+    onSuccess: async () => {
+      await invalidateM3Queries()
     },
-    [bulkUpdateCandidateStatuses, selectedRun]
-  )
+  })
 
-  const handleFinalizeGeneration = useCallback(async () => {
-    if (!selectedRun) {
-      return
-    }
+  const bulkStatusMutation = useMutation({
+    mutationFn: ({
+      workflowRunId,
+      ids,
+      status,
+    }: {
+      workflowRunId: string
+      ids: string[]
+      status: CardCandidate['status']
+    }) => cardsGateway.bulkUpdateCandidateStatuses(workflowRunId, ids, status),
+    onSuccess: async () => {
+      await invalidateM3Queries()
+    },
+  })
 
-    try {
-      const result = await finalizeGeneration.mutateAsync(selectedRun.id)
-      await refetch()
-      closeEditor()
-      setImportStatus(
-        `已完成入库: 新建 ${result.createdCount} 张卡片，跳过 ${result.skippedDuplicates} 张重复候选`
-      )
-      setTimeout(() => setImportStatus(null), 4_000)
-    } catch {
-      setImportStatus('完成入库失败，请先处理所有待确认候选')
-      setTimeout(() => setImportStatus(null), 4_000)
-    }
-  }, [closeEditor, finalizeGeneration, refetch, selectedRun])
+  const isBusy =
+    startMutation.isPending ||
+    resumeMutation.isPending ||
+    finalizeMutation.isPending ||
+    updateCandidateMutation.isPending ||
+    bulkStatusMutation.isPending
 
-  const handleResumeGeneration = useCallback(async () => {
-    if (!selectedRun) {
-      return
-    }
-
-    try {
-      await resumeGeneration.mutateAsync(selectedRun.id)
-      setImportStatus('已从最近断点恢复生成')
-      setTimeout(() => setImportStatus(null), 4_000)
-    } catch {
-      setImportStatus('恢复生成失败')
-      setTimeout(() => setImportStatus(null), 4_000)
-    }
-  }, [resumeGeneration, selectedRun])
-
-  if (isLoading) {
+  if (readyDocuments.length === 0) {
     return (
-      <div
-        className="flex items-center justify-center min-h-[60vh]"
-        data-testid="card-studio-loading"
-      >
-        <p className="text-sm text-ink-muted animate-pulse">加载卡片中...</p>
-      </div>
+      <Panel variant="panel" className="rounded-[32px] p-8">
+        <div className="mx-auto flex min-h-[70vh] max-w-3xl flex-col items-center justify-center gap-6 text-center">
+          <div className="inline-flex items-center rounded-full border border-ink/10 bg-white/70 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-ink-soft">
+            卡片工坊
+          </div>
+          <h1 className="font-display text-4xl leading-tight text-ink">
+            先导入并解析文档，才能开始卡片生产。
+          </h1>
+          <p className="max-w-2xl text-sm leading-7 text-ink-muted">
+            这里会把稳定的分块和锚点转成可确认的卡片候选。请先在文档库导入文档，再回来启动和确认卡片流程。
+          </p>
+          <Button variant="sketch" onClick={() => setActiveNavItem('library')}>
+            前往文档库
+          </Button>
+        </div>
+      </Panel>
     )
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 animate-fade-in" data-testid="card-studio-page">
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs tracking-[0.3em] text-ink-muted uppercase mb-2 font-ui">
-            Flashcard Library
-          </p>
-          <h1 className="text-2xl font-display font-semibold mb-2">牌库</h1>
-          <p className="text-sm text-ink-muted">管理和浏览你的知识卡片 · {cards.length} 张</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <SketchButton onClick={handleImportApkg}>导入 APKG</SketchButton>
-          <SketchButton onClick={handleExportApkg}>导出 APKG</SketchButton>
-          <SketchButton onClick={handleExportCsv}>导出 CSV</SketchButton>
-          <SketchButton
-            onClick={() => {
-              setEditingCard(null)
-              setEditingCandidate(null)
-              setIsEditorOpen(true)
-            }}
-          >
-            + 新建卡片
-          </SketchButton>
-        </div>
-      </div>
-
-      {importStatus ? (
-        <div
-          className="mb-4 px-4 py-2 rounded-lg border border-line-soft/60 bg-paper-muted/50 text-sm text-ink-muted animate-fade-in"
-          data-testid="card-studio-status"
-        >
-          {importStatus}
-        </div>
-      ) : null}
-
-      <Panel
-        variant="panel"
-        className="mb-6 overflow-hidden rounded-[28px] bg-[radial-gradient(circle_at_top_right,rgb(var(--highlight-yellow)/0.22),transparent_32%),linear-gradient(180deg,rgb(var(--paper-muted)/0.92),rgb(var(--paper-base)/0.96))]"
-        data-testid="card-studio-review-workflow"
-      >
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-2">
-            <p className="text-[11px] uppercase tracking-[0.26em] text-ink-soft">Review Batch</p>
-            <div>
-              <h2 className="font-display text-xl text-ink">候选审阅与最终入库</h2>
-              <p className="mt-1 text-sm leading-6 text-ink-muted">
-                卡片候选已经接入工作流批次视图。你可以在这里批量接受、编辑、丢弃，并在待确认清空后完成正式入库。
+    <div className="flex flex-col gap-6">
+      <Panel variant="panel" className="overflow-hidden rounded-[32px] p-0">
+        <div className="grid gap-6 bg-[radial-gradient(circle_at_top_left,rgba(248,225,108,0.18),transparent_35%),linear-gradient(135deg,rgba(255,255,255,0.86),rgba(251,251,249,0.94))] px-6 py-6 lg:grid-cols-[minmax(0,1.3fr)_360px]">
+          <div className="space-y-4">
+            <div className="inline-flex items-center rounded-full border border-ink/10 bg-white/70 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-ink-soft">
+              可恢复的预设流程
+            </div>
+            <div className="space-y-3">
+              <h1 className="font-display text-4xl leading-tight text-ink">卡片工坊</h1>
+              <p className="max-w-2xl text-sm leading-7 text-ink-muted">
+                这里会把文档分块生成去重后的卡片候选，在人工确认后再写入正式卡片，避免错误内容直接进入学习流。
               </p>
             </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <MetricCard label="已就绪文档" value={`${readyDocuments.length}`} tone="paper" />
+              <MetricCard label="锚点数" value={`${anchors.length}`} tone="amber" />
+              <MetricCard label="分块数" value={`${chunks.length}`} tone="ink" />
+            </div>
           </div>
 
-          {cardGenerationRuns.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {cardGenerationRuns.map((run) => {
-                const runSummary = readWorkflowRunSummary(run)
-                const isSelected = run.id === selectedRunId
-
-                return (
-                  <button
-                    key={run.id}
-                    type="button"
-                    onClick={() => setSelectedRunId(run.id)}
-                    data-testid={`card-studio-workflow-run-${run.id}`}
-                    className={cn(
-                      'min-w-[180px] rounded-[18px] border px-3 py-2 text-left transition-colors',
-                      isSelected
-                        ? 'border-ink/20 bg-paper-card shadow-card'
-                        : 'border-line-soft/60 bg-paper-base/70 hover:border-line-soft'
-                    )}
-                  >
-                    <p className="truncate text-sm font-medium text-ink">
-                      {runSummary.documentTitle ?? run.threadId}
-                    </p>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-soft">
-                      <span>{WORKFLOW_STATUS_LABELS[run.status]}</span>
-                      <span>·</span>
-                      <span>{runSummary.pendingCount} 待确认</span>
-                    </div>
-                  </button>
-                )
-              })}
+          <div className="rounded-[28px] border border-ink/10 bg-white/80 p-5 shadow-card">
+            <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">启动区</p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <p className="font-ui text-lg text-ink">{selectedDocument?.title}</p>
+                <p className="mt-1 text-sm text-ink-soft">
+                  {selectedDocument?.pageCount ?? '--'} 页 • {chunks.length} 个分块 • {anchors.length}{' '}
+                  个锚点
+                </p>
+              </div>
+              <Input
+                value={candidateLimitInput}
+                onChange={(event) => setCandidateLimitInput(event.target.value)}
+                inputMode="numeric"
+                placeholder="候选卡片上限"
+              />
+              <Button
+                variant="sketch"
+                className="w-full justify-center"
+                disabled={!selectedDocument || startMutation.isPending}
+                onClick={() => {
+                  if (!selectedDocument) return
+                  startMutation.mutate({
+                    documentId: selectedDocument.id,
+                    maxCandidates: Number.parseInt(candidateLimitInput, 10) || undefined,
+                  })
+                }}
+              >
+                {startMutation.isPending ? '正在启动...' : '生成候选卡片'}
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-center"
+                disabled={!activeRun || !LIVE_STATUSES.has(activeRun.status) || resumeMutation.isPending}
+                onClick={() => activeRun && resumeMutation.mutate(activeRun.id)}
+              >
+                {resumeMutation.isPending ? '正在恢复...' : '从检查点恢复'}
+              </Button>
             </div>
-          ) : null}
+          </div>
         </div>
-
-        {selectedRun ? (
-          <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-4">
-                <WorkflowMetric
-                  label="当前状态"
-                  value={WORKFLOW_STATUS_LABELS[selectedRun.status]}
-                  detail={workflowSummary.phase ?? '未记录阶段'}
-                />
-                <WorkflowMetric
-                  label="待确认"
-                  value={`${effectivePendingCount}`}
-                  detail={`${effectiveAcceptedCount} 已接受 · ${effectiveRejectedCount} 已丢弃`}
-                />
-                <WorkflowMetric
-                  label="生成进度"
-                  value={`${workflowSummary.chunkCursor}/${Math.max(workflowSummary.totalChunks, workflowSummary.chunkCursor, 1)}`}
-                  detail={`${workflowSummary.generatedCount} 候选 · ${workflowSummary.duplicateCount} 重复`}
-                />
-                <WorkflowMetric
-                  label="生成模式"
-                  value={formatGenerationMode(workflowSummary.generationMode)}
-                  detail={workflowSummary.fallbackReason ?? '标准模型路径'}
-                />
-              </div>
-
-              {workflowSummary.fallbackReason ? (
-                <div className="rounded-[22px] border border-highlight-yellow/40 bg-highlight-yellow/10 px-4 py-3 text-sm text-ink-muted">
-                  当前批次走了显式降级路径：{workflowSummary.fallbackReason}
-                </div>
-              ) : null}
-
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-sm text-ink-muted">
-                  <span
-                    className={cn(
-                      'rounded-full border px-2 py-1 text-xs font-medium',
-                      WORKFLOW_STATUS_TONES[selectedRun.status]
-                    )}
-                  >
-                    {WORKFLOW_STATUS_LABELS[selectedRun.status]}
-                  </span>
-                  {hiddenLowQualityCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowLowQualityCandidates((prev) => !prev)}
-                      className="text-xs text-ink-muted transition-colors hover:text-ink"
-                    >
-                      {showLowQualityCandidates
-                        ? '隐藏低质量候选'
-                        : `展开 ${hiddenLowQualityCount} 条低质量候选`}
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {selectedRun.status === 'failed' ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleResumeGeneration()}
-                      disabled={reviewBusy}
-                    >
-                      从最近断点恢复
-                    </Button>
-                  ) : null}
-
-                  <Button
-                    variant="sketch"
-                    size="sm"
-                    onClick={() => void handleFinalizeGeneration()}
-                    disabled={
-                      reviewBusy ||
-                      selectedRun.status !== 'waiting_confirmation' ||
-                      effectivePendingCount > 0
-                    }
-                    data-testid="card-studio-finalize-generation"
-                  >
-                    完成入库
-                  </Button>
-                </div>
-              </div>
-
-              {candidates.length > 0 ? (
-                <CardCandidatePanel
-                  candidates={reviewCandidates}
-                  busy={reviewBusy}
-                  onAccept={(candidate) => void handleAcceptCandidate(candidate)}
-                  onReject={(candidate) => void handleRejectCandidate(candidate)}
-                  onEdit={(candidate) => {
-                    setEditingCard(null)
-                    setEditingCandidate(candidate)
-                    setIsEditorOpen(true)
-                  }}
-                  onBulkAccept={(selectedCandidates) =>
-                    void handleBulkUpdateCandidates(selectedCandidates, 'accepted')
-                  }
-                  onBulkReject={(selectedCandidates) =>
-                    void handleBulkUpdateCandidates(selectedCandidates, 'rejected')
-                  }
-                  emptyHint={
-                    showLowQualityCandidates || hiddenLowQualityCount === 0
-                      ? '当前没有可确认的候选，等待下一次生成或完成入库。'
-                      : '默认已隐藏低质量候选，可以手动展开继续审阅。'
-                  }
-                />
-              ) : (
-                <div className="rounded-[24px] border border-dashed border-line-soft/70 bg-paper-card/60 px-5 py-10 text-center text-sm text-ink-muted">
-                  {selectedRun.status === 'queued' || selectedRun.status === 'running'
-                    ? '当前批次仍在生成中，候选会自动出现在这里。'
-                    : '当前批次还没有候选。可以查看右侧事件流判断是空结果、失败还是等待恢复。'}
-                </div>
-              )}
-            </div>
-
-            <Panel variant="paperCard" className="rounded-[24px] p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    Workflow Log
-                  </p>
-                  <h3 className="mt-1 font-display text-lg text-ink">
-                    {workflowSummary.documentTitle ?? '当前工作流'}
-                  </h3>
-                </div>
-                <span className="text-xs text-ink-muted">
-                  {formatWorkflowTimestamp(selectedRun.updatedAt)}
-                </span>
-              </div>
-
-              <div className="mt-4 rounded-[18px] border border-line-soft/60 bg-paper-muted/35 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.2em] text-ink-soft">最近事件</p>
-                {latestWorkflowEvent ? (
-                  <p className="mt-2 text-sm leading-6 text-ink-muted">
-                    {describeWorkflowEvent(latestWorkflowEvent)}
-                  </p>
-                ) : (
-                  <p className="mt-2 text-sm text-ink-muted">当前批次还没有事件日志。</p>
-                )}
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {workflowEvents.length > 0 ? (
-                  workflowEvents.map((event) => (
-                    <div
-                      key={`${event.runId}-${event.createdAt.toISOString()}-${event.eventType}`}
-                      className="border-l border-line-soft pl-3"
-                    >
-                      <p className="text-xs uppercase tracking-[0.18em] text-ink-soft">
-                        {event.eventType}
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-ink-muted">
-                        {event.message ?? '没有额外事件说明'}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-ink-muted">暂无事件。</p>
-                )}
-              </div>
-            </Panel>
-          </div>
-        ) : (
-          <div className="mt-5 rounded-[24px] border border-dashed border-line-soft/70 bg-paper-card/60 px-5 py-10 text-center text-sm text-ink-muted">
-            暂时还没有文档生成批次。导入文档并完成解析、向量化后，候选会自动进入这里等待人工确认。
-          </div>
-        )}
       </Panel>
 
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {statusFilters.map((filter) => (
-            <button
-              key={filter.key}
-              onClick={() => setFilterStatus(filter.key)}
-              data-testid={`card-studio-filter-${filter.key}`}
-              className={cn(
-                'px-3 py-1.5 text-xs rounded-full border transition-all whitespace-nowrap',
-                filterStatus === filter.key
-                  ? 'border-ink/30 bg-paper-muted/80 font-medium'
-                  : 'border-line-soft/60 hover:border-line-soft text-ink-muted'
-              )}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1" />
-
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="搜索卡片..."
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            data-testid="card-studio-search"
-            className="px-3 py-2 bg-paper-muted/50 border border-line-soft/60 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ink/10 transition-all w-48"
-          />
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {readyDocuments.map((document) => (
           <button
-            onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-            data-testid="card-studio-view-toggle"
-            className="p-2 border border-line-soft/60 rounded-lg hover:bg-paper-muted/50 transition-colors"
-          >
-            {viewMode === 'grid' ? (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              >
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            ) : (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              >
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" />
-                <rect x="14" y="14" width="7" height="7" />
-              </svg>
+            key={document.id}
+            onClick={() => setSelectedDocumentId(document.id)}
+            className={cn(
+              'rounded-[24px] border px-4 py-4 text-left transition-colors',
+              selectedDocumentId === document.id
+                ? 'border-ink/30 bg-white shadow-card'
+                : 'border-line-soft bg-paper-muted/60 hover:border-ink/20 hover:bg-white/80'
             )}
+          >
+            <p className="truncate font-ui text-sm text-ink">{document.title}</p>
+            <p className="mt-2 text-xs uppercase tracking-[0.22em] text-ink-soft">
+              {document.pageCount ?? '--'} pages
+            </p>
           </button>
+        ))}
+      </section>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_360px]">
+        <Panel variant="paperCard" className="rounded-[30px]">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.26em] text-ink-soft">候选确认队列</p>
+              <h2 className="mt-2 font-ui text-xl text-ink">
+                {activeRun ? `批次 ${activeRun.id.slice(0, 8)}` : '尚未选择工作流批次'}
+              </h2>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge label={`待确认 ${pendingCount}`} />
+              <Badge label={`已接受 ${acceptedCount}`} tone="accepted" />
+              <Badge label={`已拒绝 ${rejectedCount}`} tone="rejected" />
+            </div>
+          </div>
+
+          <div className="mb-4 flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={!activeRun || pendingCount === 0 || isBusy}
+              onClick={() =>
+                activeRun &&
+                bulkStatusMutation.mutate({
+                  workflowRunId: activeRun.id,
+                  ids: candidates.filter((candidate) => candidate.status === 'pending').map((candidate) => candidate.id),
+                  status: 'accepted',
+                })
+              }
+            >
+              接受全部待确认项
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!activeRun || pendingCount === 0 || isBusy}
+              onClick={() =>
+                activeRun &&
+                bulkStatusMutation.mutate({
+                  workflowRunId: activeRun.id,
+                  ids: candidates.filter((candidate) => candidate.status === 'pending').map((candidate) => candidate.id),
+                  status: 'rejected',
+                })
+              }
+            >
+              拒绝全部待确认项
+            </Button>
+            <Button
+              variant="sketch"
+              disabled={!activeRun || candidates.length === 0 || isBusy}
+              onClick={() => activeRun && finalizeMutation.mutate(activeRun.id)}
+            >
+              {finalizeMutation.isPending ? '正在保存正式卡片...' : '确认并入库'}
+            </Button>
+          </div>
+
+          <div className="space-y-4">
+            {activeRun ? (
+              candidates.length > 0 ? (
+                candidates.map((candidate) => (
+                  <CandidateCard
+                    key={candidate.id}
+                    candidate={candidate}
+                    busy={isBusy}
+                    onSave={(data) => updateCandidateMutation.mutate({ id: candidate.id, data })}
+                    onSetStatus={(status) =>
+                      updateCandidateMutation.mutate({ id: candidate.id, data: { status } })
+                    }
+                  />
+                ))
+              ) : (
+                <EmptyState
+                  title="当前还没有候选卡片"
+                  description="该批次暂时没有产出新的候选，或者全部被去重过滤了。"
+                />
+              )
+            ) : (
+              <EmptyState
+                title="先选择一个工作流批次"
+                description="先选中上方文档，再启动卡片生成，才能看到这一轮候选结果。"
+              />
+            )}
+          </div>
+        </Panel>
+
+        <div className="space-y-6">
+          <Panel variant="paperCard" className="rounded-[28px]">
+            <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">批次列表</p>
+            <div className="mt-4 space-y-3">
+              {runsForDocument.length === 0 ? (
+                <EmptyState
+                  title="这份文档还没有生成批次"
+                  description="启动一次卡片生成流程后，这里会出现第一轮候选批次。"
+                  compact
+                />
+              ) : (
+                runsForDocument.map((run) => (
+                  <button
+                    key={run.id}
+                    onClick={() => setSelectedRunId(run.id)}
+                    className={cn(
+                      'w-full rounded-[20px] border px-4 py-3 text-left transition-colors',
+                      selectedRunId === run.id
+                        ? 'border-ink/30 bg-paper-base shadow-card'
+                        : 'border-line-soft bg-paper-muted/60 hover:bg-white'
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-ui text-sm text-ink">{run.id.slice(0, 8)}</span>
+                      <Badge label={run.status} tone={run.status} />
+                    </div>
+                    <p className="mt-2 text-xs text-ink-soft">{run.createdAt.toLocaleString()}</p>
+                  </button>
+                ))
+              )}
+            </div>
+          </Panel>
+
+          <Panel variant="paperCard" className="rounded-[28px]">
+            <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">检查点</p>
+            <CheckpointSummary checkpoint={checkpoint?.payload ?? null} />
+          </Panel>
+
+          <Panel variant="paperCard" className="rounded-[28px]">
+            <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">事件流</p>
+            <EventFeed events={events} />
+          </Panel>
         </div>
       </div>
-
-      {groups.length > 0 ? (
-        <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
-          {groups.map((group) => (
-            <div
-              key={group.id}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-line-soft/60 text-sm whitespace-nowrap"
-            >
-              <div className="w-3 h-3 rounded-full bg-ink/20" />
-              <span>{group.name}</span>
-              <span className="text-xs text-ink-muted">{group.count}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {filteredCards.length > 0 ? (
-        <div
-          className={cn(
-            viewMode === 'grid'
-              ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'
-              : 'space-y-3'
-          )}
-        >
-          {filteredCards.map((card, index) => {
-            const isFlipped = flippedCards.has(card.id)
-
-            if (viewMode === 'list') {
-              return (
-                <div
-                  key={card.id}
-                  onClick={() => toggleFlip(card.id)}
-                  data-testid={`card-studio-card-${card.id}`}
-                  className="p-4 rounded-lg border border-line-soft/60 hover:bg-paper-muted/30 transition-colors cursor-pointer animate-slide-in"
-                  style={{ animationDelay: `${index * 30}ms` }}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="flex-1">
-                      {renderCardContent(card, isFlipped, true)}
-                      <div className="flex items-center gap-2 mt-1">
-                        <p className="text-xs text-ink-muted">
-                          {isFlipped ? '答案' : '问题'} · 点击翻转
-                        </p>
-                        {card.tags.length > 0 ? (
-                          <span className="text-xs text-ink-muted">
-                            · {card.tags.slice(0, 3).join(', ')}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <span
-                      className={cn(
-                        'px-2 py-0.5 text-xs rounded-full',
-                        statusColors[card.state] || 'bg-paper-muted text-ink-muted'
-                      )}
-                    >
-                      {STATE_LABELS[card.state] ?? card.state}
-                    </span>
-                  </div>
-                </div>
-              )
-            }
-
-            return (
-              <div
-                key={card.id}
-                onClick={() => toggleFlip(card.id)}
-                data-testid={`card-studio-card-${card.id}`}
-                className="cursor-pointer animate-slide-in"
-                style={{ animationDelay: `${index * 50}ms`, perspective: '600px' }}
-              >
-                <div
-                  className={cn(
-                    'relative min-h-[180px] p-5 rounded-xl border border-line-soft/60 transition-all duration-500',
-                    isFlipped ? 'bg-paper-muted/30' : 'bg-paper-card hover:shadow-sm'
-                  )}
-                  style={{
-                    transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0)',
-                    transformStyle: 'preserve-3d',
-                  }}
-                >
-                  <div style={{ transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0)' }}>
-                    <div className="flex items-center justify-between mb-3">
-                      <span
-                        className={cn(
-                          'px-2 py-0.5 text-xs rounded-full',
-                          statusColors[card.state] || 'bg-paper-muted text-ink-muted'
-                        )}
-                      >
-                        {STATE_LABELS[card.state] ?? card.state}
-                      </span>
-                      {card.cardType !== 'qa' ? (
-                        <span className="text-xs text-ink-muted">{card.cardType}</span>
-                      ) : null}
-                    </div>
-                    {renderCardContent(card, isFlipped, true)}
-                    <div className="flex items-center justify-between mt-4">
-                      <p className="text-xs text-ink-muted">{isFlipped ? 'Answer' : 'Question'}</p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setEditingCandidate(null)
-                            setEditingCard(card)
-                            setIsEditorOpen(true)
-                          }}
-                          data-testid={`card-studio-edit-${card.id}`}
-                          className="text-xs text-ink-muted hover:text-ink transition-colors"
-                        >
-                          编辑
-                        </button>
-                        {card.tags.length > 0 ? (
-                          <p className="text-xs text-ink-muted truncate max-w-[120px]">
-                            {card.tags.slice(0, 2).join(', ')}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        <div className="text-center py-16 text-ink-muted">
-          <p className="text-sm mb-2">没有找到匹配的卡片</p>
-          <p className="text-xs">尝试调整筛选条件或上传文档生成卡片</p>
-        </div>
-      )}
-
-      {isEditorOpen ? (
-        <CardEditorModal
-          card={editingCard}
-          initialDraft={
-            editingCandidate
-              ? {
-                  front: editingCandidate.front,
-                  back: editingCandidate.back,
-                  tags: editingCandidate.tags,
-                  cardType: editingCandidate.cardType,
-                }
-              : null
-          }
-          allowedCardTypes={editingCandidate ? CANDIDATE_CARD_TYPES : undefined}
-          title={editingCandidate ? '编辑候选卡片' : undefined}
-          submitLabel={editingCandidate ? '保存候选' : undefined}
-          isSaving={reviewBusy || createCard.isPending || updateCard.isPending}
-          onClose={closeEditor}
-          onSave={handleSaveCard}
-        />
-      ) : null}
     </div>
   )
 }
 
-function WorkflowMetric({
+function CandidateCard({
+  candidate,
+  busy,
+  onSave,
+  onSetStatus,
+}: {
+  candidate: CardCandidate
+  busy: boolean
+  onSave: (data: Partial<Pick<CardCandidate, 'front' | 'back' | 'tags'>>) => void
+  onSetStatus: (status: CardCandidate['status']) => void
+}) {
+  const [front, setFront] = useState(candidate.front)
+  const [back, setBack] = useState(candidate.back)
+  const [tagsInput, setTagsInput] = useState(candidate.tags.join(', '))
+
+  useEffect(() => {
+    setFront(candidate.front)
+    setBack(candidate.back)
+    setTagsInput(candidate.tags.join(', '))
+  }, [candidate])
+
+  const dirty =
+    front !== candidate.front || back !== candidate.back || tagsInput !== candidate.tags.join(', ')
+
+  return (
+    <div className="rounded-[26px] border border-line-soft bg-paper-muted/50 p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-xs uppercase tracking-[0.22em] text-ink-soft">
+            {candidate.sourcePage ? `第 ${candidate.sourcePage} 页` : '整篇文档'} • 置信度{' '}
+            {candidate.confidence.toFixed(2)}
+          </p>
+          <p className="text-sm text-ink-soft">{candidate.sourceQuote ?? '当前没有可显示的来源摘录。'}</p>
+        </div>
+        <Badge label={candidate.status} tone={candidate.status} />
+      </div>
+
+      <div className="space-y-3">
+        <textarea
+          value={front}
+          onChange={(event) => setFront(event.target.value)}
+          aria-label="卡片正面"
+          placeholder="请输入卡片正面提示语"
+          className="min-h-[78px] w-full rounded-[18px] border border-line-soft bg-white px-3 py-3 text-sm text-ink shadow-paper outline-none"
+        />
+        <textarea
+          value={back}
+          onChange={(event) => setBack(event.target.value)}
+          aria-label="卡片背面"
+          placeholder="请输入卡片背面答案"
+          className="min-h-[110px] w-full rounded-[18px] border border-line-soft bg-white px-3 py-3 text-sm text-ink shadow-paper outline-none"
+        />
+        <Input value={tagsInput} onChange={(event) => setTagsInput(event.target.value)} placeholder="标签，用逗号分隔" />
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button variant="outline" disabled={busy} onClick={() => onSetStatus('pending')}>
+          设为待确认
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={() => onSetStatus('accepted')}>
+          接受
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={() => onSetStatus('rejected')}>
+          拒绝
+        </Button>
+        <Button
+          variant="sketch"
+          disabled={!dirty || busy}
+          onClick={() =>
+            onSave({
+              front,
+              back,
+              tags: tagsInput
+                .split(',')
+                .map((value) => value.trim())
+                .filter(Boolean),
+            })
+          }
+        >
+          保存修改
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function EventFeed({ events }: { events: WorkflowEvent[] }) {
+  if (events.length === 0) {
+    return <EmptyState title="当前还没有事件" description="工作流启动后，这里会显示处理记录。" compact />
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      {events.map((event) => (
+        <div key={`${event.runId}-${event.createdAt.toISOString()}-${event.eventType}`} className="rounded-[18px] border border-line-soft bg-paper-muted/50 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-ui text-sm text-ink">{event.eventType}</span>
+            <span className="text-xs text-ink-soft">{event.createdAt.toLocaleTimeString()}</span>
+          </div>
+          {event.message ? <p className="mt-2 text-sm text-ink-soft">{event.message}</p> : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CheckpointSummary({ checkpoint }: { checkpoint: Record<string, unknown> | null }) {
+  if (!checkpoint) {
+    return <EmptyState title="当前还没有检查点" description="工作流开始后，这里会显示最近一次恢复状态。" compact />
+  }
+
+  const phase = typeof checkpoint['phase'] === 'string' ? checkpoint['phase'] : 'unknown'
+  const generatedCount = typeof checkpoint['generatedCount'] === 'number' ? checkpoint['generatedCount'] : '--'
+  const totalChunks = typeof checkpoint['totalChunks'] === 'number' ? checkpoint['totalChunks'] : '--'
+  const chunkCursor = typeof checkpoint['chunkCursor'] === 'number' ? checkpoint['chunkCursor'] : '--'
+
+  return (
+    <div className="mt-4 grid gap-3">
+      <MetricCard label="阶段" value={String(phase)} tone="paper" compact />
+      <MetricCard label="已生成" value={String(generatedCount ?? '--')} tone="amber" compact />
+      <MetricCard label="分块游标" value={`${chunkCursor}/${totalChunks}`} tone="ink" compact />
+    </div>
+  )
+}
+
+function MetricCard({
   label,
   value,
-  detail,
+  tone,
+  compact = false,
 }: {
   label: string
   value: string
-  detail: string
+  tone: 'paper' | 'amber' | 'ink'
+  compact?: boolean
 }) {
+  const toneClasses =
+    tone === 'amber'
+      ? 'bg-[#fff6d5] border-[#f3df87]'
+      : tone === 'ink'
+        ? 'bg-[#f4f1ea] border-[#d8d0c4]'
+        : 'bg-white border-line-soft'
+
   return (
-    <div className="rounded-[20px] border border-line-soft/60 bg-paper-card/70 px-4 py-3">
-      <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">{label}</p>
-      <p className="mt-2 font-display text-xl text-ink">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-ink-muted">{detail}</p>
+    <div className={cn('rounded-[22px] border px-4 py-4', toneClasses, compact && 'px-3 py-3')}>
+      <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">{label}</p>
+      <p className="mt-2 font-ui text-xl text-ink">{value}</p>
     </div>
   )
 }
 
-function readWorkflowRunSummary(run: WorkflowRun | null): WorkflowRunSummary {
-  const payload = run?.approvalPayload
-  return {
-    documentTitle: asString(payload?.documentTitle),
-    phase: asString(payload?.phase),
-    generationMode: asString(payload?.generationMode),
-    fallbackReason: asString(payload?.fallbackReason),
-    chunkCursor: asNumber(payload?.chunkCursor),
-    totalChunks: asNumber(payload?.totalChunks),
-    generatedCount: asNumber(payload?.generatedCount),
-    duplicateCount: asNumber(payload?.duplicateCount),
-    pendingCount: asNumber(payload?.pendingCount),
-    acceptedCount: asNumber(payload?.acceptedCount),
-    rejectedCount: asNumber(payload?.rejectedCount),
-  }
+function Badge({
+  label,
+  tone = 'default',
+}: {
+  label: string
+  tone?: 'default' | 'pending' | 'accepted' | 'rejected' | WorkflowRun['status']
+}) {
+  const classes =
+    tone === 'accepted' || tone === 'completed'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : tone === 'rejected' || tone === 'failed' || tone === 'cancelled'
+        ? 'border-rose-200 bg-rose-50 text-rose-700'
+        : tone === 'pending' || tone === 'running' || tone === 'queued' || tone === 'waiting_confirmation'
+          ? 'border-amber-200 bg-amber-50 text-amber-800'
+          : 'border-line-soft bg-paper-muted text-ink-soft'
+
+  return <span className={cn('rounded-full border px-2.5 py-1 text-xs font-medium capitalize', classes)}>{label}</span>
 }
 
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value : null
+function EmptyState({
+  title,
+  description,
+  compact = false,
+}: {
+  title: string
+  description: string
+  compact?: boolean
+}) {
+  return (
+    <div className={cn('rounded-[24px] border border-dashed border-line-soft bg-paper-muted/30 px-4 py-8 text-center', compact && 'py-5')}>
+      <p className="font-ui text-sm text-ink">{title}</p>
+      <p className="mt-2 text-sm text-ink-soft">{description}</p>
+    </div>
+  )
 }
 
-function asNumber(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0
-}
-
-function compareCandidates(left: CardCandidate, right: CardCandidate) {
-  const leftScore = left.scoreOverall ?? left.confidence * 100
-  const rightScore = right.scoreOverall ?? right.confidence * 100
-  if (leftScore !== rightScore) {
-    return leftScore - rightScore
-  }
-
-  if (left.status !== right.status) {
-    return left.status.localeCompare(right.status)
-  }
-
-  return left.createdAt.getTime() - right.createdAt.getTime()
-}
-
-function formatGenerationMode(mode: string | null) {
-  if (mode === 'fallback_rule') {
-    return '规则降级'
-  }
-  if (mode === 'fallback_fts5_only') {
-    return 'FTS5 降级'
-  }
-  if (mode === 'rule_based_fallback') {
-    return '本地规则降级'
-  }
-  return '标准模型'
-}
-
-function formatWorkflowTimestamp(value: Date) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(value)
-}
-
-function describeWorkflowEvent(event: WorkflowEvent) {
-  if (event.message) {
-    return event.message
-  }
-
-  if (event.eventType === 'progress' && typeof event.progress === 'number') {
-    return `当前已推进到 ${Math.round(event.progress * 100)}%`
-  }
-
-  return '工作流状态已更新'
+function extractDocumentIdFromRun(run: WorkflowRun) {
+  const value = run.approvalPayload?.['documentId']
+  return typeof value === 'string' ? value : null
 }

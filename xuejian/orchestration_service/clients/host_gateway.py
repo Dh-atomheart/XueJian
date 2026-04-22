@@ -103,6 +103,9 @@ class HostGatewayClient:
 
     # ── ToolGateway ────────────────────────────────────
 
+    def get_app_settings(self) -> dict:
+        return self._get("/tool-gateway/settings")
+
     def get_document(self, document_id: str) -> dict | None:
         try:
             return self._get(f"/tool-gateway/documents/{document_id}")
@@ -165,6 +168,93 @@ class HostGatewayClient:
             payload["queryEmbedding"] = query_embedding
         return self._post("/tool-gateway/search-hybrid", payload)
 
+    # ── Knowledge Graph ────────────────────────────────
+
+    def list_knowledge_nodes(self) -> list[dict]:
+        return self._get("/tool-gateway/graph/nodes")
+
+    def create_knowledge_node(self, node: dict) -> dict:
+        return self._post("/tool-gateway/graph/nodes", node)
+
+    def find_node_by_label(self, label: str) -> dict | None:
+        try:
+            return self._post("/tool-gateway/graph/nodes/find", {"label": label})
+        except urllib.error.HTTPError:
+            return None
+
+    def update_knowledge_node(self, node_id: str, updates: dict) -> dict | None:
+        try:
+            return self._post(f"/tool-gateway/graph/nodes/{node_id}/update", updates)
+        except urllib.error.HTTPError:
+            return None
+
+    def list_all_graph_edges(self) -> list[dict]:
+        return self._get("/tool-gateway/graph/edges")
+
+    def create_knowledge_edge(self, edge: dict) -> dict:
+        return self._post("/tool-gateway/graph/edges", edge)
+
+    def update_knowledge_edge(self, edge_id: str, updates: dict) -> dict | None:
+        try:
+            return self._post(f"/tool-gateway/graph/edges/{edge_id}/update", updates)
+        except urllib.error.HTTPError:
+            return None
+
+    def delete_knowledge_edge(self, edge_id: str) -> dict:
+        return self._post(f"/tool-gateway/graph/edges/{edge_id}/delete", {})
+
+    def create_community(self, community: dict) -> dict:
+        return self._post("/tool-gateway/graph/communities", community)
+
+    def list_communities(self, level: int | None = None) -> list[dict]:
+        payload: dict[str, Any] = {}
+        if level is not None:
+            payload["level"] = level
+        return self._post("/tool-gateway/graph/communities/list", payload)
+
+    def get_community_summary(self, community_id: str) -> dict | None:
+        try:
+            return self._get(f"/tool-gateway/graph/communities/{community_id}/summary")
+        except urllib.error.HTTPError:
+            return None
+
+    def save_entity_embedding(
+        self,
+        node_id: str,
+        embedding_model: str,
+        vector: list[float],
+    ) -> dict:
+        return self._post(
+            "/tool-gateway/graph/entity-embeddings",
+            {
+                "nodeId": node_id,
+                "embeddingModel": embedding_model,
+                "vector": vector,
+            },
+        )
+
+    def get_entity_embedding(self, node_id: str) -> dict | None:
+        try:
+            return self._get(f"/tool-gateway/graph/entity-embeddings/{node_id}")
+        except urllib.error.HTTPError:
+            return None
+
+    def vector_search_entity(
+        self,
+        query_embedding: list[float],
+        top_k: int = 10,
+    ) -> list[dict]:
+        return self._post(
+            "/tool-gateway/graph/entity-search",
+            {
+                "queryEmbedding": query_embedding,
+                "topK": top_k,
+            },
+        )
+
+    def get_graph_stats(self) -> dict:
+        return self._get("/tool-gateway/graph/stats")
+
     # ── Run status & checkpoint ────────────────────────────────
 
     def get_run_status(self, run_id: str) -> dict | None:
@@ -189,6 +279,24 @@ class HostGatewayClient:
         """Request the host to mark the run as cancelled."""
         return self._post(f"/tool-gateway/runs/{run_id}/cancel", {})
 
+    def emit_workflow_event(
+        self,
+        run_id: str,
+        event_type: str,
+        message: str | None = None,
+        progress: float | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> dict:
+        return self._post(
+            f"/tool-gateway/runs/{run_id}/events",
+            {
+                "eventType": event_type,
+                "message": message,
+                "progress": progress,
+                "payload": payload,
+            },
+        )
+
     def is_run_cancelled(self, run_id: str) -> bool:
         """Check whether the run has been cancelled by the host / user."""
         status = self.get_run_status(run_id)
@@ -205,6 +313,43 @@ class HostGatewayClient:
     def save_document_analysis(self, document_id: str, analysis: dict) -> dict:
         """Persist parsed anchors + chunks for a document."""
         return self._post(f"/tool-gateway/documents/{document_id}/analysis", analysis)
+
+    # ── Podcasts ───────────────────────────────────────────
+
+    def create_podcast_episode(self, episode: dict) -> dict:
+        return self._post("/tool-gateway/podcasts", episode)
+
+    def get_podcast_episode(self, episode_id: str) -> dict | None:
+        try:
+            return self._get(f"/tool-gateway/podcasts/{episode_id}")
+        except urllib.error.HTTPError:
+            return None
+
+    def update_podcast_episode(self, episode_id: str, updates: dict) -> dict:
+        return self._post(f"/tool-gateway/podcasts/{episode_id}/update", updates)
+
+    def list_podcast_episodes(self) -> list[dict]:
+        return self._get("/tool-gateway/podcasts")
+
+    def delete_podcast_episode(self, episode_id: str) -> dict:
+        return self._post(f"/tool-gateway/podcasts/{episode_id}/delete", {})
+
+    def save_podcast_audio_segment(self, segment: dict) -> dict:
+        return self._post("/tool-gateway/podcast-audio-segments", segment)
+
+    def list_podcast_audio_segments(self, episode_id: str) -> list[dict]:
+        return self._get(f"/tool-gateway/podcasts/{episode_id}/audio-segments")
+
+    def review_podcast_script(
+        self,
+        episode_id: str,
+        action: str,
+        edited_script_json: str | None = None,
+    ) -> dict:
+        payload: dict[str, Any] = {"action": action}
+        if edited_script_json is not None:
+            payload["editedScriptJson"] = edited_script_json
+        return self._post(f"/tool-gateway/podcasts/{episode_id}/review", payload)
 
     # ── Cards (for export) ─────────────────────────────────────
 

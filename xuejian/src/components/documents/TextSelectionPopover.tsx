@@ -64,7 +64,9 @@ export function TextSelectionPopover({
                 当前会把这段原文关联到 {targetCardLabel ?? '所选卡片'}。
               </p>
             ) : (
-              <p className="mt-2 text-xs leading-5 text-ink-soft">右侧卡片会自动按页内顺序分配颜色。</p>
+              <p className="mt-2 text-xs leading-5 text-ink-soft">
+                右侧卡片会自动按页内顺序分配颜色。
+              </p>
             )}
           </div>
 
@@ -79,7 +81,9 @@ export function TextSelectionPopover({
           </button>
         </div>
 
-        <div className={cn('mt-3 flex flex-wrap gap-2', isBusy && 'pointer-events-none opacity-70')}>
+        <div
+          className={cn('mt-3 flex flex-wrap gap-2', isBusy && 'pointer-events-none opacity-70')}
+        >
           {isLinkingMode ? (
             <Button variant="default" size="sm" onClick={onLinkSelection} disabled={isBusy}>
               {isBusy ? '关联中…' : '关联到这张卡片'}
@@ -105,7 +109,14 @@ export function TextSelectionPopover({
 
 function CloseIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />
     </svg>

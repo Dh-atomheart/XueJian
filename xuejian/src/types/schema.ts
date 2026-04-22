@@ -153,6 +153,12 @@ export const appSettingsSchema = z.object({
   language: z.enum(['zh-CN', 'en-US']),
   dailyNewCardLimit: z.number().int().nonnegative(),
   reviewTimeLimit: z.number().int().nonnegative(),
+  podcastTtsProvider: z.enum(['auto', 'openai', 'edge_tts', 'elevenlabs', 'fish_audio']),
+  podcastOpenaiModel: z.string().min(1),
+  podcastFishAudioEndpoint: z.string().nullable(),
+  podcastVoiceOverrides: z.record(z.string()),
+  podcastOutputFormat: z.enum(['mp3', 'wav']),
+  podcastSkipReview: z.boolean(),
 }) as z.ZodType<AppSettings>
 
 export const apiProviderSchema = z.enum(['openai', 'anthropic', 'google', 'openai_compatible'])

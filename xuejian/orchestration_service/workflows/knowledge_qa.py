@@ -7,6 +7,7 @@ import re
 from typing import TYPE_CHECKING
 
 from ..providers.embedding_runtime import embed_texts
+from ..providers.graph_rag import graph_rag_search
 from ..providers.runtime import build_langchain_chat_model
 
 if TYPE_CHECKING:
@@ -76,6 +77,8 @@ def run_knowledge_qa_workflow(
     """Execute the knowledge_qa preset workflow using hybrid retrieval + LLM."""
     retrieval_mode = "fts5"
     chunks: list[dict] = []
+    graph_context: dict = {"entities": [], "paths": [], "communities": []}
+    query_embedding: list[float] | None = None
 
     active_profile = host.get_active_embedding_profile()
     if active_profile is not None:
@@ -90,6 +93,13 @@ def run_knowledge_qa_workflow(
             retrieval_mode = "hybrid_rrf"
         except Exception as exc:
             logger.warning("Hybrid retrieval unavailable, falling back to FTS5: %s", exc)
+
+    try:
+        graph_context = graph_rag_search(question, host, query_embedding=query_embedding, top_k=5)
+        if graph_context["entities"] or graph_context["paths"] or graph_context["communities"]:
+            retrieval_mode = "graph_rag+" + retrieval_mode
+    except Exception as exc:
+        logger.warning("GraphRAG retrieval unavailable, continuing with text search only: %s", exc)
 
     if not chunks:
         chunks = host.search_chunks(question, document_ids if document_ids else None, limit=8)
@@ -116,6 +126,27 @@ def run_knowledge_qa_workflow(
             f"pages={chunk.get('pageStart', '?')}-{chunk.get('pageEnd', '?')})\n{snippet}"
         )
     passages_text = "\n\n".join(passages)
+
+    graph_lines: list[str] = []
+    if graph_context["entities"]:
+        graph_lines.append("[Graph Entities]")
+        for entity in graph_context["entities"][:5]:
+            graph_lines.append(
+                f"- {entity.get('label')} ({entity.get('nodeType')}): {entity.get('description') or ''}".strip()
+            )
+    if graph_context["paths"]:
+        graph_lines.append("[Graph Paths]")
+        for path in graph_context["paths"][:3]:
+            relation_chain = " -> ".join(edge.get("relation", "related_to") for edge in path.get("edges", []))
+            graph_lines.append(f"- {relation_chain}")
+    if graph_context["communities"]:
+        graph_lines.append("[Community Summaries]")
+        for community in graph_context["communities"][:3]:
+            graph_lines.append(
+                f"- {community.get('title')}: {community.get('summary', '')}".strip()
+            )
+    if graph_lines:
+        passages_text = passages_text + "\n\n" + "\n".join(graph_lines)
 
     # Step 3: Try LLM-based Q&A
     config_with_key = host.get_default_config_with_key()
