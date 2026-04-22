@@ -403,7 +403,7 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
-    use crate::db::Database;
+    use crate::db::{CreateWorkflowRunRequest, Database, WorkflowRepository};
 
     fn test_db() -> Database {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
@@ -422,13 +422,23 @@ mod tests {
     #[test]
     fn podcast_episode_and_audio_segment_roundtrip() {
         let db = test_db();
+        let workflow_repo = WorkflowRepository::new(&db);
+        let run = workflow_repo
+            .create_run(CreateWorkflowRunRequest {
+                workflow_type: "podcast_generation".to_string(),
+                preset_id: Some("v3-podcast-generation".to_string()),
+                status: "queued".to_string(),
+                thread_id: "podcast:test-doc".to_string(),
+                started_at: None,
+            })
+            .expect("create workflow run");
         let repo = PodcastRepository::new(&db);
 
         let episode = repo
             .create_episode(CreatePodcastEpisodeRequest {
                 id: "podcast-1".to_string(),
                 document_ids: vec!["doc-1".to_string(), "doc-2".to_string()],
-                run_id: Some("run-1".to_string()),
+                run_id: Some(run.id),
                 title: "播客测试".to_string(),
                 scope_description: "测试范围".to_string(),
                 style: "interview".to_string(),

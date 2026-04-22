@@ -4,17 +4,22 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel, Field
 
 from ..providers.embedding_runtime import embed_texts
+from ..providers.runtime import estimate_workflow_cost
 from ..providers.tts_router import TTSRouter
 from ..schemas.podcast import DialogueLine, PodcastOutlineSchema, PodcastScriptSchema, ScriptEvaluationSchema
 from .podcast_utils import (
     STYLE_PROMPTS,
     approximate_duration_ms,
     build_roles,
+    create_macro_segments,
+    estimate_text_tokens,
     invoke_structured_model,
     make_episode_dir,
     select_retrieval_limit,
@@ -28,6 +33,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+DEFAULT_LLM_COST_PER_1K_TOKENS = 0.0025
+TTS_COST_PER_1K_CHARS = {
+    "auto": 0.015,
+    "openai": 0.015,
+    "edge_tts": 0.0,
+    "elevenlabs": 0.03,
+    "fish_audio": 0.02,
+}
 
 
 class SegmentDialogueBatch(BaseModel):
@@ -129,6 +143,74 @@ def _load_app_settings(host: HostGatewayClient) -> dict[str, Any]:
     except Exception as exc:
         logger.warning("Failed to load podcast app settings: %s", exc)
         return {}
+
+
+def _resolve_podcasts_root(host: HostGatewayClient) -> str:
+    try:
+        runtime_paths = host.get_runtime_paths() or {}
+        podcasts_dir = runtime_paths.get("podcastsDir")
+        if isinstance(podcasts_dir, str) and podcasts_dir.strip():
+            return podcasts_dir.strip()
+    except Exception as exc:
+        logger.warning("Failed to resolve podcast runtime paths: %s", exc)
+
+    fallback_dir = Path.cwd() / "runtime" / "podcasts"
+    fallback_dir.mkdir(parents=True, exist_ok=True)
+    return str(fallback_dir)
+
+
+def _estimate_total_cost_usd(llm_tokens: int, tts_characters: int, provider_id: str) -> float:
+    llm_cost = (max(0, llm_tokens) / 1000.0) * DEFAULT_LLM_COST_PER_1K_TOKENS
+    tts_rate = TTS_COST_PER_1K_CHARS.get(provider_id, TTS_COST_PER_1K_CHARS["auto"])
+    tts_cost = (max(0, tts_characters) / 1000.0) * tts_rate
+    return round(llm_cost + tts_cost, 6)
+
+
+def _apply_budget_usage(
+    app_settings: dict[str, Any],
+    budget_state: dict[str, float],
+    *,
+    provider_id: str,
+    llm_tokens_delta: int = 0,
+    tts_characters_delta: int = 0,
+) -> None:
+    next_llm_tokens = int(budget_state.get("llmTokens", 0)) + max(0, llm_tokens_delta)
+    next_tts_characters = int(budget_state.get("ttsCharacters", 0)) + max(0, tts_characters_delta)
+    next_cost = _estimate_total_cost_usd(next_llm_tokens, next_tts_characters, provider_id)
+
+    max_llm_tokens = int(app_settings.get("podcastMaxLlmTokens") or 0)
+    if max_llm_tokens > 0 and next_llm_tokens > max_llm_tokens:
+        raise RuntimeError(
+            f"Podcast budget exceeded: estimated LLM tokens {next_llm_tokens} > {max_llm_tokens}"
+        )
+
+    max_tts_characters = int(app_settings.get("podcastMaxTtsCharacters") or 0)
+    if max_tts_characters > 0 and next_tts_characters > max_tts_characters:
+        raise RuntimeError(
+            "Podcast budget exceeded: estimated TTS characters "
+            f"{next_tts_characters} > {max_tts_characters}"
+        )
+
+    max_estimated_cost = float(app_settings.get("podcastMaxEstimatedCostUsd") or 0)
+    if max_estimated_cost > 0 and next_cost > max_estimated_cost:
+        raise RuntimeError(
+            f"Podcast budget exceeded: estimated cost ${next_cost:.4f} > ${max_estimated_cost:.4f}"
+        )
+
+    budget_state["llmTokens"] = float(next_llm_tokens)
+    budget_state["ttsCharacters"] = float(next_tts_characters)
+    budget_state["estimatedCostUsd"] = next_cost
+
+
+def _cleanup_episode_artifacts(host: HostGatewayClient, episode_id: str, podcasts_root: str) -> None:
+    try:
+        host.delete_podcast_audio_segments(episode_id)
+    except Exception as exc:
+        logger.warning("Failed to clear podcast audio segments for %s: %s", episode_id[:8], exc)
+
+    episode_dir = Path(podcasts_root) / episode_id
+    if episode_dir.exists():
+        shutil.rmtree(episode_dir, ignore_errors=True)
 
 
 def _speaker_lookup(style: str) -> tuple[list[dict[str, str]], dict[str, str], dict[str, str]]:
@@ -533,18 +615,33 @@ async def _render_audio_segments(
     audio_format: str,
     style: str,
     script: PodcastScriptSchema,
+    podcasts_root: str,
+    existing_segments: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], str, int]:
     router = TTSRouter(host)
     provider = router.get_provider(requested_provider)
     _, _, speaker_name_to_role = _speaker_lookup(style)
 
-    episode_dir = make_episode_dir(episode_id)
+    episode_dir = make_episode_dir(podcasts_root, episode_id)
     segment_paths: list[str] = []
     rendered_segments: list[dict[str, Any]] = []
+    existing_by_dialogue_id: dict[str, dict[str, Any]] = {}
+
+    for item in existing_segments or []:
+        dialogue_segment_id = str(item.get("dialogueSegmentId") or "").strip()
+        file_path = str(item.get("filePath") or "").strip()
+        if dialogue_segment_id and file_path and Path(file_path).exists():
+            existing_by_dialogue_id[dialogue_segment_id] = item
 
     for index, segment in enumerate(script.segments):
         if _is_cancelled(host, run_id):
             raise RuntimeError("Workflow cancelled")
+
+        existing_segment = existing_by_dialogue_id.get(segment.id)
+        if existing_segment is not None:
+            rendered_segments.append(existing_segment)
+            segment_paths.append(str(existing_segment["filePath"]))
+            continue
 
         role = speaker_name_to_role.get(segment.speaker, "narrator")
         voice_id = router.resolve_voice(provider, language, role)
@@ -578,14 +675,29 @@ async def _render_audio_segments(
             "progress",
             f"已生成第 {index + 1}/{len(script.segments)} 条语音片段",
             progress=min(progress, 0.90),
-            payload={"stage": 5, "completedSegments": index + 1, "totalSegments": len(script.segments)},
+            payload={
+                "stage": 5,
+                "completedSegments": len(rendered_segments),
+                "totalSegments": len(script.segments),
+            },
+        )
+        _safe_save_checkpoint(
+            host,
+            run_id,
+            "podcast-audio-segments",
+            f"audio-segment-{index + 1}",
+            {
+                "completedSegments": len(rendered_segments),
+                "totalSegments": len(script.segments),
+                "lastDialogueSegmentId": segment.id,
+            },
         )
         host.update_podcast_episode(
             episode_id,
             {
                 "status": "generating_audio",
                 "currentStage": 5,
-                "completedSegments": index + 1,
+                "completedSegments": len(rendered_segments),
                 "totalSegments": len(script.segments),
             },
         )
@@ -604,7 +716,13 @@ async def _render_audio_segments(
     return rendered_segments, str(output_path), int(stitched.get("duration_ms") or 0)
 
 
-def _cancel_result(host: HostGatewayClient, episode_id: str, run_id: str) -> dict[str, Any]:
+def _cancel_result(
+    host: HostGatewayClient,
+    episode_id: str,
+    run_id: str,
+    podcasts_root: str,
+) -> dict[str, Any]:
+    _cleanup_episode_artifacts(host, episode_id, podcasts_root)
     host.update_podcast_episode(
         episode_id,
         {
@@ -640,10 +758,15 @@ def run_podcast_workflow(
     if not document_ids:
         raise ValueError("document_ids is required")
 
+    podcasts_root = _resolve_podcasts_root(host)
     if _is_cancelled(host, run_id):
-        return _cancel_result(host, episode_id, run_id)
+        return _cancel_result(host, episode_id, run_id, podcasts_root)
 
     episode = host.get_podcast_episode(episode_id) or {}
+    checkpoint = host.load_checkpoint(run_id) if run_id else None
+    checkpoint_payload = checkpoint.get("payload") if isinstance(checkpoint, dict) else None
+    if not isinstance(checkpoint_payload, dict):
+        checkpoint_payload = {}
     app_settings = _load_app_settings(host)
     resolved_title = title.strip() or str(episode.get("title") or "AI 学习播客").strip() or "AI 学习播客"
     resolved_style = style or str(episode.get("style") or "interview")
@@ -657,6 +780,11 @@ def run_podcast_workflow(
     resolved_audio_format = audio_format or str(episode.get("audioFormat") or configured_audio_format or "mp3")
     skip_review = bool(app_settings.get("podcastSkipReview", True))
     existing_stage = int(episode.get("currentStage") or 0)
+    budget_state: dict[str, float] = {
+        "llmTokens": 0.0,
+        "ttsCharacters": 0.0,
+        "estimatedCostUsd": 0.0,
+    }
 
     existing_outline = _deserialize_json(episode.get("outlineJson"), PodcastOutlineSchema)
     existing_script = _deserialize_json(episode.get("scriptJson"), PodcastScriptSchema)
@@ -683,8 +811,21 @@ def run_podcast_workflow(
     query_text = _build_query_text(resolved_title, prompt, documents)
     if not query_text:
         query_text = resolved_title
+    _apply_budget_usage(
+        app_settings,
+        budget_state,
+        provider_id=resolved_tts_provider,
+        llm_tokens_delta=estimate_text_tokens(
+            query_text,
+            prompt,
+            *[
+                str(item.get("title") or item.get("displayTitle") or "")
+                for item in documents
+            ],
+        ),
+    )
 
-    config_with_key = host.get_default_config_with_key()
+    config_with_key = host.get_config_for_workflow("podcast_generation")
 
     if existing_stage < 1 or existing_outline is None:
         chunks, retrieval_mode = _retrieve_chunks(host, query_text, document_ids, resolved_duration_tier)
@@ -733,6 +874,17 @@ def run_podcast_workflow(
             progress=0.18,
             payload={"stage": 1, "chunkCount": len(chunks), "retrievalMode": retrieval_mode},
         )
+        _apply_budget_usage(
+            app_settings,
+            budget_state,
+            provider_id=resolved_tts_provider,
+            llm_tokens_delta=estimate_text_tokens(
+                *[
+                    str(chunk.get("snippet") or chunk.get("content") or "")[:500]
+                    for chunk in chunks
+                ]
+            ),
+        )
 
         outline = _generate_outline(
             config_with_key,
@@ -743,7 +895,18 @@ def run_podcast_workflow(
             resolved_duration_tier,
             chunks,
         )
+        macro_segments = create_macro_segments(
+            resolved_duration_tier,
+            outline.total_target_duration_ms,
+            len(outline.segments),
+        )
         existing_outline = outline
+        _apply_budget_usage(
+            app_settings,
+            budget_state,
+            provider_id=resolved_tts_provider,
+            llm_tokens_delta=estimate_text_tokens(_serialize_json(outline)),
+        )
         host.update_podcast_episode(
             episode_id,
             {
@@ -759,22 +922,49 @@ def run_podcast_workflow(
             run_id,
             "podcast-outline",
             "stage-2",
-            outline.model_dump(),
+            {
+                **outline.model_dump(),
+                "macroSegments": macro_segments,
+                "budget": budget_state,
+            },
         )
 
     if _is_cancelled(host, run_id):
-        return _cancel_result(host, episode_id, run_id)
+        return _cancel_result(host, episode_id, run_id, podcasts_root)
 
     if existing_outline is None:
         raise RuntimeError("Podcast outline generation failed")
 
     script = existing_script
-    if existing_stage < 3 or script is None:
+    script_checkpoint_completed = int(
+        episode.get("completedSegments")
+        or checkpoint_payload.get("completedSegments")
+        or 0
+    )
+    if existing_stage < 3 or script is None or script_checkpoint_completed < len(existing_outline.segments):
         generated_segments: list[DialogueLine] = []
-        for index, segment in enumerate(existing_outline.segments):
-            if _is_cancelled(host, run_id):
-                return _cancel_result(host, episode_id, run_id)
+        start_outline_index = 0
+        if (
+            existing_stage == 3
+            and script is not None
+            and 0 < script_checkpoint_completed < len(existing_outline.segments)
+        ):
+            generated_segments = list(script.segments)
+            start_outline_index = script_checkpoint_completed
+            _safe_emit_event(
+                host,
+                run_id,
+                "resumed",
+                f"从第 {start_outline_index + 1} 个段落继续生成脚本",
+                progress=0.30,
+                payload={"stage": 3, "completedSegments": start_outline_index},
+            )
 
+        for index in range(start_outline_index, len(existing_outline.segments)):
+            if _is_cancelled(host, run_id):
+                return _cancel_result(host, episode_id, run_id, podcasts_root)
+
+            segment = existing_outline.segments[index]
             topic_query = f"{segment.topic} {' '.join(segment.key_points)}"
             supporting_chunks, _ = _retrieve_chunks(host, topic_query, document_ids, resolved_duration_tier)
             generated_batch = _generate_segment_dialogue(
@@ -787,7 +977,16 @@ def run_podcast_workflow(
                 supporting_chunks,
                 generated_segments,
             )
-            generated_segments.extend(generated_batch.segments)
+            normalized_batch = [
+                line.model_copy(
+                    update={
+                        "id": f"seg-{index + 1}-{line_index + 1}",
+                        "duration_ms": max(1000, line.duration_ms),
+                    }
+                )
+                for line_index, line in enumerate(generated_batch.segments)
+            ]
+            generated_segments.extend(normalized_batch)
             script = PodcastScriptSchema(
                 title=existing_outline.title,
                 description=existing_outline.description,
@@ -796,6 +995,19 @@ def run_podcast_workflow(
                 segments=generated_segments,
             )
             script = _normalize_script(script, resolved_style)
+            _apply_budget_usage(
+                app_settings,
+                budget_state,
+                provider_id=resolved_tts_provider,
+                llm_tokens_delta=estimate_text_tokens(
+                    topic_query,
+                    *[
+                        str(chunk.get("snippet") or chunk.get("content") or "")[:400]
+                        for chunk in supporting_chunks[:4]
+                    ],
+                    *[line.text for line in normalized_batch],
+                ),
+            )
             host.update_podcast_episode(
                 episode_id,
                 {
@@ -815,6 +1027,7 @@ def run_podcast_workflow(
                     "completedSegments": index + 1,
                     "totalSegments": len(existing_outline.segments),
                     "script": script.model_dump(),
+                    "budget": budget_state,
                 },
             )
             progress = 0.30 + ((index + 1) / max(1, len(existing_outline.segments))) * 0.30
@@ -833,12 +1046,22 @@ def run_podcast_workflow(
         raise RuntimeError("Podcast script generation failed")
 
     if _is_cancelled(host, run_id):
-        return _cancel_result(host, episode_id, run_id)
+        return _cancel_result(host, episode_id, run_id, podcasts_root)
 
     evaluation = existing_eval
     if existing_stage < 4 or evaluation is None:
         evaluation = _evaluate_script(config_with_key, existing_outline, script, resolved_style, resolved_language)
         script, evaluation = _revise_script(config_with_key, existing_outline, script, evaluation, resolved_style, resolved_language)
+        _apply_budget_usage(
+            app_settings,
+            budget_state,
+            provider_id=resolved_tts_provider,
+            llm_tokens_delta=estimate_text_tokens(
+                _serialize_json(existing_outline),
+                _serialize_json(script),
+                _serialize_json(evaluation),
+            ),
+        )
         host.update_podcast_episode(
             episode_id,
             {
@@ -858,6 +1081,7 @@ def run_podcast_workflow(
             {
                 "script": script.model_dump(),
                 "evaluation": evaluation.model_dump(),
+                "budget": budget_state,
             },
         )
         _safe_emit_event(
@@ -870,7 +1094,7 @@ def run_podcast_workflow(
         )
 
     if _is_cancelled(host, run_id):
-        return _cancel_result(host, episode_id, run_id)
+        return _cancel_result(host, episode_id, run_id, podcasts_root)
 
     if not skip_review and existing_stage < 5 and episode.get("audioPath") in {None, ""}:
         host.update_podcast_episode(
@@ -895,6 +1119,7 @@ def run_podcast_workflow(
                 "script": script.model_dump(),
                 "evaluation": evaluation.model_dump(),
                 "outline": existing_outline.model_dump(),
+                "budget": budget_state,
             },
         )
         _safe_emit_event(
@@ -916,12 +1141,29 @@ def run_podcast_workflow(
             "totalSegments": len(existing_outline.segments),
         }
 
+    total_tts_characters = sum(len(segment.text) for segment in script.segments)
+    _apply_budget_usage(
+        app_settings,
+        budget_state,
+        provider_id=resolved_tts_provider,
+        tts_characters_delta=total_tts_characters,
+    )
+
+    existing_audio_segments: list[dict[str, Any]] = []
+    if existing_stage >= 5 and episode.get("audioPath") in {None, ""}:
+        try:
+            existing_audio_segments = host.list_podcast_audio_segments(episode_id)
+        except Exception as exc:
+            logger.warning("Failed to load existing podcast audio segments for resume: %s", exc)
+    else:
+        _cleanup_episode_artifacts(host, episode_id, podcasts_root)
+
     host.update_podcast_episode(
         episode_id,
         {
             "status": "generating_audio",
             "currentStage": 5,
-            "completedSegments": 0,
+            "completedSegments": len(existing_audio_segments),
             "totalSegments": len(script.segments),
             "scriptJson": _serialize_json(script),
             "evaluationJson": _serialize_json(evaluation),
@@ -940,6 +1182,8 @@ def run_podcast_workflow(
             resolved_audio_format,
             resolved_style,
             script,
+            podcasts_root,
+            existing_audio_segments,
         )
     )
 
@@ -967,6 +1211,7 @@ def run_podcast_workflow(
             "audioPath": final_audio_path,
             "durationMs": duration_ms,
             "audioSegments": rendered_segments,
+            "budget": budget_state,
         },
     )
     _safe_emit_event(
@@ -980,8 +1225,17 @@ def run_podcast_workflow(
             "audioPath": final_audio_path,
             "durationMs": duration_ms,
             "audioSegmentCount": len(rendered_segments),
+            "estimatedCostUsd": budget_state["estimatedCostUsd"],
         },
     )
+
+    if config_with_key is not None:
+        config, _api_key = config_with_key
+        if config.get("id"):
+            try:
+                host.record_workflow_cost(config["id"], estimate_workflow_cost(config))
+            except Exception as exc:
+                logger.warning("Failed to record podcast cost: %s", exc)
 
     return {
         "status": "ready",
@@ -995,4 +1249,5 @@ def run_podcast_workflow(
         "completedSegments": len(script.segments),
         "totalSegments": len(script.segments),
         "audioSegments": rendered_segments,
+        "estimatedCostUsd": budget_state["estimatedCostUsd"],
     }

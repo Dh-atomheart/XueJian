@@ -22,6 +22,7 @@ from ..schemas.knowledge_graph import (
     KnowledgeNodePayload,
     RelationType,
 )
+from ..providers.runtime import estimate_workflow_cost
 from .graph_embedding import build_entity_embeddings, cosine_similarity, embed_entity_text
 
 if TYPE_CHECKING:
@@ -92,7 +93,7 @@ def run_knowledge_graph_workflow(
     if not document_ids:
         return KnowledgeGraphWorkflowPayload().model_dump(by_alias=True)
 
-    config_with_key = host.get_default_config_with_key()
+    config_with_key = host.get_config_for_workflow("knowledge_graph")
     _emit_progress(host, run_id, 1, "Collecting document chunks", 0.05, {"buildRunId": build_run_id})
     chunks = _stage_collect_chunks(document_ids, host)
     _save_checkpoint(host, run_id, "stage-1-chunks", {
@@ -151,6 +152,13 @@ def run_knowledge_graph_workflow(
         "edges": len(edges),
         "communities": len(communities),
     })
+    if config_with_key is not None:
+        config, _api_key = config_with_key
+        if config.get("id"):
+            try:
+                host.record_workflow_cost(config["id"], estimate_workflow_cost(config))
+            except Exception as exc:
+                logger.warning("Failed to record knowledge graph cost: %s", exc)
     return payload.model_dump(by_alias=True)
 
 

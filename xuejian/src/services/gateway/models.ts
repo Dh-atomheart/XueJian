@@ -1,17 +1,34 @@
 import { z } from 'zod'
-import { apiConfigSchema, apiConnectionTestResultSchema, embeddingProfileSchema } from '@/types'
+import {
+  apiConfigSchema,
+  apiConnectionTestResultSchema,
+  discoveredModelSchema,
+  embeddingProfileSchema,
+  providerBudgetUsageSchema,
+  workflowModelAssignmentSchema,
+} from '@/types'
 import type {
   ApiAuthMode,
   ApiConfig,
   ApiConnectionTestResult,
+  DiscoveredModel,
   EmbeddingProfile,
   ModelProfile,
+  ProviderBudgetUsage,
+  WorkflowModelAssignment,
+  WorkflowType,
 } from '@/types'
 import { invoke, invokeWithSchema } from './index'
 
-type ApiConfigDraft = Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey'>
+type ApiConfigDraft = Omit<
+  ApiConfig,
+  'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey' | 'keyVerifiedAt' | 'keyStatus'
+>
 type ApiConfigUpdate = Partial<
-  Omit<ApiConfig, 'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey'>
+  Omit<
+    ApiConfig,
+    'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey' | 'keyVerifiedAt' | 'keyStatus'
+  >
 >
 
 /**
@@ -39,7 +56,12 @@ export const apiConfigGateway = {
     return invoke<void>('delete_api_config', { id })
   },
 
+  async deleteApiKey(configId: string): Promise<void> {
+    return invoke<void>('delete_api_key', { configId })
+  },
+
   async testConnection(data: {
+    configId?: string | null
     provider: ApiConfig['provider']
     authMode: ApiAuthMode
     apiKey: string
@@ -55,6 +77,67 @@ export const apiConfigGateway = {
 
   async storeApiKey(configId: string, apiKey: string): Promise<void> {
     return invoke<void>('store_api_key', { data: { configId, apiKey } })
+  },
+
+  async fetchProviderModels(data: {
+    provider: ApiConfig['provider']
+    apiKey: string
+    baseUrl?: string | null
+  }): Promise<DiscoveredModel[]> {
+    return invokeWithSchema('fetch_provider_models', z.array(discoveredModelSchema), { data })
+  },
+
+  async listWorkflowAssignments(): Promise<WorkflowModelAssignment[]> {
+    return invokeWithSchema('list_workflow_assignments', z.array(workflowModelAssignmentSchema))
+  },
+
+  async getWorkflowAssignment(workflowType: WorkflowType): Promise<WorkflowModelAssignment | null> {
+    return invokeWithSchema('get_workflow_assignment', workflowModelAssignmentSchema.nullable(), {
+      workflowType,
+    })
+  },
+
+  async setWorkflowAssignment(
+    workflowType: WorkflowType,
+    apiConfigId: string
+  ): Promise<WorkflowModelAssignment> {
+    return invokeWithSchema('set_workflow_assignment', workflowModelAssignmentSchema, {
+      data: { workflowType, apiConfigId },
+    })
+  },
+
+  async setAllWorkflowAssignments(apiConfigId: string): Promise<WorkflowModelAssignment[]> {
+    return invokeWithSchema(
+      'set_all_workflow_assignments',
+      z.array(workflowModelAssignmentSchema),
+      {
+        apiConfigId,
+      }
+    )
+  },
+
+  async deleteWorkflowAssignment(workflowType: WorkflowType): Promise<void> {
+    return invoke<void>('delete_workflow_assignment', { workflowType })
+  },
+
+  async getProviderBudgetUsage(
+    apiConfigId: string,
+    period?: string | null
+  ): Promise<ProviderBudgetUsage | null> {
+    return invokeWithSchema('get_provider_budget_usage', providerBudgetUsageSchema.nullable(), {
+      apiConfigId,
+      period: period ?? null,
+    })
+  },
+
+  async resetProviderBudgetUsage(apiConfigId: string): Promise<void> {
+    return invoke<void>('reset_provider_budget_usage', { apiConfigId })
+  },
+
+  async recordWorkflowCost(apiConfigId: string, estimatedCostUsd: number): Promise<void> {
+    return invoke<void>('record_workflow_cost', {
+      data: { apiConfigId, estimatedCostUsd },
+    })
   },
 }
 
@@ -89,7 +172,9 @@ export const modelGateway: {
   create: (data: ApiConfigDraft) => Promise<ModelProfile>
   update: (id: string, data: ApiConfigUpdate) => Promise<ModelProfile>
   delete: (id: string) => Promise<void>
+  deleteApiKey: (configId: string) => Promise<void>
   testConnection: (data: {
+    configId?: string | null
     provider: ApiConfig['provider']
     authMode: ApiAuthMode
     apiKey: string
@@ -98,4 +183,23 @@ export const modelGateway: {
   }) => Promise<ApiConnectionTestResult>
   setDefault: (id: string) => Promise<void>
   storeApiKey: (configId: string, apiKey: string) => Promise<void>
+  fetchProviderModels: (data: {
+    provider: ApiConfig['provider']
+    apiKey: string
+    baseUrl?: string | null
+  }) => Promise<DiscoveredModel[]>
+  listWorkflowAssignments: () => Promise<WorkflowModelAssignment[]>
+  getWorkflowAssignment: (workflowType: WorkflowType) => Promise<WorkflowModelAssignment | null>
+  setWorkflowAssignment: (
+    workflowType: WorkflowType,
+    apiConfigId: string
+  ) => Promise<WorkflowModelAssignment>
+  setAllWorkflowAssignments: (apiConfigId: string) => Promise<WorkflowModelAssignment[]>
+  deleteWorkflowAssignment: (workflowType: WorkflowType) => Promise<void>
+  getProviderBudgetUsage: (
+    apiConfigId: string,
+    period?: string | null
+  ) => Promise<ProviderBudgetUsage | null>
+  resetProviderBudgetUsage: (apiConfigId: string) => Promise<void>
+  recordWorkflowCost: (apiConfigId: string, estimatedCostUsd: number) => Promise<void>
 } = apiConfigGateway

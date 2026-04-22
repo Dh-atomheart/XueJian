@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type {
   ApiConfig,
   ApiConnectionTestResult,
+  DiscoveredModel,
   AppSettings,
   Card,
   CardCandidate,
@@ -21,11 +22,14 @@ import type {
   Highlight,
   HostGatewayManifest,
   IRRect,
+  ModelCapabilities,
   PointsEntry,
   PointsSummary,
+  ProviderBudgetUsage,
   RagAnswer,
   ReviewLog,
   ServiceHealthStatus,
+  WorkflowModelAssignment,
   WorkflowCheckpoint,
   WorkflowRun,
   WorkflowEvent,
@@ -153,17 +157,73 @@ export const appSettingsSchema = z.object({
   language: z.enum(['zh-CN', 'en-US']),
   dailyNewCardLimit: z.number().int().nonnegative(),
   reviewTimeLimit: z.number().int().nonnegative(),
+  learningGoal: z.string().default('exam_prep'),
+  dailyStudyMinutes: z.number().int().nonnegative().default(30),
+  studyTimePreference: z.string().default('evening'),
+  studyContentPreferences: z.array(z.string()).default(['concepts', 'examples']),
+  contentDifficultyPreference: z.string().default('adaptive'),
   podcastTtsProvider: z.enum(['auto', 'openai', 'edge_tts', 'elevenlabs', 'fish_audio']),
   podcastOpenaiModel: z.string().min(1),
   podcastFishAudioEndpoint: z.string().nullable(),
   podcastVoiceOverrides: z.record(z.string()),
+  defaultVoice: z.string().default('alloy'),
+  speechRate: z.number().min(0).max(2).default(1),
+  speechPitch: z.number().min(-1).max(1).default(0),
+  speechVolume: z.number().min(0).max(1).default(1),
+  readingMode: z.string().default('natural'),
+  defaultPodcastStyle: z.string().default('conversational'),
+  podcastEpisodeDurationMinutes: z.number().int().positive().default(10),
+  podcastContentStructure: z.string().default('summary_then_details'),
+  podcastBackgroundMusic: z.string().default('soft_piano'),
+  podcastIntroOutroEnabled: z.boolean().default(true),
+  voiceInputLanguage: z.string().default('zh-CN'),
+  voiceInterruptEnabled: z.boolean().default(true),
+  podcastAutoPlayNextEpisode: z.boolean().default(true),
   podcastOutputFormat: z.enum(['mp3', 'wav']),
   podcastSkipReview: z.boolean(),
+  podcastMaxLlmTokens: z.number().int().nonnegative(),
+  podcastMaxTtsCharacters: z.number().int().nonnegative(),
+  podcastMaxEstimatedCostUsd: z.number().nonnegative(),
 }) as z.ZodType<AppSettings>
 
-export const apiProviderSchema = z.enum(['openai', 'anthropic', 'google', 'openai_compatible'])
+export const apiProviderSchema = z.enum([
+  'openai',
+  'anthropic',
+  'google',
+  'deepseek',
+  'openai_compatible',
+  'custom_openai',
+  'custom_anthropic',
+  'custom_google',
+])
 
 export const apiAuthModeSchema = z.enum(['api_key', 'adc'])
+
+export const keyStatusSchema = z.enum(['none', 'stored', 'verified', 'invalid', 'expired'])
+
+export const modelCapabilitiesSchema = z.object({
+  vision: z.boolean(),
+  functionCalling: z.boolean(),
+  maxContext: z.number().int().positive(),
+  streaming: z.boolean(),
+  jsonMode: z.boolean(),
+}) as z.ZodType<ModelCapabilities>
+
+export const discoveredModelSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string().min(1),
+  source: z.enum(['preset', 'fetched']),
+  capabilities: modelCapabilitiesSchema,
+  isRecommended: z.boolean(),
+}) as z.ZodType<DiscoveredModel>
+
+export const workflowTypeSchema = z.enum([
+  'card_generation',
+  'document_embedding',
+  'knowledge_qa',
+  'podcast_generation',
+  'knowledge_graph',
+])
 
 export const apiConfigSchema = z.object({
   id: z.string().uuid(),
@@ -178,6 +238,9 @@ export const apiConfigSchema = z.object({
   isEnabled: z.boolean(),
   hasStoredCredential: z.boolean(),
   hasStoredKey: z.boolean(),
+  keyVerifiedAt: nullableDateValueSchema,
+  keyStatus: keyStatusSchema,
+  displayName: z.string().nullable(),
   createdAt: dateValueSchema,
 }) as z.ZodType<ApiConfig>
 
@@ -196,6 +259,23 @@ export const embeddingProfileSchema = z.object({
   revision: z.number().int().nonnegative(),
   createdAt: dateValueSchema,
 }) as z.ZodType<EmbeddingProfile>
+
+export const workflowModelAssignmentSchema = z.object({
+  workflowType: workflowTypeSchema,
+  apiConfigId: z.string().uuid(),
+  assignedAt: dateValueSchema,
+  updatedAt: dateValueSchema,
+  apiConfig: apiConfigSchema.nullable().optional(),
+}) as z.ZodType<WorkflowModelAssignment>
+
+export const providerBudgetUsageSchema = z.object({
+  id: z.string().uuid(),
+  apiConfigId: z.string().uuid(),
+  period: z.string().regex(/^\d{4}-\d{2}$/),
+  estimatedCostUsd: z.number().nonnegative(),
+  workflowRunsCount: z.number().int().nonnegative(),
+  updatedAt: dateValueSchema,
+}) as z.ZodType<ProviderBudgetUsage>
 
 export const documentSchema = z.object({
   id: z.string().uuid(),
@@ -373,13 +453,7 @@ export const workflowEventSchema = z.object({
 
 export const workflowRunSchema = z.object({
   id: z.string().uuid(),
-  workflowType: z.enum([
-    'card_generation',
-    'document_embedding',
-    'knowledge_qa',
-    'podcast_generation',
-    'knowledge_graph',
-  ]),
+  workflowType: workflowTypeSchema,
   presetId: z.string().nullable(),
   status: z.enum(['queued', 'running', 'waiting_confirmation', 'completed', 'failed', 'cancelled']),
   threadId: z.string().min(1),
@@ -492,3 +566,23 @@ export const pointsEntrySchema = z.object({
 export const pointsSummarySchema = z.object({
   todayPoints: z.number().int(),
 }) as z.ZodType<PointsSummary>
+
+export const studyStatsSchema = z.object({
+  todayMinutes: z.number().int().nonnegative().nullable(),
+  weekMinutes: z.number().int().nonnegative().nullable(),
+  totalMinutes: z.number().int().nonnegative().nullable(),
+  streakDays: z.number().int().nonnegative(),
+  activeDaysThisWeek: z.number().int().nonnegative(),
+}) as z.ZodType<import('./document').StudyStats>
+
+export const masteryBreakdownSchema = z.object({
+  newCards: z.number().int().nonnegative(),
+  learningCards: z.number().int().nonnegative(),
+  reviewCards: z.number().int().nonnegative(),
+  masteredCards: z.number().int().nonnegative(),
+}) as z.ZodType<import('./document').MasteryBreakdown>
+
+export const heatmapEntrySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  count: z.number().int().nonnegative(),
+}) as z.ZodType<import('./document').HeatmapEntry>

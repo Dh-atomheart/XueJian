@@ -48,6 +48,38 @@ afterEach(() => {
 })
 
 describe('app feedback layer', () => {
+  it('marks feedback overlays so the shell does not treat them as layout columns', () => {
+    resetUiState()
+    useAppUiStore.setState({
+      activeNotices: [
+        {
+          id: 'notice-1',
+          level: 'warning',
+          scope: '布局',
+          title: '测试通知',
+          detail: '用于验证 overlay root 标记',
+          createdAt: new Date('2026-04-22T23:10:00.000Z'),
+        },
+      ],
+      isFeedbackPanelOpen: true,
+    })
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <AppFeedbackLayer />
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByText('测试通知').closest('[data-app-overlay-root]')).toHaveAttribute(
+      'data-app-overlay-root',
+      'feedback-notices'
+    )
+    expect(screen.getByText('最近的提示与错误').closest('[data-app-overlay-root]')).toHaveAttribute(
+      'data-app-overlay-root',
+      'feedback-drawer'
+    )
+  })
+
   it('opens from the top bar, clears logs, and closes the drawer', () => {
     resetUiState()
     useAppUiStore.setState({
@@ -80,18 +112,18 @@ describe('app feedback layer', () => {
       </QueryClientProvider>
     )
 
-    fireEvent.click(screen.getByTestId('topbar-feedback-trigger'))
+    fireEvent.click(screen.getByRole('button', { name: /错误日志/ }))
 
-    expect(screen.getByRole('dialog', { name: '运行日志' })).toBeInTheDocument()
+    expect(screen.getByText('最近的提示与错误')).toBeInTheDocument()
     expect(screen.getByText('保存失败')).toBeInTheDocument()
     expect(screen.getByText('网络连接中断')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '清空日志' }))
+    fireEvent.click(screen.getByRole('button', { name: '清空' }))
 
     expect(screen.getByText('当前还没有日志记录。')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '收起运行日志' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
 
-    expect(screen.queryByRole('dialog', { name: '运行日志' })).not.toBeInTheDocument()
+    expect(screen.queryByText('最近的提示与错误')).not.toBeInTheDocument()
   })
 })

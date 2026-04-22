@@ -39,7 +39,10 @@ export function AppFeedbackLayer() {
 
   return (
     <>
-      <div className="pointer-events-none fixed right-4 top-4 z-[80] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2">
+      <div
+        data-app-overlay-root="feedback-notices"
+        className="pointer-events-none fixed right-4 top-4 z-[80] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2"
+      >
         {notices.map((notice) => (
           <Panel
             key={notice.id}
@@ -77,7 +80,10 @@ export function AppFeedbackLayer() {
       </div>
 
       {isFeedbackPanelOpen ? (
-        <div className="fixed inset-y-16 right-4 z-[70] w-[min(28rem,calc(100vw-2rem))]">
+        <div
+          data-app-overlay-root="feedback-drawer"
+          className="fixed inset-y-16 right-4 z-[70] w-[min(28rem,calc(100vw-2rem))]"
+        >
           <Panel
             variant="paperCard"
             className="flex h-full flex-col overflow-hidden rounded-[28px] border border-line-soft bg-paper-base/95 p-0 shadow-card backdrop-blur"

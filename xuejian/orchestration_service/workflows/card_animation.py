@@ -6,7 +6,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from ..providers.runtime import build_langchain_chat_model
+from ..providers.runtime import build_langchain_chat_model, estimate_workflow_cost
 
 if TYPE_CHECKING:
     from ..clients.host_gateway import HostGatewayClient
@@ -137,12 +137,13 @@ def run_card_animation_workflow(
     host: HostGatewayClient,
 ) -> dict:
     """Execute the card_animation workflow. Returns {scriptJson: str}."""
-    config_with_key = host.get_default_config_with_key()
+    config_with_key = host.get_config_for_workflow("card_animation")
 
     if config_with_key:
         config, api_key = config_with_key
         try:
             script_json = _try_langchain_animation(config, api_key, front, back, tags, anim_type)
+            host.record_workflow_cost(config["id"], estimate_workflow_cost(config))
             return {"status": "completed", "scriptJson": script_json}
         except Exception as exc:
             logger.error("LLM animation generation failed, using rule-based fallback: %s", exc)

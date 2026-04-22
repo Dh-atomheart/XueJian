@@ -10,6 +10,17 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+class BudgetExceededError(RuntimeError):
+    """Raised when the selected provider configuration is blocked by its monthly budget."""
+
+
+def _normalize_provider(provider: Any) -> str:
+    value = str(provider or "openai").strip().lower()
+    if value in {"custom", "qianfan", "openai_compatible"}:
+        return "custom_openai"
+    return value
+
+
 class HostGatewayClient:
     """HTTP client for calling the Rust Host's ModelGateway and ToolGateway."""
 
@@ -49,7 +60,10 @@ class HostGatewayClient:
     # ── ModelGateway ──────────────────────────────────
 
     def list_api_configs(self) -> list[dict]:
-        return self._get("/model-gateway/configs").get("items", self._get("/model-gateway/configs"))
+        result = self._get("/model-gateway/configs")
+        if isinstance(result, dict):
+            return result.get("items", [])
+        return result
 
     def get_api_config(self, config_id: str) -> dict | None:
         try:
@@ -61,27 +75,64 @@ class HostGatewayClient:
         result = self._get(f"/model-gateway/api-key/{config_id}")
         return result.get("apiKey", "")
 
+    def get_provider_budget_usage(self, config_id: str) -> dict | None:
+        try:
+            return self._get(f"/model-gateway/budget-usage/{config_id}")
+        except urllib.error.HTTPError:
+            return None
+
+    def _ensure_budget_available(self, config: dict) -> None:
+        raw_limit = config.get("budgetLimit")
+        if raw_limit is None:
+            return
+
+        try:
+            budget_limit = float(raw_limit)
+        except (TypeError, ValueError):
+            return
+
+        name = (
+            config.get("displayName")
+            or config.get("name")
+            or _normalize_provider(config.get("provider", "openai"))
+        )
+
+        if budget_limit <= 0:
+            raise BudgetExceededError(f"供应商 {name} 的月度预算已达上限 (${budget_limit:.2f})")
+
+        usage = self.get_provider_budget_usage(config.get("id", "")) or {}
+        used = float(usage.get("estimatedCostUsd") or 0.0)
+        if used >= budget_limit:
+            raise BudgetExceededError(f"供应商 {name} 的月度预算已达上限 (${budget_limit:.2f})")
+
     def get_default_config_with_key(self) -> tuple[dict, str] | None:
         configs = self.list_api_configs()
-        default = next((c for c in configs if c.get("isDefault") and c.get("isEnabled")), None)
-        if not default:
-            default = next((c for c in configs if c.get("isEnabled")), None)
-        if not default:
-            return None
-        api_key = self.get_api_key(default["id"])
-        if not api_key:
-            return None
-        return default, api_key
+        candidates = [
+            config for config in configs if config.get("isDefault") and config.get("isEnabled")
+        ]
+        candidates.extend(
+            config
+            for config in configs
+            if config.get("isEnabled") and not config.get("isDefault")
+        )
+
+        for config in candidates:
+            api_key = self.get_api_key(config["id"])
+            if api_key:
+                self._ensure_budget_available(config)
+                return config, api_key
+
+        return None
 
     def get_config_with_key_by_provider(self, provider: str) -> tuple[dict, str] | None:
         configs = self.list_api_configs()
-        normalized_provider = provider.lower()
+        normalized_provider = _normalize_provider(provider)
         config = next(
             (
                 item
                 for item in configs
                 if item.get("isEnabled")
-                and str(item.get("provider", "")).lower() == normalized_provider
+                and _normalize_provider(item.get("provider", "")) == normalized_provider
             ),
             None,
         )
@@ -90,7 +141,49 @@ class HostGatewayClient:
         api_key = self.get_api_key(config["id"])
         if not api_key:
             return None
+        self._ensure_budget_available(config)
         return config, api_key
+
+    def list_workflow_assignments(self) -> list[dict]:
+        result = self._get("/model-gateway/workflow-assignments")
+        if isinstance(result, list):
+            return result
+        return result.get("items", [])
+
+    def get_workflow_assignment(self, workflow_type: str) -> dict | None:
+        try:
+            return self._get(f"/model-gateway/workflow-assignments/{workflow_type}")
+        except urllib.error.HTTPError:
+            return None
+
+    def get_config_for_workflow(self, workflow_type: str) -> tuple[dict, str] | None:
+        assignment = self.get_workflow_assignment(workflow_type)
+        if not assignment:
+            return self.get_default_config_with_key()
+
+        config_id = assignment.get("apiConfigId")
+        if not config_id:
+            return self.get_default_config_with_key()
+
+        config = self.get_api_config(config_id)
+        if not config or not config.get("isEnabled"):
+            return self.get_default_config_with_key()
+
+        api_key = self.get_api_key(config_id)
+        if not api_key:
+            return self.get_default_config_with_key()
+
+        self._ensure_budget_available(config)
+        return config, api_key
+
+    def record_workflow_cost(self, api_config_id: str, estimated_cost_usd: float) -> dict:
+        return self._post(
+            "/model-gateway/workflow-cost",
+            {
+                "apiConfigId": api_config_id,
+                "estimatedCostUsd": estimated_cost_usd,
+            },
+        )
 
     def list_embedding_profiles(self) -> list[dict]:
         return self._get("/model-gateway/embedding-profiles")
@@ -105,6 +198,9 @@ class HostGatewayClient:
 
     def get_app_settings(self) -> dict:
         return self._get("/tool-gateway/settings")
+
+    def get_runtime_paths(self) -> dict:
+        return self._get("/tool-gateway/runtime-paths")
 
     def get_document(self, document_id: str) -> dict | None:
         try:
@@ -339,6 +435,9 @@ class HostGatewayClient:
 
     def list_podcast_audio_segments(self, episode_id: str) -> list[dict]:
         return self._get(f"/tool-gateway/podcasts/{episode_id}/audio-segments")
+
+    def delete_podcast_audio_segments(self, episode_id: str) -> dict:
+        return self._post(f"/tool-gateway/podcasts/{episode_id}/audio-segments/delete", {})
 
     def review_podcast_script(
         self,

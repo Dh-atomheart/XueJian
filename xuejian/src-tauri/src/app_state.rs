@@ -54,14 +54,32 @@ impl AppState {
     }
 
     pub fn lock_db(&self) -> AppResult<MutexGuard<'_, Database>> {
-        self.db
+        let start = std::time::Instant::now();
+        let guard = self
+            .db
             .lock()
-            .map_err(|_| AppError::Internal("Database state is poisoned".to_string()))
+            .map_err(|_| AppError::Internal("Database state is poisoned".to_string()))?;
+
+        let wait_ms = start.elapsed().as_secs_f64() * 1000.0;
+        if wait_ms >= 10.0 {
+            log::info!("[Perf][Lock] lock_db waited: {:.2}ms", wait_ms);
+        }
+
+        Ok(guard)
     }
 
     pub fn lock_secrets(&self) -> AppResult<MutexGuard<'_, SecretStore>> {
-        self.secrets
+        let start = std::time::Instant::now();
+        let guard = self
+            .secrets
             .lock()
-            .map_err(|_| AppError::Internal("Secret store state is poisoned".to_string()))
+            .map_err(|_| AppError::Internal("Secret store state is poisoned".to_string()))?;
+
+        let wait_ms = start.elapsed().as_secs_f64() * 1000.0;
+        if wait_ms >= 10.0 {
+            log::info!("[Perf][Lock] lock_secrets waited: {:.2}ms", wait_ms);
+        }
+
+        Ok(guard)
     }
 }

@@ -4,9 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-import tempfile
+import math
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypedDict, TypeVar
 
 from pydantic import BaseModel
 
@@ -74,6 +74,25 @@ STYLE_PROMPTS: dict[str, dict[str, str]] = {
     },
 }
 
+TARGET_DURATION_BY_TIER_MS = {
+    "short": 4 * 60 * 1000,
+    "medium": 10 * 60 * 1000,
+    "long": 22 * 60 * 1000,
+    "ultra_long": 36 * 60 * 1000,
+}
+
+MACRO_SEGMENT_TARGET_MS = 18 * 60 * 1000
+
+
+class MacroSegment(TypedDict):
+    index: int
+    target_duration_ms: int
+    status: str
+    audio_path: str | None
+    script_json: str | None
+    segment_start_index: int
+    segment_end_index: int
+
 
 def select_retrieval_limit(duration_tier: str) -> int:
     return TOP_K_BY_DURATION.get(duration_tier, TOP_K_BY_DURATION["medium"])
@@ -88,8 +107,8 @@ def build_roles(style: str) -> list[dict[str, str]]:
     return ROLE_PRESETS.get(style, ROLE_PRESETS["interview"])
 
 
-def make_episode_dir(episode_id: str) -> Path:
-    directory = Path(tempfile.gettempdir()) / "xuejian-podcasts" / episode_id
+def make_episode_dir(podcasts_root: str | Path, episode_id: str) -> Path:
+    directory = Path(podcasts_root) / episode_id
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
@@ -125,6 +144,64 @@ def invoke_structured_model(
     return schema_cls.model_validate(payload)
 
 
+def estimate_text_tokens(*texts: str) -> int:
+    total = 0
+    for text in texts:
+        normalized = (text or "").strip()
+        if not normalized:
+            continue
+        if re.search(r"[\u4e00-\u9fff]", normalized):
+            total += len(normalized)
+        else:
+            total += max(1, math.ceil(len(normalized.split()) * 1.4))
+    return total
+
+
+def create_macro_segments(duration_tier: str, total_duration_ms: int, segment_count: int) -> list[MacroSegment]:
+    if duration_tier != "ultra_long" or segment_count <= 0:
+        return [
+            {
+                "index": 0,
+                "target_duration_ms": total_duration_ms,
+                "status": "pending",
+                "audio_path": None,
+                "script_json": None,
+                "segment_start_index": 0,
+                "segment_end_index": max(0, segment_count - 1),
+            }
+        ]
+
+    target_total = max(total_duration_ms, TARGET_DURATION_BY_TIER_MS["ultra_long"])
+    macro_count = max(2, math.ceil(target_total / MACRO_SEGMENT_TARGET_MS))
+    macro_count = min(macro_count, max(2, segment_count))
+    base_size = max(1, segment_count // macro_count)
+    remainder = segment_count % macro_count
+    macro_segments: list[MacroSegment] = []
+    cursor = 0
+
+    for index in range(macro_count):
+        group_size = base_size + (1 if index < remainder else 0)
+        start_index = cursor
+        end_index = min(segment_count - 1, start_index + group_size - 1)
+        cursor = end_index + 1
+        segment_span = max(1, end_index - start_index + 1)
+        macro_segments.append(
+            {
+                "index": index,
+                "target_duration_ms": math.ceil(target_total / macro_count),
+                "status": "pending",
+                "audio_path": None,
+                "script_json": None,
+                "segment_start_index": start_index,
+                "segment_end_index": end_index,
+            }
+        )
+        if cursor >= segment_count:
+            break
+
+    return macro_segments
+
+
 def stitch_audio_segments(
     segment_files: list[str],
     output_path: str,
@@ -137,6 +214,7 @@ def stitch_audio_segments(
 
     try:
         from pydub import AudioSegment
+        from pydub.effects import normalize
     except ImportError:
         first = Path(segment_files[0])
         Path(output_path).write_bytes(first.read_bytes())
@@ -156,6 +234,7 @@ def stitch_audio_segments(
         merged = merged.append(gap + segment_audio, crossfade=min(crossfade_ms, len(segment_audio) // 2))
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    merged = normalize(merged)
     merged.export(output_path, format=output_format)
     return {
         "file_path": output_path,

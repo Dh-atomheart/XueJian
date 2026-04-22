@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     net::TcpListener,
     sync::Arc,
 };
@@ -9,9 +10,10 @@ use tauri::{AppHandle, Manager};
 use crate::app_state::AppState;
 use crate::db::{
     ApiConfig, ChunkEmbeddingRecord, Community, CommunityRepository, CreateCardCandidateRequest,
-    EmbeddingProfile, InsertKnowledgeEdgeRequest, InsertKnowledgeNodeRequest,
-    KnowledgeEdge, KnowledgeGraphRepository, KnowledgeNode, SettingsRepository,
+    EmbeddingProfile, InsertKnowledgeEdgeRequest, InsertKnowledgeNodeRequest, KnowledgeEdge,
+    KnowledgeGraphRepository, KnowledgeNode, ProviderBudgetUsage, SettingsRepository,
     UpdateKnowledgeEdgeRequest, UpdateKnowledgeNodeRequest, VectorRepository,
+    WorkflowModelAssignment,
 };
 use crate::gateway::ORCHESTRATION_PROTOCOL_VERSION;
 
@@ -206,6 +208,24 @@ fn route_request(
             }
         }
 
+        ("GET", "/model-gateway/workflow-assignments") => {
+            match list_workflow_assignments_json(&app_state) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", path) if path.starts_with("/model-gateway/workflow-assignments/") => {
+            let workflow_type = path
+                .strip_prefix("/model-gateway/workflow-assignments/")
+                .unwrap_or("");
+            match get_workflow_assignment_json(&app_state, workflow_type) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
         ("GET", path) if path.starts_with("/model-gateway/configs/") => {
             let id = path.strip_prefix("/model-gateway/configs/").unwrap_or("");
             match get_api_config_json(&app_state, id) {
@@ -218,6 +238,29 @@ fn route_request(
         ("GET", path) if path.starts_with("/model-gateway/api-key/") => {
             let config_id = path.strip_prefix("/model-gateway/api-key/").unwrap_or("");
             match get_api_key_json(&app_state, config_id) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", path) if path.starts_with("/model-gateway/budget-usage/") => {
+            let config_id = path
+                .strip_prefix("/model-gateway/budget-usage/")
+                .unwrap_or("");
+            match get_provider_budget_usage_json(&app_state, config_id) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("POST", "/model-gateway/workflow-cost") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+            };
+
+            match record_workflow_cost_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
                 Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
             }
@@ -241,6 +284,13 @@ fn route_request(
         // ── ToolGateway ───────────────────────────────────
         ("GET", "/tool-gateway/settings") => {
             match get_app_settings_json(&app_state) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+            }
+        }
+
+        ("GET", "/tool-gateway/runtime-paths") => {
+            match get_runtime_paths_json(state) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
                 Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
             }
@@ -571,6 +621,22 @@ fn route_request(
             }
         }
 
+        ("POST", path)
+            if path.starts_with("/tool-gateway/podcasts/")
+                && path.ends_with("/audio-segments/delete") =>
+        {
+            let episode_id = path
+                .strip_prefix("/tool-gateway/podcasts/")
+                .and_then(|p| p.strip_suffix("/audio-segments/delete"))
+                .unwrap_or("");
+            match delete_podcast_audio_segments_json(&app_state, episode_id) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
         ("POST", path) if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/update") => {
             let episode_id = path
                 .strip_prefix("/tool-gateway/podcasts/")
@@ -720,6 +786,81 @@ fn get_api_key_json(state: &AppState, config_id: &str) -> Result<Value> {
     Ok(json!({"apiKey": api_key}))
 }
 
+fn get_provider_budget_usage_json(state: &AppState, api_config_id: &str) -> Result<Option<Value>> {
+    let period = chrono::Utc::now().format("%Y-%m").to_string();
+    let db = state.lock_db()?;
+    let repo = SettingsRepository::new(&db);
+    Ok(repo
+        .get_budget_usage(api_config_id, &period)?
+        .map(provider_budget_usage_to_json))
+}
+
+fn list_workflow_assignments_json(state: &AppState) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = SettingsRepository::new(&db);
+    let assignments = repo.list_workflow_assignments()?;
+    let configs = repo
+        .list_api_configs()?
+        .into_iter()
+        .map(|config| (config.id.clone(), config))
+        .collect::<BTreeMap<_, _>>();
+
+    Ok(assignments
+        .into_iter()
+        .map(|assignment| {
+            workflow_assignment_to_json(
+                assignment.clone(),
+                configs.get(&assignment.api_config_id).cloned(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .into())
+}
+
+fn get_workflow_assignment_json(state: &AppState, workflow_type: &str) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = SettingsRepository::new(&db);
+    let assignment = repo.get_workflow_assignment(workflow_type)?;
+    Ok(match assignment {
+        Some(assignment) => {
+            let config = repo.get_api_config(&assignment.api_config_id)?;
+            Some(workflow_assignment_to_json(assignment, config))
+        }
+        None => None,
+    })
+}
+
+fn record_workflow_cost_json(state: &AppState, request: Value) -> Result<Value> {
+    let api_config_id = request
+        .get("apiConfigId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| HostGatewayError::App("missing apiConfigId".to_string()))?;
+    let estimated_cost_usd = request
+        .get("estimatedCostUsd")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+
+    let db = state.lock_db()?;
+    let repo = SettingsRepository::new(&db);
+    repo.increment_budget_usage(api_config_id, estimated_cost_usd)?;
+    Ok(json!({"ok": true}))
+}
+
+fn workflow_assignment_to_json(
+    assignment: WorkflowModelAssignment,
+    config: Option<ApiConfig>,
+) -> Value {
+    json!({
+        "workflowType": assignment.workflow_type,
+        "apiConfigId": assignment.api_config_id,
+        "assignedAt": assignment.assigned_at,
+        "updatedAt": assignment.updated_at,
+        "apiConfig": config.map(api_config_to_json),
+    })
+}
+
 fn api_config_to_json(config: ApiConfig) -> Value {
     json!({
         "id": config.id,
@@ -732,6 +873,21 @@ fn api_config_to_json(config: ApiConfig) -> Value {
         "budgetLimit": config.budget_limit,
         "isEnabled": config.is_enabled,
         "isDefault": config.is_default,
+        "keyVerifiedAt": config.key_verified_at,
+        "keyStatus": config.key_status,
+        "displayName": config.display_name,
+        "createdAt": config.created_at,
+    })
+}
+
+fn provider_budget_usage_to_json(usage: ProviderBudgetUsage) -> Value {
+    json!({
+        "id": usage.id,
+        "apiConfigId": usage.api_config_id,
+        "period": usage.period,
+        "estimatedCostUsd": usage.estimated_cost_usd,
+        "workflowRunsCount": usage.workflow_runs_count,
+        "updatedAt": usage.updated_at,
     })
 }
 
@@ -1581,6 +1737,23 @@ fn get_app_settings_json(state: &AppState) -> Result<Value> {
         "podcastVoiceOverrides": settings.podcast_voice_overrides,
         "podcastOutputFormat": settings.podcast_output_format,
         "podcastSkipReview": settings.podcast_skip_review,
+        "podcastMaxLlmTokens": settings.podcast_max_llm_tokens,
+        "podcastMaxTtsCharacters": settings.podcast_max_tts_characters,
+        "podcastMaxEstimatedCostUsd": settings.podcast_max_estimated_cost_usd,
+    }))
+}
+
+fn get_runtime_paths_json(state: &HostGatewayState) -> Result<Value> {
+    let app_data_dir = state
+        .app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|_| HostGatewayError::App("Failed to resolve app data directory".to_string()))?;
+    let podcasts_dir = app_data_dir.join("podcasts");
+
+    Ok(json!({
+        "appDataDir": app_data_dir,
+        "podcastsDir": podcasts_dir,
     }))
 }
 
@@ -1801,6 +1974,13 @@ fn list_podcast_audio_segments_json(state: &AppState, episode_id: &str) -> Resul
         .map(podcast_audio_segment_to_json)
         .collect::<Vec<_>>()
         .into())
+}
+
+fn delete_podcast_audio_segments_json(state: &AppState, episode_id: &str) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::PodcastRepository::new(&db);
+    repo.delete_audio_segments_by_episode(episode_id)?;
+    Ok(json!({"ok": true}))
 }
 
 fn review_podcast_script_json(state: &AppState, episode_id: &str, request: Value) -> Result<Value> {

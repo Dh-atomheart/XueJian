@@ -8,9 +8,13 @@ import type {
   Document,
   DocumentAnchor,
   DocumentChunk,
+  DiscoveredModel,
   Highlight,
   PodcastEpisode,
+  ProviderBudgetUsage,
   WorkflowEvent,
+  WorkflowModelAssignment,
+  WorkflowType,
   WorkflowRun,
 } from '@/types'
 
@@ -412,20 +416,168 @@ const defaultMockAppSettings: AppSettings = {
   podcastVoiceOverrides: {},
   podcastOutputFormat: 'mp3',
   podcastSkipReview: true,
+  podcastMaxLlmTokens: 100000,
+  podcastMaxTtsCharacters: 50000,
+  podcastMaxEstimatedCostUsd: 1,
 }
 
 let mockAppSettings: AppSettings = { ...defaultMockAppSettings }
 let mockApiConfigCounter = 1
 let mockApiConfigs: ApiConfig[] = []
+let mockWorkflowAssignments: WorkflowModelAssignment[] = []
+let mockProviderBudgetUsage: ProviderBudgetUsage[] = []
+
+const MOCK_WORKFLOW_TYPES: WorkflowType[] = [
+  'card_generation',
+  'document_embedding',
+  'knowledge_qa',
+  'podcast_generation',
+  'knowledge_graph',
+]
+
+function createMockModelCapabilities(
+  overrides: Partial<DiscoveredModel['capabilities']> = {}
+): DiscoveredModel['capabilities'] {
+  return {
+    vision: true,
+    functionCalling: true,
+    maxContext: 128000,
+    streaming: true,
+    jsonMode: true,
+    ...overrides,
+  }
+}
+
+function getMockProviderModels(provider: ApiConfig['provider']): DiscoveredModel[] {
+  switch (provider) {
+    case 'openai':
+      return [
+        {
+          id: 'gpt-4o',
+          displayName: 'GPT-4o',
+          source: 'fetched',
+          capabilities: createMockModelCapabilities(),
+          isRecommended: true,
+        },
+        {
+          id: 'gpt-4o-mini',
+          displayName: 'GPT-4o Mini',
+          source: 'fetched',
+          capabilities: createMockModelCapabilities(),
+          isRecommended: false,
+        },
+      ]
+    case 'anthropic':
+    case 'custom_anthropic':
+      return [
+        {
+          id: 'claude-sonnet-4-20250514',
+          displayName: 'Claude Sonnet 4',
+          source: 'fetched',
+          capabilities: createMockModelCapabilities({ maxContext: 200000 }),
+          isRecommended: true,
+        },
+      ]
+    case 'google':
+    case 'custom_google':
+      return [
+        {
+          id: 'gemini-2.5-pro',
+          displayName: 'Gemini 2.5 Pro',
+          source: 'fetched',
+          capabilities: createMockModelCapabilities({ maxContext: 1048576 }),
+          isRecommended: true,
+        },
+      ]
+    case 'deepseek':
+      return [
+        {
+          id: 'deepseek-chat',
+          displayName: 'DeepSeek Chat',
+          source: 'fetched',
+          capabilities: createMockModelCapabilities(),
+          isRecommended: true,
+        },
+        {
+          id: 'deepseek-reasoner',
+          displayName: 'DeepSeek Reasoner',
+          source: 'fetched',
+          capabilities: createMockModelCapabilities({
+            vision: false,
+            functionCalling: false,
+            jsonMode: false,
+          }),
+          isRecommended: false,
+        },
+      ]
+    case 'openai_compatible':
+    case 'custom_openai':
+      return [
+        {
+          id: 'custom-chat-model',
+          displayName: 'Custom Chat Model',
+          source: 'fetched',
+          capabilities: createMockModelCapabilities(),
+          isRecommended: true,
+        },
+      ]
+    default:
+      return []
+  }
+}
+
+function currentMockBudgetPeriod() {
+  return MOCK_NOW.slice(0, 7)
+}
+
+function buildMockWorkflowAssignment(
+  workflowType: WorkflowType,
+  apiConfigId: string,
+  assignedAt = new Date(MOCK_NOW)
+): WorkflowModelAssignment {
+  return {
+    workflowType,
+    apiConfigId,
+    assignedAt,
+    updatedAt: assignedAt,
+    apiConfig: mockApiConfigs.find((config) => config.id === apiConfigId) ?? null,
+  }
+}
+
+function buildMockBudgetUsage(
+  apiConfigId: string,
+  period = currentMockBudgetPeriod()
+): ProviderBudgetUsage {
+  return {
+    id: apiConfigId,
+    apiConfigId,
+    period,
+    estimatedCostUsd: 0,
+    workflowRunsCount: 0,
+    updatedAt: new Date(MOCK_NOW),
+  }
+}
 
 function inferMockProtocol(provider: ApiConfig['provider']): ApiConfig['protocol'] {
-  return provider === 'openai' || provider === 'anthropic' ? 'native' : 'openai-compatible'
+  if (
+    provider === 'openai' ||
+    provider === 'anthropic' ||
+    provider === 'google' ||
+    provider === 'custom_anthropic' ||
+    provider === 'custom_google'
+  ) {
+    return 'native'
+  }
+
+  return 'openai-compatible'
 }
 
 export function resetMockGatewayState() {
   mockAppSettings = { ...defaultMockAppSettings }
   mockApiConfigCounter = 1
   mockApiConfigs = []
+  mockWorkflowAssignments = []
+  mockProviderBudgetUsage = []
   mockCards.splice(0, mockCards.length, ...createInitialMockCards())
   mockCardMedia.splice(0, mockCardMedia.length)
   mockCardCandidates.splice(0, mockCardCandidates.length, ...createInitialMockCardCandidates())
@@ -1216,6 +1368,15 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       ...(typeof data?.podcastSkipReview === 'boolean'
         ? { podcastSkipReview: data.podcastSkipReview }
         : {}),
+      ...(typeof data?.podcastMaxLlmTokens === 'number'
+        ? { podcastMaxLlmTokens: data.podcastMaxLlmTokens }
+        : {}),
+      ...(typeof data?.podcastMaxTtsCharacters === 'number'
+        ? { podcastMaxTtsCharacters: data.podcastMaxTtsCharacters }
+        : {}),
+      ...(typeof data?.podcastMaxEstimatedCostUsd === 'number'
+        ? { podcastMaxEstimatedCostUsd: data.podcastMaxEstimatedCostUsd }
+        : {}),
     }
 
     return mockAppSettings as T
@@ -1252,6 +1413,9 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       isEnabled: getBoolean(data.isEnabled) ?? true,
       hasStoredCredential: authMode === 'adc',
       hasStoredKey: false,
+      keyVerifiedAt: null,
+      keyStatus: 'none',
+      displayName: getNullableString(data.displayName),
       protocol: inferMockProtocol(data.provider),
       createdAt: new Date(),
     }
@@ -1303,6 +1467,8 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
           data.budgetLimit === undefined ? config.budgetLimit : getNullableNumber(data.budgetLimit),
         isDefault: getBoolean(data.isDefault) ?? config.isDefault,
         isEnabled: getBoolean(data.isEnabled) ?? config.isEnabled,
+        displayName:
+          data.displayName === undefined ? config.displayName : getNullableString(data.displayName),
         protocol: inferMockProtocol(nextProvider),
       }
 
@@ -1333,6 +1499,32 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
 
     if (configId) {
       mockApiConfigs = mockApiConfigs.filter((config) => config.id !== configId)
+      mockWorkflowAssignments = mockWorkflowAssignments.filter(
+        (assignment) => assignment.apiConfigId !== configId
+      )
+      mockProviderBudgetUsage = mockProviderBudgetUsage.filter(
+        (usage) => usage.apiConfigId !== configId
+      )
+    }
+
+    return undefined as T
+  }
+
+  if (cmd === 'delete_api_key') {
+    const configId = getString(args?.configId)
+
+    if (configId) {
+      mockApiConfigs = mockApiConfigs.map((config) =>
+        config.id === configId
+          ? {
+              ...config,
+              hasStoredCredential: config.authMode === 'adc',
+              hasStoredKey: false,
+              keyVerifiedAt: null,
+              keyStatus: 'none',
+            }
+          : config
+      )
     }
 
     return undefined as T
@@ -1349,6 +1541,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
               ...config,
               hasStoredCredential: true,
               hasStoredKey: true,
+              keyStatus: 'stored',
             }
           : config
       )
@@ -1375,7 +1568,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       return { success: false, message: '缺少 API Key。' } as T
     }
 
-    if (provider === 'openai_compatible') {
+    if (provider === 'openai_compatible' || provider === 'custom_openai') {
       if (!baseUrl) {
         return { success: false, message: 'Custom (OpenAI-Compatible) 需要提供 Base URL。' } as T
       }
@@ -1387,6 +1580,139 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     }
 
     return { success: true, message: '连接测试通过 (mock)' } as T
+  }
+
+  if (cmd === 'fetch_provider_models') {
+    const data = getRecord(args?.data)
+    const provider = isApiProvider(data?.provider) ? data.provider : 'openai'
+    return getMockProviderModels(provider) as T
+  }
+
+  if (cmd === 'list_workflow_assignments') {
+    return mockWorkflowAssignments.map(serializeWorkflowAssignment) as T
+  }
+
+  if (cmd === 'get_workflow_assignment') {
+    const workflowType = getWorkflowType(args?.workflowType)
+    const assignment = workflowType
+      ? (mockWorkflowAssignments.find((item) => item.workflowType === workflowType) ?? null)
+      : null
+    return (assignment ? serializeWorkflowAssignment(assignment) : null) as T
+  }
+
+  if (cmd === 'set_workflow_assignment') {
+    const data = getRecord(args?.data)
+    const workflowType = getWorkflowType(data?.workflowType)
+    const apiConfigId = getString(data?.apiConfigId)
+
+    if (!workflowType || !apiConfigId) {
+      throw new Error('Mock set_workflow_assignment requires workflowType and apiConfigId')
+    }
+
+    const now = new Date()
+    const existing = mockWorkflowAssignments.find((item) => item.workflowType === workflowType)
+
+    if (existing) {
+      existing.apiConfigId = apiConfigId
+      existing.updatedAt = now
+      existing.apiConfig = mockApiConfigs.find((config) => config.id === apiConfigId) ?? null
+      return serializeWorkflowAssignment(existing) as T
+    }
+
+    const created = buildMockWorkflowAssignment(workflowType, apiConfigId, now)
+    mockWorkflowAssignments = [created, ...mockWorkflowAssignments]
+    return serializeWorkflowAssignment(created) as T
+  }
+
+  if (cmd === 'set_all_workflow_assignments') {
+    const apiConfigId = getString(args?.apiConfigId)
+
+    if (!apiConfigId) {
+      return [] as T
+    }
+
+    const now = new Date()
+    mockWorkflowAssignments = MOCK_WORKFLOW_TYPES.map((workflowType) => {
+      const existing = mockWorkflowAssignments.find((item) => item.workflowType === workflowType)
+      return existing
+        ? {
+            ...existing,
+            apiConfigId,
+            updatedAt: now,
+            apiConfig: mockApiConfigs.find((config) => config.id === apiConfigId) ?? null,
+          }
+        : buildMockWorkflowAssignment(workflowType, apiConfigId, now)
+    })
+
+    return mockWorkflowAssignments.map(serializeWorkflowAssignment) as T
+  }
+
+  if (cmd === 'delete_workflow_assignment') {
+    const workflowType = getWorkflowType(args?.workflowType)
+    if (workflowType) {
+      mockWorkflowAssignments = mockWorkflowAssignments.filter(
+        (assignment) => assignment.workflowType !== workflowType
+      )
+    }
+    return undefined as T
+  }
+
+  if (cmd === 'get_provider_budget_usage') {
+    const apiConfigId = getString(args?.apiConfigId)
+    const period = getNullableString(args?.period) ?? currentMockBudgetPeriod()
+
+    if (!apiConfigId) {
+      return null as T
+    }
+
+    const usage =
+      mockProviderBudgetUsage.find(
+        (item) => item.apiConfigId === apiConfigId && item.period === period
+      ) ?? null
+
+    return (usage ? serializeProviderBudgetUsage(usage) : null) as T
+  }
+
+  if (cmd === 'reset_provider_budget_usage') {
+    const apiConfigId = getString(args?.apiConfigId)
+    const period = currentMockBudgetPeriod()
+
+    if (apiConfigId) {
+      mockProviderBudgetUsage = mockProviderBudgetUsage.filter(
+        (item) => !(item.apiConfigId === apiConfigId && item.period === period)
+      )
+    }
+
+    return undefined as T
+  }
+
+  if (cmd === 'record_workflow_cost') {
+    const data = getRecord(args?.data)
+    const apiConfigId = getString(data?.apiConfigId)
+    const estimatedCostUsd = getNumber(data?.estimatedCostUsd) ?? 0
+
+    if (!apiConfigId) {
+      return undefined as T
+    }
+
+    const period = currentMockBudgetPeriod()
+    const existing = mockProviderBudgetUsage.find(
+      (item) => item.apiConfigId === apiConfigId && item.period === period
+    )
+
+    if (existing) {
+      existing.estimatedCostUsd = Number((existing.estimatedCostUsd + estimatedCostUsd).toFixed(6))
+      existing.workflowRunsCount += 1
+      existing.updatedAt = new Date()
+    } else {
+      const created = buildMockBudgetUsage(apiConfigId, period)
+      created.estimatedCostUsd = Number(estimatedCostUsd.toFixed(6))
+      created.workflowRunsCount = 1
+      created.updatedAt = new Date()
+      mockProviderBudgetUsage = [created, ...mockProviderBudgetUsage]
+    }
+
+    return undefined as T
   }
 
   if (cmd === 'record_points') {
@@ -1416,8 +1742,18 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         'update_api_config',
         'set_default_api_config',
         'delete_api_config',
+        'delete_api_key',
         'store_api_key',
         'test_api_connection',
+        'fetch_provider_models',
+        'list_workflow_assignments',
+        'get_workflow_assignment',
+        'set_workflow_assignment',
+        'set_all_workflow_assignments',
+        'delete_workflow_assignment',
+        'get_provider_budget_usage',
+        'reset_provider_budget_usage',
+        'record_workflow_cost',
       ],
       toolGatewayCommands: [
         'list_documents',
@@ -1530,7 +1866,27 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     ),
     test_api_connection: { success: true, message: '连接测试通过 (mock)' },
     update_settings: mockAppSettings,
-    get_daily_stats: { newCards: 2, reviewCards: 0 },
+    get_daily_stats: { newCards: 2, reviewCards: 0, correctRate: 1 },
+    get_study_stats: {
+      todayMinutes: 1,
+      weekMinutes: 8,
+      totalMinutes: 24,
+      streakDays: 3,
+      activeDaysThisWeek: 4,
+    },
+    get_mastery_breakdown: {
+      newCards: 2,
+      learningCards: 3,
+      reviewCards: 5,
+      masteredCards: 1,
+    },
+    get_review_heatmap: [
+      { date: '2026-04-15', count: 1 },
+      { date: '2026-04-16', count: 2 },
+      { date: '2026-04-18', count: 1 },
+      { date: '2026-04-20', count: 3 },
+      { date: '2026-04-21', count: 1 },
+    ],
     list_due_cards: limitItems(mockCards.map(serializeCard), limit),
     create_review_log: {
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -2011,7 +2367,26 @@ function serializeCardCandidate(candidate: CardCandidate) {
 function serializeApiConfig(config: ApiConfig) {
   return {
     ...config,
+    keyVerifiedAt: config.keyVerifiedAt ? config.keyVerifiedAt.toISOString() : null,
     createdAt: config.createdAt.toISOString(),
+  }
+}
+
+function serializeWorkflowAssignment(assignment: WorkflowModelAssignment) {
+  const apiConfig = mockApiConfigs.find((config) => config.id === assignment.apiConfigId) ?? null
+
+  return {
+    ...assignment,
+    assignedAt: assignment.assignedAt.toISOString(),
+    updatedAt: assignment.updatedAt.toISOString(),
+    apiConfig: apiConfig ? serializeApiConfig(apiConfig) : null,
+  }
+}
+
+function serializeProviderBudgetUsage(usage: ProviderBudgetUsage) {
+  return {
+    ...usage,
+    updatedAt: usage.updatedAt.toISOString(),
   }
 }
 
@@ -2160,7 +2535,11 @@ function isApiProvider(value: unknown): value is ApiConfig['provider'] {
     value === 'openai' ||
     value === 'anthropic' ||
     value === 'google' ||
-    value === 'openai_compatible'
+    value === 'deepseek' ||
+    value === 'openai_compatible' ||
+    value === 'custom_openai' ||
+    value === 'custom_anthropic' ||
+    value === 'custom_google'
   )
 }
 

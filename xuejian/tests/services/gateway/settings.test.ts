@@ -16,6 +16,9 @@ beforeEach(async () => {
     podcastVoiceOverrides: {},
     podcastOutputFormat: 'mp3',
     podcastSkipReview: true,
+    podcastMaxLlmTokens: 100000,
+    podcastMaxTtsCharacters: 50000,
+    podcastMaxEstimatedCostUsd: 1,
   })
 })
 
@@ -30,6 +33,7 @@ describe('gateway mocks', () => {
     expect(settings.podcastTtsProvider).toBe('auto')
     expect(settings.podcastOutputFormat).toBe('mp3')
     expect(settings.podcastSkipReview).toBe(true)
+    expect(settings.podcastMaxLlmTokens).toBe(100000)
   })
 
   // @acceptance:v4-2-a1
@@ -39,17 +43,22 @@ describe('gateway mocks', () => {
       podcastTtsProvider: 'edge_tts',
       podcastOutputFormat: 'wav',
       podcastSkipReview: false,
+      podcastMaxLlmTokens: 25000,
+      podcastMaxTtsCharacters: 12000,
+      podcastMaxEstimatedCostUsd: 0.35,
     })
     expect(updated.theme).toBe('comic-sketch')
     expect(updated.podcastTtsProvider).toBe('edge_tts')
     expect(updated.podcastOutputFormat).toBe('wav')
     expect(updated.podcastSkipReview).toBe(false)
+    expect(updated.podcastMaxEstimatedCostUsd).toBe(0.35)
 
     const persisted = await settingsGateway.get()
     expect(persisted.theme).toBe('comic-sketch')
     expect(persisted.podcastTtsProvider).toBe('edge_tts')
     expect(persisted.podcastOutputFormat).toBe('wav')
     expect(persisted.podcastSkipReview).toBe(false)
+    expect(persisted.podcastMaxTtsCharacters).toBe(12000)
   })
 
   it('returns an empty API config list outside Tauri', async () => {

@@ -1,14 +1,17 @@
 use std::{fs, path::PathBuf, time::Duration};
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
+use tokio::time::sleep;
 
 use crate::{
     commands::{AppState, CommandError, CommandResult},
     db::{
         AppendWorkflowEventRequest, AudioSegment, CreatePodcastEpisodeRequest,
         CreateWorkflowRunRequest, DocumentRepository, NewAudioSegment, PodcastEpisode,
-        PodcastEpisodeUpdates, PodcastRepository, UpdateWorkflowRunRequest, WorkflowRepository,
+        PodcastEpisodeUpdates, PodcastRepository, SettingsRepository, UpdateWorkflowRunRequest,
+        WorkflowRepository,
     },
 };
 
@@ -187,27 +190,42 @@ pub fn start_podcast_workflow(
 
 #[tauri::command]
 pub fn get_podcast_episode(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     episode_id: String,
 ) -> CommandResult<Option<PodcastEpisodeDto>> {
-    let db = state.lock_db()?;
-    let repo = PodcastRepository::new(&db);
-    Ok(repo.get_episode(&episode_id)?.map(PodcastEpisodeDto::from))
+    Ok(auto_accept_review_if_due(&app_handle, state.inner(), &episode_id)?
+        .map(PodcastEpisodeDto::from))
 }
 
 #[tauri::command]
-pub fn list_podcast_episodes(state: State<'_, AppState>) -> CommandResult<Vec<PodcastEpisodeDto>> {
+pub fn list_podcast_episodes(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<PodcastEpisodeDto>> {
     let db = state.lock_db()?;
     let repo = PodcastRepository::new(&db);
-    Ok(repo
+    let episode_ids = repo
         .list_episodes()?
         .into_iter()
-        .map(PodcastEpisodeDto::from)
-        .collect())
+        .map(|episode| episode.id)
+        .collect::<Vec<_>>();
+    drop(repo);
+    drop(db);
+
+    let mut episodes = Vec::with_capacity(episode_ids.len());
+    for episode_id in episode_ids {
+        if let Some(episode) = auto_accept_review_if_due(&app_handle, state.inner(), &episode_id)? {
+            episodes.push(PodcastEpisodeDto::from(episode));
+        }
+    }
+
+    Ok(episodes)
 }
 
 #[tauri::command]
 pub fn cancel_podcast_episode(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     episode_id: String,
 ) -> CommandResult<()> {
@@ -216,11 +234,23 @@ pub fn cancel_podcast_episode(
     let workflow_repo = WorkflowRepository::new(&db);
 
     if let Some(episode) = podcast_repo.get_episode(&episode_id)? {
+        let episode_dir = app_handle
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|app_data_dir| app_data_dir.join("podcasts").join(&episode_id));
+        let _ = podcast_repo.delete_audio_segments_by_episode(&episode_id);
+        if let Some(path) = episode_dir.as_ref().and_then(|path| path.to_str()) {
+            let _ = delete_podcast_artifacts(path);
+        }
+
         let _ = podcast_repo.update_episode(
             &episode_id,
             &PodcastEpisodeUpdates {
                 status: Some("cancelled".to_string()),
                 error_message: Some(Some("User cancelled".to_string())),
+                audio_path: Some(None),
+                completed_segments: Some(0),
                 ..PodcastEpisodeUpdates::default()
             },
         )?;
@@ -273,70 +303,14 @@ pub fn review_podcast_script(
     action: String,
     edited_script_json: Option<String>,
 ) -> CommandResult<PodcastEpisodeDto> {
-    let db = state.lock_db()?;
-    let repo = PodcastRepository::new(&db);
-    let episode = repo
-        .get_episode(&episode_id)?
-        .ok_or(CommandError::NotFound)?;
-
-    let should_resume_audio = episode.audio_path.is_none() && matches!(action.as_str(), "accept" | "edit");
-    let next_stage = if episode.audio_path.is_some() {
-        6
-    } else if should_resume_audio {
-        5
-    } else {
-        4
-    };
-    let updates = match action.as_str() {
-        "accept" => PodcastEpisodeUpdates {
-            status: Some(if should_resume_audio {
-                "generating_audio".to_string()
-            } else {
-                "ready".to_string()
-            }),
-            error_message: Some(None),
-            current_stage: Some(next_stage),
-            ..PodcastEpisodeUpdates::default()
-        },
-        "edit" => {
-            let edited_script_json = edited_script_json.ok_or_else(|| {
-                CommandError::InvalidInput(
-                    "editedScriptJson is required when action is edit".to_string(),
-                )
-            })?;
-            PodcastEpisodeUpdates {
-                script_json: Some(edited_script_json),
-                status: Some(if should_resume_audio {
-                    "generating_audio".to_string()
-                } else {
-                    "ready".to_string()
-                }),
-                error_message: Some(None),
-                current_stage: Some(next_stage),
-                ..PodcastEpisodeUpdates::default()
-            }
-        }
-        "reject" => PodcastEpisodeUpdates {
-            status: Some("cancelled".to_string()),
-            error_message: Some(Some("Review rejected".to_string())),
-            ..PodcastEpisodeUpdates::default()
-        },
-        _ => {
-            return Err(CommandError::InvalidInput(format!(
-                "Unsupported review action: {}",
-                action
-            )))
-        }
-    };
-
-    let updated = repo.update_episode(&episode_id, &updates)?;
-    drop(repo);
-    drop(db);
-
-    if should_resume_audio {
-        spawn_podcast_worker(app_handle, episode_id.clone());
-    }
-
+    let updated = apply_review_action(
+        &app_handle,
+        state.inner(),
+        &episode_id,
+        &action,
+        edited_script_json,
+        None,
+    )?;
     Ok(PodcastEpisodeDto::from(updated))
 }
 
@@ -608,6 +582,10 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
         }
     }
 
+    if episode_status == "awaiting_review" {
+        schedule_review_timeout(app_handle.clone(), episode_id.to_string());
+    }
+
     Ok(())
 }
 
@@ -638,7 +616,7 @@ async fn try_orchestration_podcast(
 
     let client = reqwest::Client::builder()
         .no_proxy()
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(30 * 60))
         .build()
         .map_err(|error| error.to_string())?;
 
@@ -833,13 +811,15 @@ fn persist_audio_segments_from_script(
     script_json: &str,
     audio_path: &str,
 ) -> CommandResult<()> {
+    if !podcast_repo.list_audio_segments(episode_id)?.is_empty() {
+        return Ok(());
+    }
+
     let script = serde_json::from_str::<serde_json::Value>(script_json)
         .map_err(|error| CommandError::Internal(error.to_string()))?;
     let Some(segments) = script.get("segments").and_then(|segments| segments.as_array()) else {
         return Ok(());
     };
-
-    podcast_repo.delete_audio_segments_by_episode(episode_id)?;
 
     for segment in segments {
         let segment_id = segment
@@ -869,6 +849,256 @@ fn persist_audio_segments_from_script(
     }
 
     Ok(())
+}
+
+fn parse_episode_timestamp(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|timestamp| timestamp.with_timezone(&Utc))
+}
+
+fn load_review_timeout_minutes(state: &AppState) -> CommandResult<i64> {
+    let db = state.lock_db()?;
+    let settings_repo = SettingsRepository::new(&db);
+    Ok(i64::from(settings_repo.get_settings()?.review_time_limit.max(0)))
+}
+
+fn has_review_timed_out(episode: &PodcastEpisode, review_timeout_minutes: i64) -> bool {
+    if episode.status != "awaiting_review" {
+        return false;
+    }
+
+    let Some(updated_at) = parse_episode_timestamp(&episode.updated_at) else {
+        return false;
+    };
+
+    let timeout_minutes = review_timeout_minutes.max(0);
+    let deadline = updated_at + chrono::Duration::minutes(timeout_minutes);
+    Utc::now() >= deadline
+}
+
+fn apply_review_action(
+    app_handle: &AppHandle,
+    state: &AppState,
+    episode_id: &str,
+    action: &str,
+    edited_script_json: Option<String>,
+    message_override: Option<&str>,
+) -> CommandResult<PodcastEpisode> {
+    let db = state.lock_db()?;
+    let repo = PodcastRepository::new(&db);
+    let workflow_repo = WorkflowRepository::new(&db);
+    let episode = repo
+        .get_episode(episode_id)?
+        .ok_or(CommandError::NotFound)?;
+
+    let should_resume_audio =
+        episode.audio_path.is_none() && matches!(action, "accept" | "edit");
+    let next_stage = if episode.audio_path.is_some() {
+        6
+    } else if should_resume_audio {
+        5
+    } else {
+        4
+    };
+
+    let (updates, run_status, checkpoint_ref, event_type, event_message, progress, finished_at) =
+        match action {
+            "accept" => (
+                PodcastEpisodeUpdates {
+                    status: Some(if should_resume_audio {
+                        "generating_audio".to_string()
+                    } else {
+                        "ready".to_string()
+                    }),
+                    error_message: Some(None),
+                    current_stage: Some(next_stage),
+                    ..PodcastEpisodeUpdates::default()
+                },
+                if should_resume_audio { "running" } else { "completed" },
+                if should_resume_audio {
+                    "generating_audio"
+                } else {
+                    "ready"
+                },
+                if should_resume_audio { "resumed" } else { "completed" },
+                message_override.unwrap_or(if should_resume_audio {
+                    "Review accepted, resuming podcast audio generation"
+                } else {
+                    "Review accepted, podcast episode marked ready"
+                }),
+                if should_resume_audio { Some(0.72) } else { Some(1.0) },
+                if should_resume_audio {
+                    None
+                } else {
+                    Some(Utc::now().to_rfc3339())
+                },
+            ),
+            "edit" => {
+                let edited_script_json = edited_script_json.ok_or_else(|| {
+                    CommandError::InvalidInput(
+                        "editedScriptJson is required when action is edit".to_string(),
+                    )
+                })?;
+                (
+                    PodcastEpisodeUpdates {
+                        script_json: Some(edited_script_json),
+                        status: Some(if should_resume_audio {
+                            "generating_audio".to_string()
+                        } else {
+                            "ready".to_string()
+                        }),
+                        error_message: Some(None),
+                        current_stage: Some(next_stage),
+                        ..PodcastEpisodeUpdates::default()
+                    },
+                    if should_resume_audio { "running" } else { "completed" },
+                    if should_resume_audio {
+                        "generating_audio"
+                    } else {
+                        "ready"
+                    },
+                    if should_resume_audio { "resumed" } else { "completed" },
+                    message_override.unwrap_or(if should_resume_audio {
+                        "Review edits saved, resuming podcast audio generation"
+                    } else {
+                        "Review edits saved, podcast episode marked ready"
+                    }),
+                    if should_resume_audio { Some(0.72) } else { Some(1.0) },
+                    if should_resume_audio {
+                        None
+                    } else {
+                        Some(Utc::now().to_rfc3339())
+                    },
+                )
+            }
+            "reject" => (
+                PodcastEpisodeUpdates {
+                    status: Some("cancelled".to_string()),
+                    error_message: Some(Some("Review rejected".to_string())),
+                    ..PodcastEpisodeUpdates::default()
+                },
+                "cancelled",
+                "cancelled",
+                "cancelled",
+                message_override.unwrap_or("Review rejected, podcast episode cancelled"),
+                Some(1.0),
+                Some(Utc::now().to_rfc3339()),
+            ),
+            _ => {
+                return Err(CommandError::InvalidInput(format!(
+                    "Unsupported review action: {}",
+                    action
+                )))
+            }
+        };
+
+    let updated = repo.update_episode(episode_id, &updates)?;
+
+    if let Some(run_id) = &episode.run_id {
+        workflow_repo.update_run(
+            run_id,
+            UpdateWorkflowRunRequest {
+                status: Some(run_status.to_string()),
+                checkpoint_ref: Some(checkpoint_ref.to_string()),
+                approval_payload: None,
+                cost_usd: None,
+                error_message: None,
+                started_at: None,
+                finished_at,
+            },
+        )?;
+        workflow_repo.append_event(AppendWorkflowEventRequest {
+            run_id: run_id.clone(),
+            event_type: event_type.to_string(),
+            message: Some(event_message.to_string()),
+            progress,
+            payload: None,
+        })?;
+    }
+
+    drop(workflow_repo);
+    drop(repo);
+    drop(db);
+
+    if should_resume_audio {
+        spawn_podcast_worker(app_handle.clone(), episode_id.to_string());
+    }
+
+    Ok(updated)
+}
+
+fn auto_accept_review_if_due(
+    app_handle: &AppHandle,
+    state: &AppState,
+    episode_id: &str,
+) -> CommandResult<Option<PodcastEpisode>> {
+    let review_timeout_minutes = load_review_timeout_minutes(state)?;
+
+    let episode = {
+        let db = state.lock_db()?;
+        let repo = PodcastRepository::new(&db);
+        repo.get_episode(episode_id)?
+    };
+
+    let Some(episode) = episode else {
+        return Ok(None);
+    };
+
+    if !has_review_timed_out(&episode, review_timeout_minutes) {
+        return Ok(Some(episode));
+    }
+
+    let message = if review_timeout_minutes > 0 {
+        format!(
+            "Review timed out after {} minutes, auto-accepting script",
+            review_timeout_minutes
+        )
+    } else {
+        "Review timed out, auto-accepting script".to_string()
+    };
+
+    Ok(Some(apply_review_action(
+        app_handle,
+        state,
+        episode_id,
+        "accept",
+        None,
+        Some(&message),
+    )?))
+}
+
+fn schedule_review_timeout(app_handle: AppHandle, episode_id: String) {
+    tauri::async_runtime::spawn(async move {
+        let review_timeout_minutes = {
+            let state = app_handle.state::<AppState>();
+            match load_review_timeout_minutes(state.inner()) {
+                Ok(value) => value,
+                Err(error) => {
+                    log::warn!(
+                        "Failed to load review timeout for podcast {}: {}",
+                        episode_id,
+                        error
+                    );
+                    return;
+                }
+            }
+        };
+
+        let timeout_seconds = review_timeout_minutes.max(0) as u64 * 60;
+        if timeout_seconds > 0 {
+            sleep(Duration::from_secs(timeout_seconds)).await;
+        }
+
+        let state = app_handle.state::<AppState>();
+        if let Err(error) = auto_accept_review_if_due(&app_handle, state.inner(), &episode_id) {
+            log::warn!(
+                "Failed to auto-accept timed out review for podcast {}: {}",
+                episode_id,
+                error
+            );
+        }
+    });
 }
 
 fn delete_podcast_artifacts(audio_path: &str) -> std::io::Result<()> {

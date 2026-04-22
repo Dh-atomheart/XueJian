@@ -8,7 +8,7 @@ import re
 from typing import TYPE_CHECKING
 
 from ..providers.graph_rag import graph_rag_search
-from ..providers.runtime import build_langchain_chat_model
+from ..providers.runtime import build_langchain_chat_model, estimate_workflow_cost
 from ..schemas.card_draft import CardDraftBatch
 
 if TYPE_CHECKING:
@@ -363,7 +363,7 @@ def run_card_generation_workflow(
         logger.info("Skipping %d already-processed chunks", start_chunk)
 
     try:
-        config_with_key = host.get_default_config_with_key()
+        config_with_key = host.get_config_for_workflow("card_generation")
         ai_count = 0
         if config_with_key:
             config, api_key = config_with_key
@@ -388,6 +388,12 @@ def run_card_generation_workflow(
                 raise
             except Exception as exc:
                 logger.error("AI generation failed, falling back to rules: %s", exc)
+            else:
+                if ai_count > 0 and config.get("id"):
+                    try:
+                        host.record_workflow_cost(config["id"], estimate_workflow_cost(config))
+                    except Exception as exc:
+                        logger.warning("Failed to record card generation cost: %s", exc)
 
         if ai_count == 0:
             logger.info("Using rule-based generation (AI unavailable or produced 0 candidates)")

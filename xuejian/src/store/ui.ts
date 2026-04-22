@@ -8,6 +8,7 @@ export type NavItemId =
   | 'knowledge'
   | 'podcast'
   | 'graph'
+  | 'profile'
   | 'settings'
 
 export type AppFeedbackLevel = 'info' | 'warning' | 'error'
@@ -27,7 +28,12 @@ interface ReaderState {
   totalPages: number
   scale: number
   selectedHighlightId: string | null
+  hoveredHighlightId: string | null
   selectedCardId: string | null
+  annotationScope: 'page' | 'all'
+  annotationFilterTags: string[]
+  isLinkingMode: boolean
+  linkingCardId: string | null
 }
 
 interface AppUiState {
@@ -46,6 +52,11 @@ interface AppUiState {
   setReaderScale: (scale: number) => void
   selectHighlight: (highlightId: string | null) => void
   selectCard: (cardId: string | null) => void
+  hoverHighlight: (highlightId: string | null) => void
+  setAnnotationFilterTags: (tags: string[]) => void
+  setAnnotationScope: (scope: ReaderState['annotationScope']) => void
+  enterLinkingMode: (cardId: string | null) => void
+  exitLinkingMode: () => void
   setFeedbackPanelOpen: (open: boolean) => void
   toggleFeedbackPanel: () => void
   reportFeedback: (entry: {
@@ -65,7 +76,12 @@ const initialReaderState: ReaderState = {
   totalPages: 0,
   scale: 1.25,
   selectedHighlightId: null,
+  hoveredHighlightId: null,
   selectedCardId: null,
+  annotationScope: 'page',
+  annotationFilterTags: [],
+  isLinkingMode: false,
+  linkingCardId: null,
 }
 
 const MAX_FEEDBACK_LOG_ENTRIES = 120
@@ -124,6 +140,7 @@ export const useAppUiStore = create<AppUiState>((set) => ({
         ...state.reader,
         currentPage: Math.max(1, Math.min(page, state.reader.totalPages || page)),
         selectedHighlightId: null,
+        hoveredHighlightId: null,
         selectedCardId: null,
       },
     })),
@@ -133,11 +150,36 @@ export const useAppUiStore = create<AppUiState>((set) => ({
     })),
   selectHighlight: (selectedHighlightId) =>
     set((state) => ({
-      reader: { ...state.reader, selectedHighlightId, selectedCardId: null },
+      reader: {
+        ...state.reader,
+        selectedHighlightId,
+        hoveredHighlightId: selectedHighlightId,
+        selectedCardId: null,
+      },
     })),
   selectCard: (selectedCardId) =>
     set((state) => ({
       reader: { ...state.reader, selectedCardId, selectedHighlightId: null },
+    })),
+  hoverHighlight: (hoveredHighlightId) =>
+    set((state) => ({
+      reader: { ...state.reader, hoveredHighlightId },
+    })),
+  setAnnotationFilterTags: (annotationFilterTags) =>
+    set((state) => ({
+      reader: { ...state.reader, annotationFilterTags },
+    })),
+  setAnnotationScope: (annotationScope) =>
+    set((state) => ({
+      reader: { ...state.reader, annotationScope },
+    })),
+  enterLinkingMode: (linkingCardId) =>
+    set((state) => ({
+      reader: { ...state.reader, isLinkingMode: true, linkingCardId },
+    })),
+  exitLinkingMode: () =>
+    set((state) => ({
+      reader: { ...state.reader, isLinkingMode: false, linkingCardId: null },
     })),
   setFeedbackPanelOpen: (isFeedbackPanelOpen) => set({ isFeedbackPanelOpen }),
   toggleFeedbackPanel: () => set((state) => ({ isFeedbackPanelOpen: !state.isFeedbackPanelOpen })),

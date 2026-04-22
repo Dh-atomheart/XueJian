@@ -147,7 +147,7 @@ export async function getPdfPageTextLayer(
       y: entry.y,
       width: entry.width,
       height: entry.height,
-      hasEol: entry.hasEol,
+      hasEol: Boolean(entry.hasEol),
     }))
   })
 

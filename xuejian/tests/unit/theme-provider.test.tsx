@@ -45,6 +45,8 @@ describe('theme provider', () => {
       </QueryClientProvider>
     )
 
+    fireEvent.click(screen.getByText('通用').closest('button')!)
+
     await screen.findByText('主题包')
 
     fireEvent.click(screen.getByTestId('theme-option-comic-sketch'))

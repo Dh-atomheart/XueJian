@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from ..providers.embedding_runtime import embed_texts
 from ..providers.graph_rag import graph_rag_search
-from ..providers.runtime import build_langchain_chat_model
+from ..providers.runtime import build_langchain_chat_model, estimate_workflow_cost
 
 if TYPE_CHECKING:
     from ..clients.host_gateway import HostGatewayClient
@@ -149,11 +149,16 @@ def run_knowledge_qa_workflow(
         passages_text = passages_text + "\n\n" + "\n".join(graph_lines)
 
     # Step 3: Try LLM-based Q&A
-    config_with_key = host.get_default_config_with_key()
+    config_with_key = host.get_config_for_workflow("knowledge_qa")
     if config_with_key:
         config, api_key = config_with_key
         try:
             answer_data = _try_langchain_qa(config, api_key, question, passages_text, chunks)
+            if config.get("id"):
+                try:
+                    host.record_workflow_cost(config["id"], estimate_workflow_cost(config))
+                except Exception as exc:
+                    logger.warning("Failed to record knowledge QA cost: %s", exc)
             return {
                 "status": "completed",
                 "answer": {

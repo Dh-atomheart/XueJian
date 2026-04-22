@@ -3,8 +3,11 @@ import {
   cardSchema,
   cardCandidateSchema,
   finalizeCardGenerationResultSchema,
+  heatmapEntrySchema,
   highlightSchema,
+  masteryBreakdownSchema,
   reviewLogSchema,
+  studyStatsSchema,
   workflowRunSchema,
 } from '@/types'
 import type {
@@ -12,9 +15,12 @@ import type {
   CardCandidate,
   CardMedia,
   FinalizeCardGenerationResult,
+  HeatmapEntry,
   Highlight,
   ImportApkgResult,
+  MasteryBreakdown,
   ReviewLog,
+  StudyStats,
   WorkflowRun,
 } from '@/types'
 import { invoke, invokeWithSchema } from './index'
@@ -261,9 +267,26 @@ export const cardsGateway = {
     reviewCards: number
     correctRate: number | null
   }> {
-    return invoke<{ newCards: number; reviewCards: number; correctRate: number | null }>(
-      'get_daily_stats'
+    return invokeWithSchema(
+      'get_daily_stats',
+      z.object({
+        newCards: z.number().int(),
+        reviewCards: z.number().int(),
+        correctRate: z.number().nullable(),
+      })
     )
+  },
+
+  async getStudyStats(): Promise<StudyStats> {
+    return invokeWithSchema('get_study_stats', studyStatsSchema)
+  },
+
+  async getMasteryBreakdown(): Promise<MasteryBreakdown> {
+    return invokeWithSchema('get_mastery_breakdown', masteryBreakdownSchema)
+  },
+
+  async getReviewHeatmap(days = 112): Promise<HeatmapEntry[]> {
+    return invokeWithSchema('get_review_heatmap', z.array(heatmapEntrySchema), { days })
   },
 
   async exportCardsCsv(

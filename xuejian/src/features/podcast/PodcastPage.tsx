@@ -78,6 +78,28 @@ const FORMAT_OPTIONS: Array<{ value: AudioFormat; label: string }> = [
   { value: 'wav', label: 'WAV' },
 ]
 
+const DURATION_ESTIMATE_MINUTES: Record<PodcastDurationTier, number> = {
+  short: 4,
+  medium: 10,
+  long: 22,
+  ultra_long: 36,
+}
+
+const DURATION_ESTIMATE_SEGMENTS: Record<PodcastDurationTier, number> = {
+  short: 4,
+  medium: 8,
+  long: 14,
+  ultra_long: 22,
+}
+
+const TTS_ESTIMATE_COST_PER_1K_CHARS: Record<TTSProviderId, number> = {
+  auto: 0.015,
+  openai: 0.015,
+  edge_tts: 0,
+  elevenlabs: 0.03,
+  fish_audio: 0.02,
+}
+
 const STATUS_META: Record<PodcastStatus, { label: string; tone: string }> = {
   queued: { label: '已排队', tone: 'border-stone-300 bg-stone-100 text-stone-700' },
   retrieving: { label: '检索资料', tone: 'border-sky-200 bg-sky-50 text-sky-700' },
@@ -122,6 +144,7 @@ export function PodcastPage() {
   const [audioFormat, setAudioFormat] = useState<AudioFormat>('mp3')
   const [reviewDraft, setReviewDraft] = useState('')
   const [isPlayerOpen, setIsPlayerOpen] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     if (readyDocuments.length > 0 && selectedDocumentIds.length === 0) {
@@ -195,6 +218,15 @@ export function PodcastPage() {
       setReviewDraft(selectedEpisode.scriptJson)
     }
   }, [selectedEpisode?.id, selectedEpisode?.scriptJson])
+
+  useEffect(() => {
+    if (selectedEpisode?.status !== 'awaiting_review') {
+      return
+    }
+
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [selectedEpisode?.status])
 
   const isBusy =
     startMutation.isPending ||
@@ -309,6 +341,67 @@ export function PodcastPage() {
   }
 
   const liveEpisodeCount = episodes.filter((episode) => LIVE_STATUSES.has(episode.status)).length
+  const generationEstimate = useMemo(
+    () =>
+      estimatePodcastGeneration({
+        documentCount: selectedDocumentIds.length,
+        prompt,
+        durationTier,
+        language,
+        ttsProvider,
+      }),
+    [durationTier, language, prompt, selectedDocumentIds.length, ttsProvider]
+  )
+  const estimateWarnings = useMemo(() => {
+    if (!appSettings) {
+      return []
+    }
+
+    const warnings: string[] = []
+    if (
+      appSettings.podcastMaxLlmTokens > 0 &&
+      generationEstimate.llmTokens > appSettings.podcastMaxLlmTokens
+    ) {
+      warnings.push(
+        `估算 LLM Tokens ${formatCompactNumber(generationEstimate.llmTokens)} 超过上限 ${formatCompactNumber(appSettings.podcastMaxLlmTokens)}`
+      )
+    }
+    if (
+      appSettings.podcastMaxTtsCharacters > 0 &&
+      generationEstimate.ttsCharacters > appSettings.podcastMaxTtsCharacters
+    ) {
+      warnings.push(
+        `估算 TTS 字符 ${formatCompactNumber(generationEstimate.ttsCharacters)} 超过上限 ${formatCompactNumber(appSettings.podcastMaxTtsCharacters)}`
+      )
+    }
+    if (
+      appSettings.podcastMaxEstimatedCostUsd > 0 &&
+      generationEstimate.estimatedCostUsd > appSettings.podcastMaxEstimatedCostUsd
+    ) {
+      warnings.push(
+        `估算成本 ${formatUsd(generationEstimate.estimatedCostUsd)} 超过上限 ${formatUsd(appSettings.podcastMaxEstimatedCostUsd)}`
+      )
+    }
+    return warnings
+  }, [appSettings, generationEstimate])
+  const reviewTimeoutSecondsRemaining = useMemo(() => {
+    if (
+      !appSettings ||
+      !selectedEpisode ||
+      selectedEpisode.status !== 'awaiting_review' ||
+      appSettings.reviewTimeLimit < 0
+    ) {
+      return null
+    }
+
+    const updatedAt = Date.parse(selectedEpisode.updatedAt)
+    if (!Number.isFinite(updatedAt)) {
+      return null
+    }
+
+    const deadline = updatedAt + appSettings.reviewTimeLimit * 60_000
+    return Math.max(0, Math.ceil((deadline - now) / 1000))
+  }, [appSettings, now, selectedEpisode])
 
   return (
     <>
@@ -479,7 +572,7 @@ export function PodcastPage() {
                 />
 
                 <div className="rounded-[22px] border border-dashed border-line-soft bg-paper-muted/50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="font-display text-lg text-ink">准备好后直接开工</p>
                       <p className="mt-1 text-sm leading-6 text-ink-muted">
@@ -498,6 +591,45 @@ export function PodcastPage() {
                       {startMutation.isPending ? '正在启动播客...' : '生成播客'}
                     </Button>
                   </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <EstimateStat
+                      label="预计时长"
+                      value={`${generationEstimate.durationMinutes} min`}
+                      hint={`${generationEstimate.segmentCount} 个脚本段落`}
+                    />
+                    <EstimateStat
+                      label="LLM Tokens"
+                      value={formatCompactNumber(generationEstimate.llmTokens)}
+                      hint="含检索、大纲、脚本与评估"
+                    />
+                    <EstimateStat
+                      label="TTS 字符"
+                      value={formatCompactNumber(generationEstimate.ttsCharacters)}
+                      hint={`${ttsProvider === 'auto' ? '自动路由' : ttsProvider} 估算`}
+                    />
+                    <EstimateStat
+                      label="预估成本"
+                      value={formatUsd(generationEstimate.estimatedCostUsd)}
+                      hint={
+                        appSettings?.podcastSkipReview
+                          ? '当前配置会跳过人工审阅'
+                          : `无操作 ${appSettings?.reviewTimeLimit ?? 30} 分钟后自动通过`
+                      }
+                    />
+                  </div>
+
+                  {estimateWarnings.length > 0 ? (
+                    <div className="mt-4 rounded-[18px] border border-amber-200 bg-amber-50/80 px-4 py-3">
+                      <p className="font-ui text-[11px] uppercase tracking-[0.2em] text-amber-800">
+                        Budget Guard
+                      </p>
+                      <div className="mt-2 space-y-1.5 text-sm leading-6 text-amber-900">
+                        {estimateWarnings.map((warning) => (
+                          <p key={warning}>{warning}</p>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </Panel>
@@ -780,6 +912,16 @@ export function PodcastPage() {
                         </p>
                       </div>
 
+                      <div className="rounded-[18px] border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-900">
+                        <p>
+                          {reviewTimeoutSecondsRemaining === null
+                            ? '当前脚本处于人工审阅阶段。'
+                            : reviewTimeoutSecondsRemaining > 0
+                              ? `若 ${formatCountdown(reviewTimeoutSecondsRemaining)} 内无操作，系统将自动通过并继续生成音频。`
+                              : '审阅超时已到，系统会自动继续推进音频生成。'}
+                        </p>
+                      </div>
+
                       <textarea
                         value={reviewDraft}
                         onChange={(event) => setReviewDraft(event.target.value)}
@@ -1017,6 +1159,24 @@ function MetricTile({
   )
 }
 
+function EstimateStat({
+  label,
+  value,
+  hint,
+}: {
+  label: string
+  value: string
+  hint: string
+}) {
+  return (
+    <div className="rounded-[18px] border border-line-soft/70 bg-paper-base px-4 py-3">
+      <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">{label}</p>
+      <p className="mt-2 font-display text-xl text-ink">{value}</p>
+      <p className="mt-1 text-xs leading-5 text-ink-muted">{hint}</p>
+    </div>
+  )
+}
+
 function ScoreTile({
   label,
   value,
@@ -1150,4 +1310,58 @@ function formatDateTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date)
+}
+
+function estimatePodcastGeneration({
+  documentCount,
+  prompt,
+  durationTier,
+  language,
+  ttsProvider,
+}: {
+  documentCount: number
+  prompt: string
+  durationTier: PodcastDurationTier
+  language: PodcastLanguage
+  ttsProvider: TTSProviderId
+}) {
+  const durationMinutes = DURATION_ESTIMATE_MINUTES[durationTier]
+  const segmentCount = DURATION_ESTIMATE_SEGMENTS[durationTier]
+  const promptWeight = Math.min(1, prompt.trim().length / 240)
+  const charsPerMinute =
+    language === 'en-US' ? 780 : language === 'other' ? 520 : 340
+
+  const llmTokens = Math.round(
+    1800 +
+      Math.max(1, documentCount) * 700 +
+      durationMinutes * 170 +
+      segmentCount * 240 +
+      promptWeight * 500
+  )
+  const ttsCharacters = Math.round(durationMinutes * charsPerMinute)
+  const estimatedCostUsd =
+    (llmTokens / 1000) * 0.0025 +
+    (ttsCharacters / 1000) * TTS_ESTIMATE_COST_PER_1K_CHARS[ttsProvider]
+
+  return {
+    durationMinutes,
+    segmentCount,
+    llmTokens,
+    ttsCharacters,
+    estimatedCostUsd,
+  }
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(value)
+}
+
+function formatUsd(value: number) {
+  return `$${value.toFixed(value < 0.1 ? 3 : 2)}`
+}
+
+function formatCountdown(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }

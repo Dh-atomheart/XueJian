@@ -293,33 +293,105 @@ export interface ReviewLog {
 }
 
 export interface DailyStats {
-  id: string
-  date: string
   newCards: number
   reviewCards: number
-  learningTime: number
   correctRate: number | null
+}
+
+export interface StudyStats {
+  todayMinutes: number | null
+  weekMinutes: number | null
+  totalMinutes: number | null
+  streakDays: number
+  activeDaysThisWeek: number
+}
+
+export interface MasteryBreakdown {
+  newCards: number
+  learningCards: number
+  reviewCards: number
+  masteredCards: number
+}
+
+export interface HeatmapEntry {
+  date: string
+  count: number
 }
 
 // ==================== API配置相关 ====================
 
 export type AppThemeId = 'default' | 'comic-sketch' | 'contrast-paper'
 
-export type ApiProvider = 'openai' | 'anthropic' | 'google' | 'openai_compatible'
+export type ApiProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'google'
+  | 'deepseek'
+  | 'openai_compatible'
+  | 'custom_openai'
+  | 'custom_anthropic'
+  | 'custom_google'
 
 export type ApiAuthMode = 'api_key' | 'adc'
+
+export type KeyStatus = 'none' | 'stored' | 'verified' | 'invalid' | 'expired'
+
+export type WorkflowType =
+  | 'card_generation'
+  | 'document_embedding'
+  | 'knowledge_qa'
+  | 'podcast_generation'
+  | 'knowledge_graph'
+
+export interface ModelCapabilities {
+  vision: boolean
+  functionCalling: boolean
+  maxContext: number
+  streaming: boolean
+  jsonMode: boolean
+}
+
+export interface DiscoveredModel {
+  id: string
+  displayName: string
+  source: 'preset' | 'fetched'
+  capabilities: ModelCapabilities
+  isRecommended: boolean
+}
 
 export interface AppSettings {
   theme: AppThemeId
   language: 'zh-CN' | 'en-US'
   dailyNewCardLimit: number
   reviewTimeLimit: number
+  // New detailed-settings fields are optional in static TS only for legacy mocks/fixtures.
+  learningGoal?: string
+  dailyStudyMinutes?: number
+  studyTimePreference?: string
+  studyContentPreferences?: string[]
+  contentDifficultyPreference?: string
   podcastTtsProvider: 'auto' | 'openai' | 'edge_tts' | 'elevenlabs' | 'fish_audio'
   podcastOpenaiModel: string
   podcastFishAudioEndpoint: string | null
   podcastVoiceOverrides: Record<string, string>
+  defaultVoice?: string
+  speechRate?: number
+  speechPitch?: number
+  speechVolume?: number
+  readingMode?: string
+  defaultPodcastStyle?: string
+  podcastEpisodeDurationMinutes?: number
+  podcastContentStructure?: string
+  podcastBackgroundMusic?: string
+  podcastIntroOutroEnabled?: boolean
+  voiceInputLanguage?: string
+  voiceInterruptEnabled?: boolean
+  podcastAutoPlayNextEpisode?: boolean
   podcastOutputFormat: 'mp3' | 'wav'
   podcastSkipReview: boolean
+  podcastMaxLlmTokens: number
+  podcastMaxTtsCharacters: number
+  podcastMaxEstimatedCostUsd: number
 }
 
 export interface ApiConfig {
@@ -335,6 +407,9 @@ export interface ApiConfig {
   isEnabled: boolean
   hasStoredCredential: boolean
   hasStoredKey: boolean
+  keyVerifiedAt: Date | null
+  keyStatus: KeyStatus
+  displayName: string | null
   createdAt: Date
 }
 
@@ -355,6 +430,23 @@ export type ModelProfile = ApiConfig
 export interface ApiConnectionTestResult {
   success: boolean
   message: string
+}
+
+export interface WorkflowModelAssignment {
+  workflowType: WorkflowType
+  apiConfigId: string
+  assignedAt: Date
+  updatedAt: Date
+  apiConfig?: ApiConfig | null
+}
+
+export interface ProviderBudgetUsage {
+  id: string
+  apiConfigId: string
+  period: string
+  estimatedCostUsd: number
+  workflowRunsCount: number
+  updatedAt: Date
 }
 
 export interface KnowledgeScope {
@@ -397,12 +489,7 @@ export interface AgentRun {
 
 export interface WorkflowRun {
   id: string
-  workflowType:
-    | 'card_generation'
-    | 'document_embedding'
-    | 'knowledge_qa'
-    | 'podcast_generation'
-    | 'knowledge_graph'
+  workflowType: WorkflowType
   presetId: string | null
   status: 'queued' | 'running' | 'waiting_confirmation' | 'completed' | 'failed' | 'cancelled'
   threadId: string

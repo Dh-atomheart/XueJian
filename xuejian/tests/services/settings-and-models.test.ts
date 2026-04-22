@@ -76,6 +76,30 @@ describe('API Key only enters Stronghold', () => {
     expect(result).toBeUndefined()
   })
 
+  it('deleteApiKey clears stored-key flags without deleting the config', async () => {
+    const config = await apiConfigGateway.create({
+      provider: 'openai',
+      authMode: 'api_key',
+      name: 'Delete Key Config',
+      model: 'gpt-4o-mini',
+      baseUrl: null,
+      budgetLimit: null,
+      isDefault: false,
+      isEnabled: true,
+    })
+
+    await apiConfigGateway.storeApiKey(config.id, 'sk-secret-key')
+    await apiConfigGateway.deleteApiKey(config.id)
+
+    const refreshed = await apiConfigGateway.get(config.id)
+    expect(refreshed).toMatchObject({
+      id: config.id,
+      hasStoredKey: false,
+      hasStoredCredential: false,
+      keyStatus: 'none',
+    })
+  })
+
   it('API config objects do not contain apiKey field', async () => {
     const configs = await apiConfigGateway.list()
     for (const config of configs) {
@@ -100,6 +124,82 @@ describe('API Key only enters Stronghold', () => {
     expect(json).not.toContain('sk-')
     expect(json).not.toContain('apiKey')
     expect(json).toContain('"authMode":"api_key"')
+  })
+})
+
+describe('BYOK workflow routing and budget tracking', () => {
+  it('fetches discovered models for a provider via gateway', async () => {
+    const models = await apiConfigGateway.fetchProviderModels({
+      provider: 'deepseek',
+      apiKey: 'sk-test-key',
+      baseUrl: null,
+    })
+
+    expect(models.length).toBeGreaterThan(0)
+    expect(models[0]).toMatchObject({
+      source: 'fetched',
+      isRecommended: expect.any(Boolean),
+    })
+  })
+
+  it('round-trips workflow assignments through the gateway', async () => {
+    const config = await apiConfigGateway.create({
+      provider: 'openai',
+      authMode: 'api_key',
+      name: 'Workflow Config',
+      model: 'gpt-4o',
+      baseUrl: null,
+      budgetLimit: 5,
+      isDefault: true,
+      isEnabled: true,
+    })
+
+    const assignment = await apiConfigGateway.setWorkflowAssignment('knowledge_qa', config.id)
+    expect(assignment).toMatchObject({
+      workflowType: 'knowledge_qa',
+      apiConfigId: config.id,
+    })
+
+    const fetched = await apiConfigGateway.getWorkflowAssignment('knowledge_qa')
+    expect(fetched).toMatchObject({
+      workflowType: 'knowledge_qa',
+      apiConfigId: config.id,
+      apiConfig: expect.objectContaining({ id: config.id }),
+    })
+
+    const allAssignments = await apiConfigGateway.setAllWorkflowAssignments(config.id)
+    expect(allAssignments).toHaveLength(5)
+    expect(allAssignments.every((item) => item.apiConfigId === config.id)).toBe(true)
+
+    await apiConfigGateway.deleteWorkflowAssignment('knowledge_qa')
+    await expect(apiConfigGateway.getWorkflowAssignment('knowledge_qa')).resolves.toBeNull()
+  })
+
+  it('accumulates provider budget usage when workflow cost is recorded', async () => {
+    const config = await apiConfigGateway.create({
+      provider: 'deepseek',
+      authMode: 'api_key',
+      name: 'Budget Config',
+      model: 'deepseek-chat',
+      baseUrl: null,
+      budgetLimit: 3,
+      isDefault: false,
+      isEnabled: true,
+    })
+
+    await expect(apiConfigGateway.getProviderBudgetUsage(config.id)).resolves.toBeNull()
+
+    await apiConfigGateway.recordWorkflowCost(config.id, 0.12)
+    await apiConfigGateway.recordWorkflowCost(config.id, 0.08)
+
+    await expect(apiConfigGateway.getProviderBudgetUsage(config.id)).resolves.toMatchObject({
+      apiConfigId: config.id,
+      estimatedCostUsd: 0.2,
+      workflowRunsCount: 2,
+    })
+
+    await apiConfigGateway.resetProviderBudgetUsage(config.id)
+    await expect(apiConfigGateway.getProviderBudgetUsage(config.id)).resolves.toBeNull()
   })
 })
 
@@ -150,8 +250,11 @@ describe('stats UI stays restrained — no heavy dashboard', () => {
         'podcastTtsProvider',
         'podcastOutputFormat',
         'podcastSkipReview',
+        'podcastMaxLlmTokens',
+        'podcastMaxTtsCharacters',
+        'podcastMaxEstimatedCostUsd',
       ])
     )
-    expect(keys.length).toBeLessThanOrEqual(10)
+    expect(keys.length).toBeLessThanOrEqual(13)
   })
 })

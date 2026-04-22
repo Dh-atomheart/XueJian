@@ -13,8 +13,8 @@ use crate::{
         AppendWorkflowEventRequest, Card, CardCandidate, CardCandidateCounts, CardFilters,
         CardRepository, CreateCardCandidateRequest, CreateCardRequest, CreateHighlightRequest,
         CreateReviewLogRequest, CreateWorkflowRunRequest, Document, DocumentAnchor,
-        DocumentAnchorRect, DocumentChunk, DocumentRepository, Highlight, HighlightFilters,
-        ReviewLog, UpdateCardCandidateRequest, UpdateCardRequest, UpdateHighlightRequest, UpdateWorkflowRunRequest,
+        DocumentAnchorRect, DocumentChunk, DocumentRepository, HeatmapEntry, Highlight, HighlightFilters,
+        MasteryBreakdown, ReviewLog, StudyStats, UpdateCardCandidateRequest, UpdateCardRequest, UpdateHighlightRequest, UpdateWorkflowRunRequest,
         UpsertWorkflowCheckpointRequest, WorkflowRepository, WorkflowRun,
     },
 };
@@ -611,6 +611,64 @@ pub struct DailyStatsDto {
     pub correct_rate: Option<f64>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StudyStatsDto {
+    pub today_minutes: Option<i64>,
+    pub week_minutes: Option<i64>,
+    pub total_minutes: Option<i64>,
+    pub streak_days: i64,
+    pub active_days_this_week: i64,
+}
+
+impl From<StudyStats> for StudyStatsDto {
+    fn from(value: StudyStats) -> Self {
+        Self {
+            today_minutes: value.today_minutes,
+            week_minutes: value.week_minutes,
+            total_minutes: value.total_minutes,
+            streak_days: value.streak_days,
+            active_days_this_week: value.active_days_this_week,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MasteryBreakdownDto {
+    pub new_cards: i64,
+    pub learning_cards: i64,
+    pub review_cards: i64,
+    pub mastered_cards: i64,
+}
+
+impl From<MasteryBreakdown> for MasteryBreakdownDto {
+    fn from(value: MasteryBreakdown) -> Self {
+        Self {
+            new_cards: value.new_cards,
+            learning_cards: value.learning_cards,
+            review_cards: value.review_cards,
+            mastered_cards: value.mastered_cards,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeatmapEntryDto {
+    pub date: String,
+    pub count: i64,
+}
+
+impl From<HeatmapEntry> for HeatmapEntryDto {
+    fn from(value: HeatmapEntry) -> Self {
+        Self {
+            date: value.date,
+            count: value.count,
+        }
+    }
+}
+
 #[tauri::command]
 pub fn create_review_log(
     state: State<'_, AppState>,
@@ -662,6 +720,35 @@ pub fn get_daily_stats(state: State<'_, AppState>) -> CommandResult<DailyStatsDt
         review_cards,
         correct_rate,
     })
+}
+
+#[tauri::command]
+pub fn get_study_stats(state: State<'_, AppState>) -> CommandResult<StudyStatsDto> {
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let stats = repo.get_study_stats(&today)?;
+    Ok(stats.into())
+}
+
+#[tauri::command]
+pub fn get_mastery_breakdown(state: State<'_, AppState>) -> CommandResult<MasteryBreakdownDto> {
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let breakdown = repo.get_mastery_breakdown()?;
+    Ok(breakdown.into())
+}
+
+#[tauri::command]
+pub fn get_review_heatmap(
+    state: State<'_, AppState>,
+    days: Option<i64>,
+) -> CommandResult<Vec<HeatmapEntryDto>> {
+    let db = state.lock_db()?;
+    let repo = CardRepository::new(&db);
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let entries = repo.get_review_heatmap(days.unwrap_or(112), &today)?;
+    Ok(entries.into_iter().map(Into::into).collect())
 }
 
 #[tauri::command]

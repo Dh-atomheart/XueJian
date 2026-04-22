@@ -255,6 +255,32 @@ pub struct CreateCardMediaRequest {
     pub storage_key: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StudyStats {
+    pub today_minutes: Option<i64>,
+    pub week_minutes: Option<i64>,
+    pub total_minutes: Option<i64>,
+    pub streak_days: i64,
+    pub active_days_this_week: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MasteryBreakdown {
+    pub new_cards: i64,
+    pub learning_cards: i64,
+    pub review_cards: i64,
+    pub mastered_cards: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeatmapEntry {
+    pub date: String,
+    pub count: i64,
+}
+
 pub struct CardRepository<'a> {
     db: &'a Database,
 }
@@ -404,6 +430,115 @@ impl<'a> CardRepository<'a> {
 
         logs.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+    }
+
+    pub fn get_study_stats(&self, today: &str) -> Result<StudyStats> {
+        let today_review_count: i64 = self.db.connection().query_row(
+            "SELECT COUNT(*) FROM review_logs WHERE date(reviewed_at, 'localtime') = ?1",
+            params![today],
+            |row| row.get(0),
+        )?;
+        let today_minutes = if today_review_count > 0 {
+            Some(today_review_count as i64)
+        } else {
+            Some(0)
+        };
+
+        let week_minutes: i64 = self.db.connection().query_row(
+            "SELECT COUNT(*)
+             FROM review_logs
+             WHERE date(reviewed_at, 'localtime') BETWEEN date(?1, '-6 days') AND ?1",
+            params![today],
+            |row| row.get(0),
+        )?;
+
+        let total_minutes: i64 = self.db.connection().query_row(
+            "SELECT COUNT(*) FROM review_logs",
+            [],
+            |row| row.get(0),
+        )?;
+
+        let active_days_this_week: i64 = self.db.connection().query_row(
+            "SELECT COUNT(DISTINCT date(reviewed_at, 'localtime'))
+             FROM review_logs
+             WHERE date(reviewed_at, 'localtime') BETWEEN date(?1, '-6 days') AND ?1",
+            params![today],
+            |row| row.get(0),
+        )?;
+
+        let dates: Vec<String> = {
+            let mut stmt = self.db.connection().prepare(
+                "SELECT DISTINCT date(reviewed_at, 'localtime')
+                 FROM review_logs
+                 WHERE reviewed_at IS NOT NULL
+                 ORDER BY date(reviewed_at, 'localtime') DESC",
+            )?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+
+        let mut streak_days = 0_i64;
+        let mut cursor = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d")
+            .map_err(|e| crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        for date in dates {
+            let parsed = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+                .map_err(|e| crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+            if parsed == cursor {
+                streak_days += 1;
+                cursor = cursor.pred_opt().unwrap_or(cursor);
+            } else if parsed < cursor {
+                break;
+            }
+        }
+
+        Ok(StudyStats {
+            today_minutes,
+            week_minutes: Some(week_minutes),
+            total_minutes: Some(total_minutes),
+            streak_days,
+            active_days_this_week,
+        })
+    }
+
+    pub fn get_mastery_breakdown(&self) -> Result<MasteryBreakdown> {
+        let (new_cards, learning_cards, review_cards, mastered_cards): (i64, i64, i64, i64) =
+            self.db.connection().query_row(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN state = 'new' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN state IN ('learning', 'relearning') THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN state = 'review' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN state = 'mastered' THEN 1 ELSE 0 END), 0)
+                 FROM cards",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?;
+
+        Ok(MasteryBreakdown {
+            new_cards,
+            learning_cards,
+            review_cards,
+            mastered_cards,
+        })
+    }
+
+    pub fn get_review_heatmap(&self, days: i64, today: &str) -> Result<Vec<HeatmapEntry>> {
+        let lookback_days = days.max(1) - 1;
+        let mut stmt = self.db.connection().prepare(
+            "SELECT date(reviewed_at, 'localtime') AS review_date, COUNT(*)
+             FROM review_logs
+             WHERE date(reviewed_at, 'localtime') BETWEEN date(?1, printf('-%d days', ?2)) AND ?1
+             GROUP BY review_date
+             ORDER BY review_date ASC",
+        )?;
+
+        let rows = stmt.query_map(params![today, lookback_days], |row| {
+            Ok(HeatmapEntry {
+                date: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })?;
+
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
     }
 
     pub fn get_daily_stats(&self, date: &str) -> Result<(i64, i64, Option<f64>)> {
@@ -1657,6 +1792,8 @@ mod tests {
                 }],
                 text_content: "FSRS is a scheduling algorithm".to_string(),
                 color: "#F8E16C".to_string(),
+                note: None,
+                page_card_index: None,
             })
             .expect("create highlight");
 
@@ -1688,6 +1825,8 @@ mod tests {
                     }],
                     text_content: "Updated text".to_string(),
                     color: "#FF0000".to_string(),
+                    note: None,
+                    page_card_index: None,
                 },
             )
             .expect("update highlight")

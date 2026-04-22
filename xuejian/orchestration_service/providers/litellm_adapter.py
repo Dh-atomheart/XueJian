@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 
 def _build_litellm_model_str(provider: str, model_name: str, base_url: str | None) -> str:
     """Return the litellm model string for a given provider + model."""
-    if provider == "anthropic":
+    if provider in {"anthropic", "custom_anthropic"}:
         return f"anthropic/{model_name}"
-    if provider == "google":
+    if provider in {"google", "custom_google"}:
         return f"gemini/{model_name}"
-    if provider == "openai_compatible" and base_url:
+    if provider in {"custom_openai", "deepseek"} and base_url:
         # openai-compatible endpoint — use "openai/" prefix with custom base
         return f"openai/{model_name}"
     # openai
