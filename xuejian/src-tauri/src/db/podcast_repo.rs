@@ -141,9 +141,7 @@ impl<'a> PodcastRepository<'a> {
                     current_stage, completed_segments, total_segments, created_at, updated_at
              FROM podcast_episodes WHERE id = ?1",
         )?;
-        let mut rows = stmt.query_map(params![id], |row| {
-            map_podcast_episode(row)
-        })?;
+        let mut rows = stmt.query_map(params![id], |row| map_podcast_episode(row))?;
         match rows.next() {
             Some(row) => Ok(Some(row?)),
             None => Ok(None),
@@ -160,10 +158,15 @@ impl<'a> PodcastRepository<'a> {
              FROM podcast_episodes ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], map_podcast_episode)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
-    pub fn update_episode(&self, id: &str, updates: &PodcastEpisodeUpdates) -> Result<PodcastEpisode> {
+    pub fn update_episode(
+        &self,
+        id: &str,
+        updates: &PodcastEpisodeUpdates,
+    ) -> Result<PodcastEpisode> {
         let Some(current) = self.get_episode(id)? else {
             return Err(super::DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
         };
@@ -204,7 +207,10 @@ impl<'a> PodcastRepository<'a> {
             .evaluation_json
             .clone()
             .unwrap_or(current.evaluation_json.clone());
-        let next_audio_path = updates.audio_path.clone().unwrap_or(current.audio_path.clone());
+        let next_audio_path = updates
+            .audio_path
+            .clone()
+            .unwrap_or(current.audio_path.clone());
         let next_duration_ms = updates.duration_ms.unwrap_or(current.duration_ms);
         let next_status = updates.status.clone().unwrap_or(current.status.clone());
         let next_error_message = updates
@@ -271,10 +277,9 @@ impl<'a> PodcastRepository<'a> {
     }
 
     pub fn delete_episode(&self, id: &str) -> Result<()> {
-        self.db.connection().execute(
-            "DELETE FROM podcast_episodes WHERE id = ?1",
-            params![id],
-        )?;
+        self.db
+            .connection()
+            .execute("DELETE FROM podcast_episodes WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -324,7 +329,8 @@ impl<'a> PodcastRepository<'a> {
              ORDER BY created_at ASC",
         )?;
         let rows = stmt.query_map(params![episode_id], map_audio_segment)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn delete_audio_segments_by_episode(&self, episode_id: &str) -> Result<()> {
@@ -409,8 +415,10 @@ mod tests {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         conn.execute_batch(include_str!("../migrations/V1__initial_schema.sql"))
             .expect("apply v1 migration");
-        conn.execute_batch(include_str!("../migrations/V2__workflow_and_fts_foundation.sql"))
-            .expect("apply v2 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V2__workflow_and_fts_foundation.sql"
+        ))
+        .expect("apply v2 migration");
         conn.execute_batch(include_str!("../migrations/V6__podcast_episodes.sql"))
             .expect("apply v6 migration");
         conn.execute_batch(include_str!("../migrations/V16__podcast_workflow_v3.sql"))
@@ -488,10 +496,21 @@ mod tests {
             .expect("save audio segment");
 
         assert_eq!(segment.episode_id, episode.id);
-        assert_eq!(repo.list_audio_segments(&episode.id).expect("list audio").len(), 1);
+        assert_eq!(
+            repo.list_audio_segments(&episode.id)
+                .expect("list audio")
+                .len(),
+            1
+        );
 
         repo.delete_episode(&episode.id).expect("delete episode");
-        assert!(repo.get_episode(&episode.id).expect("get episode").is_none());
-        assert!(repo.list_audio_segments(&episode.id).expect("list deleted audio").is_empty());
+        assert!(repo
+            .get_episode(&episode.id)
+            .expect("get episode")
+            .is_none());
+        assert!(repo
+            .list_audio_segments(&episode.id)
+            .expect("list deleted audio")
+            .is_empty());
     }
 }

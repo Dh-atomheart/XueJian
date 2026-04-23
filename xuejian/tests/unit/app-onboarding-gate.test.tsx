@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiConfigGateway } from '@/services/gateway/models'
 
 vi.mock('@/features/dashboard', () => ({
-  DashboardPage: () => <div>Dashboard Page</div>,
+  HomePage: () => <div>Home Page</div>,
 }))
 
 vi.mock('@/features/cards', () => ({
@@ -26,7 +26,7 @@ vi.mock('@/features/review', () => ({
 
 vi.mock('@/features/settings', () => ({
   SettingsPage: ({ forcedOnboarding = false }: { forcedOnboarding?: boolean }) => (
-    <div>{forcedOnboarding ? '先完成模型密钥配置，再进入其他功能' : 'Settings Page'}</div>
+    <div>{forcedOnboarding ? 'Settings Guided Setup' : 'Settings Page'}</div>
   ),
 }))
 
@@ -53,7 +53,7 @@ afterEach(() => {
 
 // @acceptance:v4-4-a1
 describe('app onboarding gate', () => {
-  it('forces first-run users into settings until a stored key is available', async () => {
+  it('keeps first-run users on home and leaves navigation available', async () => {
     ;(window as Window & { __TAURI__?: unknown }).__TAURI__ = {}
 
     vi.spyOn(apiConfigGateway, 'list').mockResolvedValue([])
@@ -64,13 +64,13 @@ describe('app onboarding gate', () => {
       </QueryClientProvider>
     )
 
-    await screen.findByText('先完成模型密钥配置，再进入其他功能')
+    await screen.findByText('Home Page')
 
-    expect(screen.getByTestId('sidebar-nav-home')).toBeDisabled()
-    expect(screen.getByTestId('sidebar-nav-library')).toBeDisabled()
-    expect(screen.getByTestId('sidebar-nav-cards')).toBeDisabled()
-    expect(screen.getByTestId('sidebar-nav-learning')).toBeDisabled()
-    expect(screen.getByTestId('sidebar-nav-knowledge')).toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-home')).not.toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-library')).not.toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-cards')).not.toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-learning')).not.toBeDisabled()
+    expect(screen.getByTestId('sidebar-nav-knowledge')).not.toBeDisabled()
     expect(screen.getByTestId('sidebar-nav-settings')).not.toBeDisabled()
   })
 })

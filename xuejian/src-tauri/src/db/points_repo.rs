@@ -110,29 +110,23 @@ impl<'a> PointsRepository<'a> {
 
     /// Get today's total points.
     pub fn get_daily_points_total(&self, date: &str) -> Result<i64> {
-        let total: i64 = self
-            .db
-            .connection()
-            .query_row(
-                "SELECT COALESCE(SUM(points), 0)
+        let total: i64 = self.db.connection().query_row(
+            "SELECT COALESCE(SUM(points), 0)
                  FROM points_ledger
                  WHERE date(created_at) = ?1",
-                params![date],
-                |row| row.get(0),
-            )?;
+            params![date],
+            |row| row.get(0),
+        )?;
         Ok(total)
     }
 
     /// Check whether a review_log_id already has a points entry.
     pub fn has_entry_for_review_log(&self, review_log_id: &str) -> Result<bool> {
-        let count: i64 = self
-            .db
-            .connection()
-            .query_row(
-                "SELECT COUNT(*) FROM points_ledger WHERE review_log_id = ?1",
-                params![review_log_id],
-                |row| row.get(0),
-            )?;
+        let count: i64 = self.db.connection().query_row(
+            "SELECT COUNT(*) FROM points_ledger WHERE review_log_id = ?1",
+            params![review_log_id],
+            |row| row.get(0),
+        )?;
         Ok(count > 0)
     }
 }

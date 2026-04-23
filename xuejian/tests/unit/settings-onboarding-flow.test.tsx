@@ -239,7 +239,7 @@ describe('settings onboarding flow', () => {
     expect(screen.getByTestId('settings-save-config')).not.toBeDisabled()
   })
 
-  it('keeps the first-run create form open and non-dismissible until a usable model exists', () => {
+  it('defaults first-run users into the AI setup flow without blocking the page', () => {
     setupDefaultMocks([])
     mockedQueries.useStoreApiKeyMutation.mockReturnValue({
       isPending: false,
@@ -249,7 +249,22 @@ describe('settings onboarding flow', () => {
     renderWithProviders(<SettingsPage forcedOnboarding />)
 
     expect(screen.getByTestId('settings-add-config-form')).toBeInTheDocument()
-    expect(screen.getByTestId('settings-toggle-add-config')).toBeDisabled()
+    expect(screen.getByTestId('settings-toggle-add-config')).not.toBeDisabled()
+    expect(screen.getByTestId('settings-setup-callout')).toBeInTheDocument()
+  })
+
+  it('keeps other settings sections reachable during setup guidance', () => {
+    setupDefaultMocks([])
+    mockedQueries.useStoreApiKeyMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as ReturnType<typeof queries.useStoreApiKeyMutation>)
+
+    renderWithProviders(<SettingsPage forcedOnboarding />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Podcast/i }))
+
+    expect(screen.getByRole('heading', { name: '播客与语音' })).toBeInTheDocument()
   })
 
   it('reports an error instead of failing silently when config save fails', async () => {

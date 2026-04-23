@@ -104,7 +104,10 @@ impl OrchestrationService {
     pub fn new(app_handle: &AppHandle, host_gateway_port: Option<u16>) -> Result<Self> {
         let script_path = resolve_script_path(app_handle)?;
         Ok(Self {
-            inner: Mutex::new(OrchestrationServiceManager::new(script_path, host_gateway_port)),
+            inner: Mutex::new(OrchestrationServiceManager::new(
+                script_path,
+                host_gateway_port,
+            )),
         })
     }
 

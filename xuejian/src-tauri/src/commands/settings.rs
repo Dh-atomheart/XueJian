@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::BTreeMap,
+    env, fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -12,13 +17,16 @@ use crate::{
     },
 };
 
-const WORKFLOW_TYPES: [&str; 5] = [
+const WORKFLOW_TYPES: [&str; 6] = [
     "card_generation",
     "document_embedding",
     "knowledge_qa",
     "podcast_generation",
     "knowledge_graph",
+    "card_animation",
 ];
+
+const ANTHROPIC_VERSION_HEADER: &str = "2023-06-01";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,10 +141,29 @@ pub struct AppSettingsDto {
     pub review_time_limit: i32,
     pub theme: String,
     pub language: String,
+    pub learning_goal: String,
+    pub daily_study_minutes: i32,
+    pub study_time_preference: String,
+    pub study_time_preferences: Vec<String>,
+    pub study_content_preferences: Vec<String>,
+    pub content_difficulty_preference: String,
     pub podcast_tts_provider: String,
     pub podcast_openai_model: String,
     pub podcast_fish_audio_endpoint: Option<String>,
     pub podcast_voice_overrides: std::collections::BTreeMap<String, String>,
+    pub default_voice: String,
+    pub speech_rate: f64,
+    pub speech_pitch: f64,
+    pub speech_volume: f64,
+    pub reading_mode: String,
+    pub default_podcast_style: String,
+    pub podcast_episode_duration_minutes: i32,
+    pub podcast_content_structure: String,
+    pub podcast_background_music: String,
+    pub podcast_intro_outro_enabled: bool,
+    pub voice_input_language: String,
+    pub voice_interrupt_enabled: bool,
+    pub podcast_auto_play_next_episode: bool,
     pub podcast_output_format: String,
     pub podcast_skip_review: bool,
     pub podcast_max_llm_tokens: i32,
@@ -179,10 +206,29 @@ impl From<AppSettings> for AppSettingsDto {
             review_time_limit: settings.review_time_limit,
             theme: settings.theme,
             language: settings.language,
+            learning_goal: settings.learning_goal,
+            daily_study_minutes: settings.daily_study_minutes,
+            study_time_preference: settings.study_time_preference,
+            study_time_preferences: settings.study_time_preferences,
+            study_content_preferences: settings.study_content_preferences,
+            content_difficulty_preference: settings.content_difficulty_preference,
             podcast_tts_provider: settings.podcast_tts_provider,
             podcast_openai_model: settings.podcast_openai_model,
             podcast_fish_audio_endpoint: settings.podcast_fish_audio_endpoint,
             podcast_voice_overrides: settings.podcast_voice_overrides,
+            default_voice: settings.default_voice,
+            speech_rate: settings.speech_rate,
+            speech_pitch: settings.speech_pitch,
+            speech_volume: settings.speech_volume,
+            reading_mode: settings.reading_mode,
+            default_podcast_style: settings.default_podcast_style,
+            podcast_episode_duration_minutes: settings.podcast_episode_duration_minutes,
+            podcast_content_structure: settings.podcast_content_structure,
+            podcast_background_music: settings.podcast_background_music,
+            podcast_intro_outro_enabled: settings.podcast_intro_outro_enabled,
+            voice_input_language: settings.voice_input_language,
+            voice_interrupt_enabled: settings.voice_interrupt_enabled,
+            podcast_auto_play_next_episode: settings.podcast_auto_play_next_episode,
             podcast_output_format: settings.podcast_output_format,
             podcast_skip_review: settings.podcast_skip_review,
             podcast_max_llm_tokens: settings.podcast_max_llm_tokens,
@@ -199,10 +245,29 @@ pub struct UpdateSettingsDto {
     pub review_time_limit: Option<i32>,
     pub theme: Option<String>,
     pub language: Option<String>,
+    pub learning_goal: Option<String>,
+    pub daily_study_minutes: Option<i32>,
+    pub study_time_preference: Option<String>,
+    pub study_time_preferences: Option<Vec<String>>,
+    pub study_content_preferences: Option<Vec<String>>,
+    pub content_difficulty_preference: Option<String>,
     pub podcast_tts_provider: Option<String>,
     pub podcast_openai_model: Option<String>,
     pub podcast_fish_audio_endpoint: Option<Option<String>>,
     pub podcast_voice_overrides: Option<std::collections::BTreeMap<String, String>>,
+    pub default_voice: Option<String>,
+    pub speech_rate: Option<f64>,
+    pub speech_pitch: Option<f64>,
+    pub speech_volume: Option<f64>,
+    pub reading_mode: Option<String>,
+    pub default_podcast_style: Option<String>,
+    pub podcast_episode_duration_minutes: Option<i32>,
+    pub podcast_content_structure: Option<String>,
+    pub podcast_background_music: Option<String>,
+    pub podcast_intro_outro_enabled: Option<bool>,
+    pub voice_input_language: Option<String>,
+    pub voice_interrupt_enabled: Option<bool>,
+    pub podcast_auto_play_next_episode: Option<bool>,
     pub podcast_output_format: Option<String>,
     pub podcast_skip_review: Option<bool>,
     pub podcast_max_llm_tokens: Option<i32>,
@@ -218,6 +283,7 @@ pub struct TestApiConnectionDto {
     pub auth_mode: String,
     pub api_key: String,
     pub base_url: Option<String>,
+    #[allow(dead_code)]
     pub model: Option<String>,
 }
 
@@ -322,15 +388,6 @@ fn normalize_provider(value: &str) -> String {
     }
 }
 
-fn default_test_model_for_provider(provider: &str) -> &'static str {
-    match provider {
-        "anthropic" | "custom_anthropic" => "claude-3-5-haiku-20241022",
-        "google" | "custom_google" => "gemini-2.0-flash",
-        "deepseek" => "deepseek-chat",
-        _ => "gpt-4o-mini",
-    }
-}
-
 fn default_base_url_for_provider(provider: &str) -> Option<&'static str> {
     match provider {
         "openai" => Some("https://api.openai.com/v1"),
@@ -338,6 +395,165 @@ fn default_base_url_for_provider(provider: &str) -> Option<&'static str> {
         "anthropic" => Some("https://api.anthropic.com/v1"),
         "google" | "custom_google" => Some("https://generativelanguage.googleapis.com/v1beta"),
         _ => None,
+    }
+}
+
+fn provider_test_strategy(provider: &str) -> &'static str {
+    match provider {
+        "anthropic" | "custom_anthropic" => "lightweight",
+        "openai" | "deepseek" | "custom_openai" | "google" | "custom_google" => "lightweight",
+        _ => "unsupported",
+    }
+}
+
+fn success_message_for_provider(provider: &str, elapsed_ms: u128) -> String {
+    match provider_test_strategy(provider) {
+        "lightweight" => format!("Credential validation succeeded in {elapsed_ms}ms."),
+        "full" => format!("Connection test succeeded in {elapsed_ms}ms."),
+        _ => format!("Connection test succeeded in {elapsed_ms}ms."),
+    }
+}
+
+fn truncate_response_detail(detail: String) -> String {
+    if detail.len() > 200 {
+        detail[..200].to_string()
+    } else {
+        detail
+    }
+}
+
+fn google_adc_default_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    if let Some(appdata) = env::var_os("APPDATA") {
+        paths.push(
+            PathBuf::from(appdata)
+                .join("gcloud")
+                .join("application_default_credentials.json"),
+        );
+    }
+
+    if let Some(home) = env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        paths.push(
+            home.join(".config")
+                .join("gcloud")
+                .join("application_default_credentials.json"),
+        );
+        paths.push(
+            home.join("Library")
+                .join("Application Support")
+                .join("gcloud")
+                .join("application_default_credentials.json"),
+        );
+    }
+
+    paths
+}
+
+fn validate_google_adc_payload(path: &Path) -> Result<String, String> {
+    let raw = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "Unable to read ADC credentials file {}: {error}",
+            path.display()
+        )
+    })?;
+    let payload = serde_json::from_str::<serde_json::Value>(&raw)
+        .map_err(|error| format!("ADC credentials file is not valid JSON: {error}"))?;
+
+    let cred_type = payload
+        .get("type")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .unwrap_or("");
+
+    match cred_type {
+        "service_account" => {
+            let has_private_key = payload
+                .get("private_key")
+                .and_then(|value| value.as_str())
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false);
+            let has_client_email = payload
+                .get("client_email")
+                .and_then(|value| value.as_str())
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false);
+
+            if has_private_key && has_client_email {
+                Ok("Detected service_account ADC credentials".to_string())
+            } else {
+                Err("ADC service_account file is missing private_key or client_email".to_string())
+            }
+        }
+        "authorized_user" => {
+            let has_client_id = payload
+                .get("client_id")
+                .and_then(|value| value.as_str())
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false);
+            let has_client_secret = payload
+                .get("client_secret")
+                .and_then(|value| value.as_str())
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false);
+            let has_refresh_token = payload
+                .get("refresh_token")
+                .and_then(|value| value.as_str())
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false);
+
+            if has_client_id && has_client_secret && has_refresh_token {
+                Ok("Detected authorized_user ADC credentials".to_string())
+            } else {
+                Err("ADC authorized_user file is missing client_id, client_secret, or refresh_token".to_string())
+            }
+        }
+        "" => Err("ADC credentials file is missing the type field".to_string()),
+        other => Err(format!("Unsupported ADC credential type: {other}")),
+    }
+}
+
+fn probe_google_adc_credentials() -> ApiConnectionTestResultDto {
+    if let Some(explicit_path) = env::var_os("GOOGLE_APPLICATION_CREDENTIALS") {
+        let path = PathBuf::from(explicit_path);
+        return match validate_google_adc_payload(&path) {
+            Ok(summary) => ApiConnectionTestResultDto {
+                success: false,
+                message: format!(
+                    "{summary} (source: GOOGLE_APPLICATION_CREDENTIALS), but this release only supports local ADC discovery. Remote validation and runtime GA support are not implemented yet."
+                ),
+            },
+            Err(error) => ApiConnectionTestResultDto {
+                success: false,
+                message: format!("GOOGLE_APPLICATION_CREDENTIALS is set, but the credential is unusable: {error}"),
+            },
+        };
+    }
+
+    for path in google_adc_default_paths() {
+        if !path.exists() {
+            continue;
+        }
+
+        return match validate_google_adc_payload(&path) {
+            Ok(summary) => ApiConnectionTestResultDto {
+                success: false,
+                message: format!(
+                    "{summary} (source: {}), but this release only supports local ADC discovery. Remote validation and runtime GA support are not implemented yet.",
+                    path.display()
+                ),
+            },
+            Err(error) => ApiConnectionTestResultDto {
+                success: false,
+                message: format!("Detected a default ADC file, but it is unusable: {error}"),
+            },
+        };
+    }
+
+    ApiConnectionTestResultDto {
+        success: false,
+        message: "No usable Google ADC credentials were detected. Set GOOGLE_APPLICATION_CREDENTIALS or run gcloud application-default login first.".to_string(),
     }
 }
 
@@ -448,7 +664,10 @@ fn preset_models_for_provider(provider: &str) -> Vec<ModelInfoDto> {
     }
 }
 
-fn merge_provider_models(preset: Vec<ModelInfoDto>, fetched: Vec<ModelInfoDto>) -> Vec<ModelInfoDto> {
+fn merge_provider_models(
+    preset: Vec<ModelInfoDto>,
+    fetched: Vec<ModelInfoDto>,
+) -> Vec<ModelInfoDto> {
     let mut models = BTreeMap::new();
 
     for model in preset {
@@ -558,6 +777,38 @@ fn parse_google_models(payload: serde_json::Value) -> Vec<ModelInfoDto> {
         .collect()
 }
 
+fn parse_anthropic_models(payload: serde_json::Value) -> Vec<ModelInfoDto> {
+    payload
+        .get("data")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let id = item.get("id")?.as_str()?.trim();
+            if id.is_empty() {
+                return None;
+            }
+
+            let display_name = item
+                .get("display_name")
+                .or_else(|| item.get("displayName"))
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(id)
+                .to_string();
+
+            Some(ModelInfoDto {
+                id: id.to_string(),
+                display_name,
+                source: "fetched".to_string(),
+                capabilities: infer_model_capabilities(id),
+                is_recommended: false,
+            })
+        })
+        .collect()
+}
+
 fn validate_workflow_type(workflow_type: &str) -> CommandResult<()> {
     if WORKFLOW_TYPES.contains(&workflow_type) {
         Ok(())
@@ -623,10 +874,29 @@ pub fn update_settings(
         review_time_limit: data.review_time_limit,
         theme: data.theme,
         language: data.language,
+        learning_goal: data.learning_goal,
+        daily_study_minutes: data.daily_study_minutes,
+        study_time_preference: data.study_time_preference,
+        study_time_preferences: data.study_time_preferences,
+        study_content_preferences: data.study_content_preferences,
+        content_difficulty_preference: data.content_difficulty_preference,
         podcast_tts_provider: data.podcast_tts_provider,
         podcast_openai_model: data.podcast_openai_model,
         podcast_fish_audio_endpoint: data.podcast_fish_audio_endpoint,
         podcast_voice_overrides: data.podcast_voice_overrides,
+        default_voice: data.default_voice,
+        speech_rate: data.speech_rate,
+        speech_pitch: data.speech_pitch,
+        speech_volume: data.speech_volume,
+        reading_mode: data.reading_mode,
+        default_podcast_style: data.default_podcast_style,
+        podcast_episode_duration_minutes: data.podcast_episode_duration_minutes,
+        podcast_content_structure: data.podcast_content_structure,
+        podcast_background_music: data.podcast_background_music,
+        podcast_intro_outro_enabled: data.podcast_intro_outro_enabled,
+        voice_input_language: data.voice_input_language,
+        voice_interrupt_enabled: data.voice_interrupt_enabled,
+        podcast_auto_play_next_episode: data.podcast_auto_play_next_episode,
         podcast_output_format: data.podcast_output_format,
         podcast_skip_review: data.podcast_skip_review,
         podcast_max_llm_tokens: data.podcast_max_llm_tokens,
@@ -861,19 +1131,13 @@ pub async fn test_api_connection(
         .as_ref()
         .map(|value| value.trim().trim_end_matches('/').to_string())
         .filter(|value| !value.is_empty());
-    let model = data
-        .model
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| default_test_model_for_provider(&provider));
 
     if auth_mode == "adc" {
         return Ok(ApiConnectionTestResultDto {
             success: false,
             message: match provider.as_str() {
-                "google" | "custom_google" => "Google ADC 模式的配置契约已接通，但本地宿主的实际 ADC 探测尚未在本轮实现。".to_string(),
-                _ => format!("provider \"{}\" 暂不支持 authMode=adc", provider),
+                "google" | "custom_google" => probe_google_adc_credentials().message,
+                _ => format!("provider \"{}\" ???? authMode=adc", provider),
             },
         });
     }
@@ -881,7 +1145,7 @@ pub async fn test_api_connection(
     if trimmed_api_key.is_empty() {
         return Ok(ApiConnectionTestResultDto {
             success: false,
-            message: "缺少 API Key。".to_string(),
+            message: "Missing API key.".to_string(),
         });
     }
 
@@ -894,7 +1158,7 @@ pub async fn test_api_connection(
         Err(e) => {
             return Ok(ApiConnectionTestResultDto {
                 success: false,
-                message: format!("无法创建 HTTP 客户端: {e}"),
+                message: format!("Unable to create HTTP client: {e}"),
             });
         }
     };
@@ -907,18 +1171,13 @@ pub async fn test_api_connection(
             else {
                 return Ok(ApiConnectionTestResultDto {
                     success: false,
-                    message: "该供应商需要提供 Base URL。".to_string(),
+                    message: "This provider requires a base URL.".to_string(),
                 });
             };
 
             client
-                .post(format!("{base_url}/chat/completions"))
+                .get(format!("{base_url}/models"))
                 .header("Authorization", format!("Bearer {trimmed_api_key}"))
-                .json(&serde_json::json!({
-                    "model": model,
-                    "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 1,
-                }))
                 .send()
                 .await
         }
@@ -929,19 +1188,14 @@ pub async fn test_api_connection(
             else {
                 return Ok(ApiConnectionTestResultDto {
                     success: false,
-                    message: "该供应商需要提供 Base URL。".to_string(),
+                    message: "This provider requires a base URL.".to_string(),
                 });
             };
 
             client
-                .post(format!("{base_url}/messages"))
+                .get(format!("{base_url}/models"))
                 .header("x-api-key", &trimmed_api_key)
-                .header("anthropic-version", "2023-06-01")
-                .json(&serde_json::json!({
-                    "model": model,
-                    "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 1,
-                }))
+                .header("anthropic-version", ANTHROPIC_VERSION_HEADER)
                 .send()
                 .await
         }
@@ -952,7 +1206,7 @@ pub async fn test_api_connection(
             else {
                 return Ok(ApiConnectionTestResultDto {
                     success: false,
-                    message: "该供应商需要提供 Base URL。".to_string(),
+                    message: "This provider requires a base URL.".to_string(),
                 });
             };
 
@@ -964,7 +1218,7 @@ pub async fn test_api_connection(
         other => {
             return Ok(ApiConnectionTestResultDto {
                 success: false,
-                message: format!("暂不支持 provider \"{other}\" 的自动连接校验"),
+                message: format!("Provider \"{other}\" is not supported for automatic validation."),
             });
         }
     };
@@ -976,53 +1230,65 @@ pub async fn test_api_connection(
             if status.is_success() || status.as_u16() == 200 {
                 let result = ApiConnectionTestResultDto {
                     success: true,
-                    message: format!("连接成功！响应耗时 {elapsed_ms}ms。"),
+                    message: success_message_for_provider(&provider, elapsed_ms),
                 };
-                (Some(("verified".to_string(), Some(chrono::Utc::now().to_rfc3339()))), result)
+                (
+                    Some((
+                        "verified".to_string(),
+                        Some(chrono::Utc::now().to_rfc3339()),
+                    )),
+                    result,
+                )
             } else if status.as_u16() == 401 || status.as_u16() == 403 {
                 let result = ApiConnectionTestResultDto {
                     success: false,
-                    message: format!("认证失败 (HTTP {status})。请检查 API Key 是否正确。"),
+                    message: format!("Authentication failed (HTTP {status}). Check whether the API key is valid."),
                 };
                 (Some(("invalid".to_string(), None)), result)
             } else {
                 let body_text = response.text().await.unwrap_or_default();
-                let detail = if body_text.len() > 200 {
-                    body_text[..200].to_string()
-                } else {
-                    body_text
-                };
+                let detail = truncate_response_detail(body_text);
                 let result = ApiConnectionTestResultDto {
                     success: false,
-                    message: format!("服务端返回 HTTP {status}: {detail}"),
+                    message: format!("Server returned HTTP {status}: {detail}"),
                 };
                 (None, result)
             }
         }
         Err(e) => {
             if e.is_timeout() {
-                (None, ApiConnectionTestResultDto {
-                    success: false,
-                    message: "连接超时（15秒）。请检查网络或 Base URL 是否正确。".to_string(),
-                })
+                (
+                    None,
+                    ApiConnectionTestResultDto {
+                        success: false,
+                        message:
+                            "Connection timed out after 15 seconds. Check the network or base URL."
+                                .to_string(),
+                    },
+                )
             } else if e.is_connect() {
-                (None, ApiConnectionTestResultDto {
-                    success: false,
-                    message: format!("无法连接到服务器: {e}"),
-                })
+                (
+                    None,
+                    ApiConnectionTestResultDto {
+                        success: false,
+                        message: format!("Unable to connect to the server: {e}"),
+                    },
+                )
             } else {
-                (None, ApiConnectionTestResultDto {
-                    success: false,
-                    message: format!("请求失败: {e}"),
-                })
+                (
+                    None,
+                    ApiConnectionTestResultDto {
+                        success: false,
+                        message: format!("Request failed: {e}"),
+                    },
+                )
             }
         }
     };
 
-    if let (Some(config_id), Some((key_status, key_verified_at))) = (
-        data.config_id.as_deref(),
-        outcome.0.as_ref(),
-    ) {
+    if let (Some(config_id), Some((key_status, key_verified_at))) =
+        (data.config_id.as_deref(), outcome.0.as_ref())
+    {
         let db = state.lock_db()?;
         let repo = SettingsRepository::new(&db);
         repo.update_api_key_status(config_id, key_status, key_verified_at.as_deref())?;
@@ -1038,13 +1304,15 @@ pub async fn fetch_provider_models(
     let provider = normalize_provider(&data.provider);
     let api_key = data.api_key.trim();
     if api_key.is_empty() {
-        return Err(CommandError::InvalidInput("缺少 API Key。".to_string()));
+        return Err(CommandError::InvalidInput("Missing API key.".to_string()));
     }
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
-        .map_err(|error| CommandError::Internal(format!("无法创建 HTTP 客户端: {error}")))?;
+        .map_err(|error| {
+            CommandError::Internal(format!("Unable to create HTTP client: {error}"))
+        })?;
 
     let normalized_base_url = data
         .base_url
@@ -1060,18 +1328,22 @@ pub async fn fetch_provider_models(
                 .clone()
                 .or_else(|| default_base_url_for_provider(&provider).map(str::to_string))
             else {
-                return Err(CommandError::InvalidInput("该供应商需要提供 Base URL。".to_string()));
+                return Err(CommandError::InvalidInput(
+                    "This provider requires a base URL.".to_string(),
+                ));
             };
             let response = client
                 .get(format!("{base_url}/models"))
                 .header("Authorization", format!("Bearer {api_key}"))
                 .send()
                 .await
-                .map_err(|error| CommandError::InvalidInput(format!("无法拉取模型列表: {error}")))?;
+                .map_err(|error| {
+                    CommandError::InvalidInput(format!("Unable to fetch model list: {error}"))
+                })?;
 
             if !response.status().is_success() {
                 return Err(CommandError::InvalidInput(format!(
-                    "模型接口返回 HTTP {}",
+                    "Model endpoint returned HTTP {}",
                     response.status()
                 )));
             }
@@ -1079,7 +1351,9 @@ pub async fn fetch_provider_models(
             let payload = response
                 .json::<serde_json::Value>()
                 .await
-                .map_err(|error| CommandError::InvalidInput(format!("无法解析模型列表: {error}")))?;
+                .map_err(|error| {
+                    CommandError::InvalidInput(format!("Unable to parse model list: {error}"))
+                })?;
             parse_openai_models(payload)
         }
         "google" | "custom_google" => {
@@ -1087,17 +1361,21 @@ pub async fn fetch_provider_models(
                 .clone()
                 .or_else(|| default_base_url_for_provider(&provider).map(str::to_string))
             else {
-                return Err(CommandError::InvalidInput("该供应商需要提供 Base URL。".to_string()));
+                return Err(CommandError::InvalidInput(
+                    "This provider requires a base URL.".to_string(),
+                ));
             };
             let response = client
                 .get(format!("{base_url}/models?key={api_key}"))
                 .send()
                 .await
-                .map_err(|error| CommandError::InvalidInput(format!("无法拉取模型列表: {error}")))?;
+                .map_err(|error| {
+                    CommandError::InvalidInput(format!("Unable to fetch model list: {error}"))
+                })?;
 
             if !response.status().is_success() {
                 return Err(CommandError::InvalidInput(format!(
-                    "模型接口返回 HTTP {}",
+                    "Model endpoint returned HTTP {}",
                     response.status()
                 )));
             }
@@ -1105,10 +1383,45 @@ pub async fn fetch_provider_models(
             let payload = response
                 .json::<serde_json::Value>()
                 .await
-                .map_err(|error| CommandError::InvalidInput(format!("无法解析模型列表: {error}")))?;
+                .map_err(|error| {
+                    CommandError::InvalidInput(format!("Unable to parse model list: {error}"))
+                })?;
             parse_google_models(payload)
         }
-        "anthropic" | "custom_anthropic" => Vec::new(),
+        "anthropic" | "custom_anthropic" => {
+            let Some(base_url) = normalized_base_url
+                .clone()
+                .or_else(|| default_base_url_for_provider(&provider).map(str::to_string))
+            else {
+                return Err(CommandError::InvalidInput(
+                    "This provider requires a base URL.".to_string(),
+                ));
+            };
+            let response = client
+                .get(format!("{base_url}/models"))
+                .header("x-api-key", api_key)
+                .header("anthropic-version", ANTHROPIC_VERSION_HEADER)
+                .send()
+                .await
+                .map_err(|error| {
+                    CommandError::InvalidInput(format!("Unable to fetch model list: {error}"))
+                })?;
+
+            if !response.status().is_success() {
+                return Err(CommandError::InvalidInput(format!(
+                    "Model endpoint returned HTTP {}",
+                    response.status()
+                )));
+            }
+
+            let payload = response
+                .json::<serde_json::Value>()
+                .await
+                .map_err(|error| {
+                    CommandError::InvalidInput(format!("Unable to parse model list: {error}"))
+                })?;
+            parse_anthropic_models(payload)
+        }
         _ => Vec::new(),
     };
 
@@ -1321,4 +1634,56 @@ pub fn set_active_embedding_profile(
         .ok_or(CommandError::NotFound)?;
     repo.mark_documents_embedding_stale()?;
     Ok(profile.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_anthropic_models_reads_id_and_display_name() {
+        let payload = serde_json::json!({
+            "data": [
+                {
+                    "id": "claude-sonnet-4-20250514",
+                    "display_name": "Claude Sonnet 4"
+                },
+                {
+                    "id": "claude-3-5-haiku-20241022"
+                }
+            ]
+        });
+
+        let models = parse_anthropic_models(payload);
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "claude-sonnet-4-20250514");
+        assert_eq!(models[0].display_name, "Claude Sonnet 4");
+        assert_eq!(models[1].display_name, "claude-3-5-haiku-20241022");
+    }
+
+    #[test]
+    fn validate_google_adc_payload_accepts_service_account_shape() {
+        let path = std::env::temp_dir().join(format!("xuejian-adc-{}.json", uuid::Uuid::new_v4()));
+        fs::write(
+            &path,
+            serde_json::json!({
+                "type": "service_account",
+                "client_email": "bot@example.com",
+                "private_key": "-----BEGIN PRIVATE KEY-----demo"
+            })
+            .to_string(),
+        )
+        .expect("write adc payload");
+
+        let result = validate_google_adc_payload(&path);
+        let _ = fs::remove_file(&path);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn workflow_types_include_card_animation() {
+        assert!(WORKFLOW_TYPES.contains(&"card_animation"));
+    }
 }

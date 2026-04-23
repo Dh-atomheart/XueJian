@@ -1,16 +1,21 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { TopBar } from '@/components/shell/TopBar'
+import { AppShell } from '@/components/shell/AppShell'
 import { AppFeedbackLayer } from '@/components/ui'
 import { useAppUiStore } from '@/store'
 
 vi.mock('@/queries', () => ({
+  hasUsableApiConfig: () => false,
   useDailyStatsQuery: () => ({
     data: {
       newCards: 0,
       reviewCards: 0,
     },
+  }),
+  useApiConfigsQuery: () => ({
+    data: [],
+    isLoading: false,
   }),
 }))
 
@@ -26,6 +31,7 @@ function createTestQueryClient() {
 function resetUiState() {
   useAppUiStore.setState({
     activeNavItem: 'home',
+    activeSettingsSection: 'ai',
     isContextRailOpen: true,
     feedbackLog: [],
     activeNotices: [],
@@ -36,7 +42,12 @@ function resetUiState() {
       totalPages: 1,
       scale: 1,
       selectedHighlightId: null,
+      hoveredHighlightId: null,
       selectedCardId: null,
+      annotationScope: 'page',
+      annotationFilterTags: [],
+      isLinkingMode: false,
+      linkingCardId: null,
     },
   })
 }
@@ -80,7 +91,7 @@ describe('app feedback layer', () => {
     )
   })
 
-  it('opens from the top bar, clears logs, and closes the drawer', () => {
+  it('opens from the app shell header, clears logs, and closes the drawer', () => {
     resetUiState()
     useAppUiStore.setState({
       feedbackLog: [
@@ -106,7 +117,9 @@ describe('app feedback layer', () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <>
-          <TopBar />
+          <AppShell>
+            <div>stub</div>
+          </AppShell>
           <AppFeedbackLayer />
         </>
       </QueryClientProvider>

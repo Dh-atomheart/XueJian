@@ -1,552 +1,337 @@
-# XueJian Card System Evaluation Framework
+# XueJian 卡片系统评估框架
 
-> Version: 1.0.0  
-> Last Updated: 2026-04-21  
-> Status: All Clear  
-> Owner: GitHub Copilot + Project Maintainer
-
----
-
-## 1. Purpose
-
-This document defines the single, executable evaluation framework for the XueJian card system.
-
-It serves four purposes:
-
-1. Turn the design in `docs/card-system-v2.md` into a measurable implementation contract.
-2. Score every phase and every feature point with consistent, repeatable rules.
-3. Define the automation and evidence collection required for each evaluation item.
-4. Drive code repair until the card system reaches the delivery gate defined in this document.
-
-This document is not only descriptive. It is intended to be used as an operational checklist and remediation ledger.
+> 版本：2.0.0  
+> 最后更新：2026-04-23  
+> 文档角色：卡片系统验收与整改框架  
+> 当前结论：门禁未通过，以 `xuejian/test-results/eval-report.json` 为当前真实基线
 
 ---
 
-## 2. Scope
+## 1. 目的与适用范围
 
-### 2.1 In Scope
+本文档只做三件事：
 
-- Card system design and implementation defined in `docs/card-system-v2.md`
-- Supporting MVP and post-MVP card workflows in:
-  - `xuejian/src/features/cards/`
-  - `xuejian/src/features/review/`
-  - `xuejian/src/components/cards/`
-  - `xuejian/src/queries/`
-  - `xuejian/src/services/`
-  - `xuejian/src/store/`
-  - `xuejian/src/types/`
-  - `xuejian/src-tauri/src/commands/`
-  - `xuejian/src-tauri/src/db/`
-  - `xuejian/src-tauri/src/migrations/`
-  - `xuejian/orchestration_service/`
-  - `xuejian/tests/`
+1. 将 `docs/card-system-v2.md` 转换为可执行验收项。
+2. 将当前失败项收敛为整改台账。
+3. 给出卡片系统当前是否通过门禁的真实结论。
 
-### 2.2 Out of Scope
+本文档不是历史庆功文档，也不是产品行为主规范。卡片系统行为、主线、页面职责、状态机、完成定义均由 `docs/card-system-v2.md` 定义。
 
-- Non-card product areas unless they directly affect card system correctness
-- Visual theme polish unrelated to card system behavior
-- Android migration planning
-- Future cloud sync or account systems
+本文档适用于以下范围：
+
+- `xuejian/src/features/cards/`
+- `xuejian/src/features/review/`
+- `xuejian/src/components/cards/`
+- `xuejian/src/queries/`
+- `xuejian/src/services/`
+- `xuejian/src/store/`
+- `xuejian/src/types/`
+- `xuejian/src-tauri/src/commands/`
+- `xuejian/src-tauri/src/db/`
+- `xuejian/src-tauri/src/migrations/`
+- `xuejian/orchestration_service/`
+- `xuejian/tests/`
+- `xuejian/scripts/eval/`
 
 ---
 
-## 3. Primary Baseline
+## 2. 与主规范的关系
 
-### 3.1 Source of Truth Priority
+### 2.1 权威关系
 
-Evaluation uses the following priority order:
+- `docs/card-system-v2.md`：卡片系统唯一开发规范
+- 本文档：卡片系统验收与整改框架
+- `docs/agent-driven-document-to-card-workflow.md`：候选生成链路专题补充
+
+### 2.2 冲突处理规则
+
+- 若评估项与主规范冲突，以主规范为准，并先修订本文档。
+- 若脚本行为与本文档冲突，以本文档为目标口径修订脚本。
+- 若历史运行记录与当前基线冲突，以当前基线为准，历史记录仅保留为历史事实。
+
+### 2.3 评估基线优先级
+
+当前评估使用以下优先级：
 
 1. `docs/card-system-v2.md`
-2. `docs/spec.md`
-3. Actual code behavior in the repository
-4. External comparison targets such as Anki and RemNote, only as secondary context
-
-### 3.2 Interpretation Rule
-
-If design documentation and implementation differ, the feature is evaluated against the documentation first.
-
-If documentation is ambiguous, evaluation falls back to the stricter interpretation that best preserves:
-
-- end-to-end card workflow correctness
-- local-first behavior
-- type-safe IPC boundaries
-- recoverable user workflow
+2. `xuejian/test-results/eval-report.json`
+3. 仓库当前代码与测试行为
+4. 本文档中的历史运行记录
 
 ---
 
-## 4. Scoring Model
+## 3. 当前基线快照
 
-### 4.1 Feature-Level Formula
+当前基线来自 2026-04-23 执行 `npm run eval:cards` 生成的报告。
 
-Every feature point receives three sub-scores on a 1-10 scale.
+### 3.1 当前门禁结论
 
-$$
-FeatureScore = F \times 0.5 + T \times 0.25 + UX \times 0.25
-$$
+- `deliveryGatePassed = false`
+- `phase0to5Average = 9.4`
+- `branch = master`
+- `hasUncommittedChanges = true`
 
-Where:
+### 3.2 当前检查结果
 
-- `F` = Functional correctness and completeness
-- `T` = Testability and coverage
-- `UX` = Workflow completeness and user-facing behavior
+| 检查项 | 当前状态 | 备注 |
+| --- | --- | --- |
+| Structure | failed | 15/17，通过率受脚本漂移影响 |
+| Frontend Build | passed | `tsconfig.card-eval.json` 通过 |
+| Rust Check | passed | `cargo check` 通过，存在 warnings |
+| Vitest | passed | 11 个目标文件，36 个测试通过 |
+| Cargo Test | failed | 1 个 Rust 测试失败 |
+| Playwright | failed | 4 条场景失败 |
 
-### 4.2 Sub-Score Definitions
+### 3.3 当前分数
 
-| Dimension | Meaning                                              | Questions to ask                                                                          |
-| --------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| F         | Does the feature exist and behave according to spec? | Is the code path implemented? Does it work on the happy path? Are boundary cases handled? |
-| T         | Can the feature be trusted not to regress?           | Is there unit/integration/E2E coverage? Is the contract validated automatically?          |
-| UX        | Can the user actually use this feature end to end?   | Are loading, success, failure, empty states, and interaction feedback present?            |
+| 分项 | 当前分数 |
+| --- | --- |
+| Phase 0 | 8.5 |
+| Phase 1 | 10 |
+| Phase 2 | 10 |
+| Phase 3 | 10 |
+| Phase 4 | 8 |
+| Phase 5 | 10 |
+| Cross Architecture | 8 |
+| Cross IPC | 10 |
+| Cross Engineering | 6.5 |
 
-### 4.3 Integer Scale Rubric
+### 3.4 当前阻塞项摘要
 
-| Score | Meaning                                                        |
-| ----- | -------------------------------------------------------------- |
-| 10    | Fully implemented, verified, and production-ready              |
-| 9     | Complete with only trivial non-blocking issues                 |
-| 8     | Strong implementation with minor gaps                          |
-| 7     | Mostly complete but still has meaningful gaps                  |
-| 6     | Partially complete, not yet reliable for delivery              |
-| 5     | Rough implementation exists but major confidence issues remain |
-| 4     | Skeleton is present, critical behavior missing                 |
-| 3     | Early scaffold only                                            |
-| 2     | Placeholder or heavily incomplete                              |
-| 1     | Not implemented                                                |
+当前门禁失败至少由以下三类因素触发：
 
-### 4.4 Aggregation Rules
-
-- A phase score is the arithmetic mean of all its feature scores.
-- A module score is the arithmetic mean of its child feature scores.
-- Cross-cutting scores are reported separately and do not replace phase scores.
-- No hard fail override is used. Aggregation remains additive.
-
-### 4.5 Delivery Gate
-
-The card system is considered to have passed this framework only when all of the following are true:
-
-1. Phase 0-5 weighted average is greater than or equal to 8.0.
-2. The happy-path study flow is verified end to end.
-3. TypeScript type checking passes.
-4. Rust checking and tests pass.
-5. Targeted frontend tests for core card pages and renderers pass.
-6. No unresolved P0 or P1 card-system defects remain in this document.
+1. 真实实现缺陷
+2. 评估脚本漂移
+3. E2E 契约漂移
 
 ---
 
-## 5. Evidence Policy
+## 4. 门禁定义
 
-Each evaluation item must have at least one evidence source.
+### 4.1 Gating 条件
 
-### 5.1 Allowed Evidence Types
+当前卡片系统只有在以下条件全部满足时，才算通过门禁：
 
-- Static code inspection
-- Automated tests
-- Type checks
-- Rust checks and tests
-- Browser-based manual or automated verification
-- Database or migration inspection
-- IPC contract validation
+1. `deliveryGatePassed = true`
+2. `check-structure.mjs` 不包含阻塞级失败项
+3. `check-types.mjs` 全部通过
+4. `check-tests.mjs` 中 card-system gating tests 全部通过
+5. `check-e2e.mjs` 中当前 UI 对应的 card-system gating 场景全部通过
+6. 本文档“当前失败项与归因”中不存在未关闭的阻塞级问题
 
-### 5.2 Evidence Confidence Levels
+### 4.2 非阻塞观察项
 
-| Level | Evidence                                             |
-| ----- | ---------------------------------------------------- |
-| A     | Automated passing test or type check                 |
-| B     | Direct code path inspection with strong traceability |
-| C     | Manual UI validation only                            |
+以下内容可以作为观察项，不自动等同于门禁失败，除非被升级：
 
-Rules:
+- 非卡片系统范围的仓库健康警告
+- pre-existing dead code warnings
+- 不影响当前卡片主线的历史遗留问题
+- 仅影响统计质量、不影响正确性的日志问题
 
-- `T` cannot exceed 5 without Level A evidence.
-- `F` cannot exceed 8 if only Level C evidence exists.
-- `UX` cannot exceed 8 if error or empty states are unverified.
+### 4.3 禁止掩盖失败
 
----
+以下做法不允许：
 
-## 6. Evaluation Execution Pipeline
-
-The evaluation process for this repository is executed in the following order:
-
-1. Document baseline and scope confirmation
-2. Structural checks
-3. Type checks
-4. Unit and integration test execution
-5. E2E and workflow validation
-6. Score calculation
-7. Defect logging and repair
-8. Re-run until delivery gate passes
+- 用高平均分掩盖 gating failure
+- 用历史成功快照覆盖当前失败
+- 通过弱化脚本检查来“制造通过”
+- 把脚本误报和真实缺陷混为一类
 
 ---
 
-## 7. Automation Architecture
+## 5. 评估执行流程
 
-The evaluation automation for the `xuejian` workspace must provide the following scripts.
+标准执行流程如下：
 
-### 7.1 Required Scripts
+1. 读取主规范，确认当前主线与页面职责。
+2. 运行结构检查。
+3. 运行类型检查。
+4. 运行 targeted tests。
+5. 运行 card-system E2E。
+6. 生成报告。
+7. 将失败项分类为真实缺陷、脚本漂移、文档漂移。
+8. 按修复优先级整改并复跑。
 
-| Script                                     | Purpose                                                      |
-| ------------------------------------------ | ------------------------------------------------------------ |
-| `xuejian/scripts/eval/check-structure.mjs` | Verify file existence, symbol presence, and expected exports |
-| `xuejian/scripts/eval/check-types.mjs`     | Run targeted card-system TypeScript checks and `cargo check` |
-| `xuejian/scripts/eval/check-tests.mjs`     | Run targeted Vitest and `cargo test`                         |
-| `xuejian/scripts/eval/check-e2e.mjs`       | Run happy-path card-system E2E validation                    |
-| `xuejian/scripts/eval/run-eval.mjs`        | Compose all steps and generate machine-readable reports      |
+### 5.1 脚本职责
 
-### 7.2 Entry Command
+| 脚本 | 当前职责 |
+| --- | --- |
+| `xuejian/scripts/eval/check-structure.mjs` | 检查文件、导出、关键契约存在性 |
+| `xuejian/scripts/eval/check-types.mjs` | 检查 TypeScript 和 Rust 基础构建 |
+| `xuejian/scripts/eval/check-tests.mjs` | 执行 targeted Vitest 与 Rust tests |
+| `xuejian/scripts/eval/check-e2e.mjs` | 执行 card-system 场景的 Playwright 验证 |
+| `xuejian/scripts/eval/run-eval.mjs` | 汇总结果并生成报告 |
 
-- `npm run eval:cards`
+### 5.2 报告输出
 
-### 7.3 Required Outputs
-
-The evaluation pipeline must generate:
+当前必须生成：
 
 - `xuejian/test-results/eval-report.json`
 - `xuejian/test-results/eval-report.md`
 
-### 7.4 JSON Report Shape
+后续报告应补充以下结构化字段：
 
-```json
-{
-  "timestamp": "2026-04-21T00:00:00.000Z",
-  "git": {
-    "branch": "main",
-    "hasUncommittedChanges": true
-  },
-  "checks": {
-    "structure": {
-      "passed": true,
-      "summary": { "passed": 17, "failed": 0, "total": 17 }
-    },
-    "types": {
-      "passed": true,
-      "frontendBuild": { "passed": true, "exitCode": 0 },
-      "rustCheck": { "passed": true, "exitCode": 0 }
-    },
-    "tests": {
-      "passed": true,
-      "vitest": { "passed": true, "passedCount": 35, "failedCount": 0 },
-      "cargoTest": { "passed": true, "passedCount": 12, "failedCount": 0 }
-    },
-    "e2e": {
-      "passed": true,
-      "playwright": { "passed": true, "passedCount": 2, "failedCount": 0 }
-    }
-  },
-  "scores": {
-    "phase0": 10,
-    "phase1": 10,
-    "phase2": 10,
-    "phase3": 10,
-    "phase4": 10,
-    "phase5": 10,
-    "phase6": null,
-    "phase7": null,
-    "phase8": null,
-    "phase9": null,
-    "crossArchitecture": 10,
-    "crossIpc": 10,
-    "crossEngineering": 10,
-    "phase0to5Average": 10,
-    "deliveryGatePassed": true
-  },
-  "defects": []
-}
-```
+- `gatingFailures`
+- `scriptDriftFindings`
+- `repoHealthWarnings`
+- `baselineMode`
 
 ---
 
-## 8. Phase Map
+## 6. 评估矩阵
 
-| Phase | Title                     | Goal                                                      |
-| ----- | ------------------------- | --------------------------------------------------------- |
-| P0    | Real API Integration      | Replace mock card flows with real SQLite-backed workflows |
-| P1    | Markdown and KaTeX        | Rich rendering and math support                           |
-| P2    | Card Editor               | Manual create and edit card workflows                     |
-| P3    | Choice Cards              | Full `choice` card type support                           |
-| P4    | Media Support             | Image, media, APKG import/export support                  |
-| P5    | AI Generation Enhancement | Multi-type AI generation quality                          |
-| P6    | Knowledge QA              | Retrieval-backed card-adjacent QA                         |
-| P7    | Animation                 | Card-linked animation workflows                           |
-| P8    | Podcast                   | Card-linked podcast workflows                             |
-| P9    | Knowledge Graph           | Graph-backed knowledge structuring                        |
+本节只保留当前主规范要求的核心矩阵，不再把 P6-P9 路线图内容混入核心门禁。
 
----
+### 6.1 P0 输入就绪与候选生成前置条件
 
-## 9. Detailed Evaluation Matrix
+| ID | 验收项 | 通过定义 | 当前状态 |
+| --- | --- | --- | --- |
+| P0-01 | 文档可进入候选生成前置状态 | `ready` 状态链路存在且可被消费 | In Review |
+| P0-02 | `CardStudioPage` 面向就绪文档启动候选生成 | 页面职责与主规范一致 | Failed |
+| P0-03 | 候选链路可记录 workflow 事件与检查点 | 工作流元数据可查询 | In Review |
 
-This section defines the detailed feature checklist. Every item is scored independently.
+### 6.2 P1 候选生成与工作流恢复
 
-### 9.1 Phase 0 - Real API Integration
+| ID | 验收项 | 通过定义 | 当前状态 |
+| --- | --- | --- | --- |
+| P1-01 | 候选生成命令与契约存在 | gateway / command / schema 对齐 | Passed |
+| P1-02 | 候选批次可恢复 | checkpoint 与 resume 能力存在 | In Review |
+| P1-03 | AI 生成契约覆盖 `qa/cloze/fact/choice` | schema 与 prompt 对齐 | Passed |
 
-| ID    | Feature                                                    | Primary Files                                                   | Required Evidence          | Pass Definition                                    | Status |
-| ----- | ---------------------------------------------------------- | --------------------------------------------------------------- | -------------------------- | -------------------------------------------------- | ------ |
-| P0-01 | Card list loads from real query instead of mock state      | `src/features/cards/CardStudioPage.tsx`, `src/queries/cards.ts` | code inspection, page test | page renders query-backed cards                    | Passed |
-| P0-02 | Review page loads due cards from real query                | `src/features/review/ReviewPage.tsx`, `src/queries/learning.ts` | code inspection, page test | due cards drive session queue                      | Passed |
-| P0-03 | Card state labels align with FSRS states                   | `src/features/cards/CardStudioPage.tsx`                         | code inspection, page test | `new/learning/review/relearning` handled correctly | Passed |
-| P0-04 | Search filters front and back content                      | `src/features/cards/CardStudioPage.tsx`                         | page test                  | search is case-insensitive and correct             | Passed |
-| P0-05 | Status filter works across all states                      | `src/features/cards/CardStudioPage.tsx`                         | page test                  | filter matches state field                         | Passed |
-| P0-06 | Grid and list view toggle works                            | `src/features/cards/CardStudioPage.tsx`                         | page test                  | view changes without regression                    | Passed |
-| P0-07 | Card flip state is maintained client-side                  | `src/features/cards/CardStudioPage.tsx`                         | page test                  | individual cards flip correctly                    | Passed |
-| P0-08 | Review phases intro, studying, complete work               | `src/features/review/ReviewPage.tsx`                            | page test                  | session transitions are correct                    | Passed |
-| P0-09 | Keyboard shortcuts work and are gated during pending state | `src/features/review/ReviewPage.tsx`                            | page test                  | Space and 1-4 behave correctly                     | Passed |
-| P0-10 | Completion summary aggregates review ratings               | `src/features/review/ReviewPage.tsx`                            | page test                  | summary counts again/hard/good/easy                | Passed |
+### 6.3 P2 候选审核与人工确认
 
-### 9.2 Phase 1 - Markdown and KaTeX
+| ID | 验收项 | 通过定义 | 当前状态 |
+| --- | --- | --- | --- |
+| P2-01 | 候选可接受、拒绝和批量处理 | UI + gateway + persistence 闭环存在 | In Review |
+| P2-02 | 候选可编辑 | 编辑路径与持久化路径一致 | In Review |
+| P2-03 | `CardStudioPage` 与测试口径一致 | 结构检查与单测不依赖旧页面叙事 | Failed |
 
-| ID    | Feature                                              | Primary Files                                                                     | Required Evidence         | Pass Definition                   | Status |
-| ----- | ---------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------- | --------------------------------- | ------ |
-| P1-01 | Markdown renderer supports headings, emphasis, lists | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | HTML output is correct            | Passed |
-| P1-02 | Markdown renderer supports code blocks               | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | fenced blocks render safely       | Passed |
-| P1-03 | Markdown renderer supports tables                    | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | GFM table renders correctly       | Passed |
-| P1-04 | Inline math renders via KaTeX                        | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | inline math visible and parsed    | Passed |
-| P1-05 | Block math renders via KaTeX                         | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | block math visible and parsed     | Passed |
-| P1-06 | Compact mode preserves usable truncation             | `src/components/cards/CardContentRenderer.tsx`                                    | renderer test             | compact cards do not break layout | Passed |
-| P1-07 | Cloze parser extracts all indices                    | `src/components/cards/ClozeCardContent.tsx`                                       | component test            | all `cN` groups are discovered    | Passed |
-| P1-08 | Cloze hidden form uses hint or placeholder correctly | `src/components/cards/ClozeCardContent.tsx`                                       | component test            | masked rendering is correct       | Passed |
-| P1-09 | Cloze reveal toggles independently per index         | `src/components/cards/ClozeCardContent.tsx`                                       | component test            | one reveal does not leak another  | Passed |
-| P1-10 | Review reveal exposes all clozes on flip             | `src/components/cards/ClozeCardContent.tsx`, `src/features/review/ReviewPage.tsx` | component test, page test | reveal-all works in review mode   | Passed |
+### 6.4 P3 正式卡片模型、落库与编辑
 
-### 9.3 Phase 2 - Card Editor
+| ID | 验收项 | 通过定义 | 当前状态 |
+| --- | --- | --- | --- |
+| P3-01 | `cards` 契约与 DTO/Zod 对齐 | 无字段漂移 | Passed |
+| P3-02 | accepted candidates 可物化为 `cards` | 最终入库路径存在 | In Review |
+| P3-03 | `CardEditorModal` 支持正式卡片字段编辑 | front/back/tags/type 基础能力可用 | Passed |
 
-| ID    | Feature                                          | Primary Files                                                                       | Required Evidence | Pass Definition                       | Status |
-| ----- | ------------------------------------------------ | ----------------------------------------------------------------------------------- | ----------------- | ------------------------------------- | ------ |
-| P2-01 | Editor opens from card studio                    | `src/features/cards/CardStudioPage.tsx`, `src/components/cards/CardEditorModal.tsx` | page test         | modal opens reliably                  | Passed |
-| P2-02 | Front/back editing tabs preserve state           | `src/components/cards/CardEditorModal.tsx`                                          | component test    | switching tabs does not lose content  | Passed |
-| P2-03 | Card type selector supports qa/cloze/fact/choice | `src/components/cards/CardEditorModal.tsx`                                          | component test    | all four options work                 | Passed |
-| P2-04 | Live markdown preview is functional              | `src/components/cards/CardEditorModal.tsx`                                          | component test    | preview updates correctly             | Passed |
-| P2-05 | Tag parsing trims and filters empty values       | `src/components/cards/CardEditorModal.tsx`                                          | component test    | output tags are clean                 | Passed |
-| P2-06 | Save validation blocks empty front/back          | `src/components/cards/CardEditorModal.tsx`                                          | component test    | invalid data cannot submit            | Passed |
-| P2-07 | Create mutation invalidates card queries         | `src/queries/cards.ts`                                                              | unit test         | cards list refreshes after save       | Passed |
-| P2-08 | Edit existing card workflow is functional        | `src/features/cards/CardStudioPage.tsx`, `src/components/cards/CardEditorModal.tsx` | page test         | existing card can be edited correctly | Passed |
+### 6.5 P4 复习渲染与 FSRS 调度
 
-### 9.4 Phase 3 - Choice Cards
+| ID | 验收项 | 通过定义 | 当前状态 |
+| --- | --- | --- | --- |
+| P4-01 | `ReviewPage` 读取 due cards | 会话由真实数据驱动 | Passed |
+| P4-02 | `qa/cloze/fact/choice/image_occlusion` 路由正确 | 类型渲染符合主规范 | Passed |
+| P4-03 | 评分写回调度和复习日志 | 调度字段与日志链路完整 | In Review |
+| P4-04 | Review E2E 场景通过 | 当前 UI 契约下的 happy-path 可通过 | Failed |
 
-| ID    | Feature                                                  | Primary Files                                                                                       | Required Evidence                       | Pass Definition                               | Status |
-| ----- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------- | ------ |
-| P3-01 | Card type includes `choice` at TS level                  | `src/types/document.ts`, `src/types/schema.ts`                                                      | schema test                             | choice is part of contract                    | Passed |
-| P3-02 | Rust DTO includes required fields for modern card schema | `src-tauri/src/commands/cards.rs`                                                                   | code inspection, rust test              | DTO matches schema contract                   | Passed |
-| P3-03 | Choice format parser supports prompt and options         | `src/components/cards/ChoiceCardContent.tsx`                                                        | component test                          | prompt and options parsed correctly           | Passed |
-| P3-04 | Correct option marking is respected                      | `src/components/cards/ChoiceCardContent.tsx`                                                        | component test                          | marked answer is correct                      | Passed |
-| P3-05 | Invalid choice format falls back safely                  | `src/components/cards/ChoiceCardContent.tsx`                                                        | component test                          | malformed input degrades gracefully           | Passed |
-| P3-06 | User selection gives immediate feedback                  | `src/components/cards/ChoiceCardContent.tsx`                                                        | component test                          | correct and incorrect states render correctly | Passed |
-| P3-07 | Review mode reveals correct choice and explanation       | `src/components/cards/ChoiceCardContent.tsx`, `src/features/review/ReviewPage.tsx`                  | component test, page test               | reveal behavior is correct                    | Passed |
-| P3-08 | AI generation schema accepts choice cards                | `orchestration_service/workflows/card_generation.py`, `orchestration_service/schemas/card_draft.py` | code inspection, python validation path | choice cards flow through generation contract | Passed |
+### 6.6 P5 媒体、导入导出与增强能力
 
-### 9.5 Phase 4 - Media Support
-
-| ID    | Feature                                                       | Primary Files                                                                          | Required Evidence                  | Pass Definition                                   | Status |
-| ----- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------- | ------ |
-| P4-01 | Migration V12 exists and is valid                             | `src-tauri/src/migrations/V12__card_media.sql`                                         | migration inspection, cargo test   | media table is present and queryable              | Passed |
-| P4-02 | Rust supports upload card media command                       | `src-tauri/src/commands/cards.rs`                                                      | rust check, command inspection     | upload command compiles and stores metadata       | Passed |
-| P4-03 | Rust supports list card media command                         | `src-tauri/src/commands/cards.rs`                                                      | rust check, command inspection     | media can be listed per card                      | Passed |
-| P4-04 | Rust supports delete card media command                       | `src-tauri/src/commands/cards.rs`                                                      | rust check, command inspection     | media delete removes record and file              | Passed |
-| P4-05 | Tauri asset scope includes media storage                      | `src-tauri/tauri.conf.json`                                                            | config inspection                  | media assets are accessible safely                | Passed |
-| P4-06 | Frontend gateway exposes media commands                       | `src/services/gateway/cards.ts`, `src/types/document.ts`                               | unit test                          | media command typing is correct                   | Passed |
-| P4-07 | APKG import command exists and works end-to-end               | `src-tauri/src/commands/cards.rs`, `orchestration_service/exports/apkg_importer.py`    | integration path validation        | import is callable and returns usable result      | Passed |
-| P4-08 | APKG export command exists and works end-to-end               | `src-tauri/src/commands/cards.rs`, `orchestration_service/exports/genanki_exporter.py` | integration path validation        | export flow is callable and returns usable result | Passed |
-| P4-09 | Card studio exposes APKG import/export and CSV export actions | `src/features/cards/CardStudioPage.tsx`                                                | page test                          | buttons render and trigger handlers               | Passed |
-| P4-10 | Card editor supports media upload UI                          | `src/components/cards/CardEditorModal.tsx`                                             | component test, browser validation | user can attach media from UI                     | Passed |
-| P4-11 | Image occlusion frontend renderer exists                      | `src/components/cards/ImageOcclusionCardContent.tsx`                                   | component test                     | image occlusion cards are usable                  | Passed |
-
-### 9.6 Phase 5 - AI Generation Enhancement
-
-| ID    | Feature                                                 | Primary Files                                        | Required Evidence              | Pass Definition                      | Status |
-| ----- | ------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------ | ------ |
-| P5-01 | System prompt describes multi-type generation           | `orchestration_service/workflows/card_generation.py` | code inspection                | prompt includes qa/cloze/fact/choice | Passed |
-| P5-02 | Generated card schema accepts choice type               | `orchestration_service/schemas/card_draft.py`        | code inspection                | schema validates choice              | Passed |
-| P5-03 | `from_llm_json` normalizes choice type correctly        | `orchestration_service/schemas/card_draft.py`        | code inspection, python path   | choice survives parsing              | Passed |
-| P5-04 | Candidate status flow persists correctly                | frontend + rust + db path                            | test or inspection             | pending/accepted/rejected works      | Passed |
-| P5-05 | Finalize generation path creates real cards             | frontend + rust + db path                            | integration validation         | accepted candidates become cards     | Passed |
-| P5-06 | Dedupe path prevents duplicate imported/generated cards | rust + python + db                                   | unit or integration validation | duplicate detection works            | Passed |
-
-### 9.7 Phase 6 - Knowledge QA
-
-| ID    | Feature                                               | Primary Files                                     | Required Evidence      | Pass Definition                  | Initial Status |
-| ----- | ----------------------------------------------------- | ------------------------------------------------- | ---------------------- | -------------------------------- | -------------- |
-| P6-01 | Workflow file exists with non-placeholder logic       | `orchestration_service/workflows/knowledge_qa.py` | code inspection        | no longer skeleton-only          | Pending        |
-| P6-02 | Retrieval path is connected to document/card evidence | QA-related files                                  | integration validation | answer cites retrievable content | Pending        |
-
-### 9.8 Phase 7 - Animation
-
-| ID    | Feature                                       | Primary Files                                       | Required Evidence      | Pass Definition                 | Initial Status |
-| ----- | --------------------------------------------- | --------------------------------------------------- | ---------------------- | ------------------------------- | -------------- |
-| P7-01 | Animation workflow is executable              | `orchestration_service/workflows/card_animation.py` | integration validation | task runs beyond scaffold       | Pending        |
-| P7-02 | Frontend animation preview consumes real data | `src/components/cards/AnimationRenderer.tsx`        | UI test                | preview works with live payload | Pending        |
-
-### 9.9 Phase 8 - Podcast
-
-| ID    | Feature                                       | Primary Files                                | Required Evidence      | Pass Definition           | Initial Status |
-| ----- | --------------------------------------------- | -------------------------------------------- | ---------------------- | ------------------------- | -------------- |
-| P8-01 | Podcast workflow is executable                | `orchestration_service/workflows/podcast.py` | integration validation | task runs beyond scaffold | Pending        |
-| P8-02 | Frontend podcast UI consumes generated result | podcast-related frontend files               | UI test                | playable result exists    | Pending        |
-
-### 9.10 Phase 9 - Knowledge Graph
-
-| ID    | Feature                                      | Primary Files                                        | Required Evidence      | Pass Definition                       | Initial Status |
-| ----- | -------------------------------------------- | ---------------------------------------------------- | ---------------------- | ------------------------------------- | -------------- |
-| P9-01 | Knowledge graph workflow is executable       | `orchestration_service/workflows/knowledge_graph.py` | integration validation | graph extraction runs beyond scaffold | Pending        |
-| P9-02 | Frontend graph view consumes real graph data | graph-related frontend files                         | UI test                | graph view is usable                  | Pending        |
+| ID | 验收项 | 通过定义 | 当前状态 |
+| --- | --- | --- | --- |
+| P5-01 | `card_media` 迁移与命令存在 | upload/list/delete 结构可见 | Passed |
+| P5-02 | APKG 导入导出链路存在 | import/export 命令与脚本存在 | Passed |
+| P5-03 | 增强能力与 UI 契约一致 | 文档、脚本、UI 口径一致 | In Review |
 
 ---
 
-## 10. Cross-Cutting Evaluation
+## 7. 当前失败项与归因
 
-### 10.1 Architecture Consistency
+本节只记录当前真实基线下的失败项，并明确分类。
 
-| ID       | Feature                                       | Pass Definition                   | Status |
-| -------- | --------------------------------------------- | --------------------------------- | ------ |
-| X-ARC-01 | Rust DTO and TS Zod schemas are aligned       | no missing required fields        | Passed |
-| X-ARC-02 | Migrations are sequential and complete        | V1-V12 are present and applicable | Passed |
-| X-ARC-03 | New card types require minimal change surface | extensibility path remains intact | Passed |
-| X-ARC-04 | Design doc matches implementation claims      | no false “done” statements remain | Passed |
+### 7.1 真实实现缺陷
 
-### 10.2 IPC and Safety
+1. `cargo test` 失败  
+   - 用例：`db::card_repo::tests::highlight_crud_roundtrip`  
+   - 现象：`table highlights has no column named note`  
+   - 归因：数据库 schema / repository / test 之间存在真实不一致  
+   - 影响：阻塞 gating
 
-| ID       | Feature                                             | Pass Definition                           | Status |
-| -------- | --------------------------------------------------- | ----------------------------------------- | ------ |
-| X-IPC-01 | Gateway contracts are typed                         | all card gateway calls are typed          | Passed |
-| X-IPC-02 | Schema validation exists at boundary where intended | unsafe unvalidated payloads are minimized | Passed |
-| X-IPC-03 | Error handling surfaces actionable failures         | failures do not silently disappear        | Passed |
+### 7.2 评估脚本漂移
 
-### 10.3 Engineering Quality
+1. `check-structure.mjs` 仍使用旧的 `CardStudioPage` 编辑流模式检查  
+   - 失败项：`card-studio-edit-flow`
+   - 归因：脚本仍假定 `CardStudioPage` 是正式卡片编辑页
+   - 影响：造成结构检查误报，阻塞 gating
 
-| ID       | Feature                                      | Pass Definition                            | Status |
-| -------- | -------------------------------------------- | ------------------------------------------ | ------ |
-| X-ENG-01 | TypeScript build passes                      | zero blocking TS errors                    | Passed |
-| X-ENG-02 | Rust check passes                            | zero blocking Rust errors                  | Passed |
-| X-ENG-03 | Rust tests pass                              | test suite green                           | Passed |
-| X-ENG-04 | Targeted Vitest suite for card system passes | targeted suite green                       | Passed |
-| X-ENG-05 | Core feature pages have direct tests         | CardStudioPage and ReviewPage covered      | Passed |
-| X-ENG-06 | Core renderers have direct tests             | CardContentRenderer, Cloze, Choice covered | Passed |
+2. `check-structure.mjs` 仍依赖旧测试标题  
+   - 失败项：`unit-test-card-studio`
+   - 归因：脚本检查 `creates a card through the editor modal`，但当前测试文件已改写
+   - 影响：造成结构检查误报，阻塞 gating
 
-### 10.4 External Comparison Snapshot
+### 7.3 E2E 契约漂移
 
-This is an auxiliary, non-gating section.
+1. Playwright 4 条场景全部失败  
+   - 现象：`card-studio-page`、`library-page` 等 testid 不匹配，`ReviewPage` 文案契约也与测试不一致
+   - 归因：测试脚本与当前 UI 契约失配
+   - 影响：阻塞 gating
 
-| Capability               | XueJian Target  | External Benchmark   | Importance |
-| ------------------------ | --------------- | -------------------- | ---------- |
-| FSRS scheduling          | Present         | Anki                 | High       |
-| Rich markdown and math   | Present         | RemNote, Anki        | High       |
-| Image occlusion          | Planned or done | Anki                 | Medium     |
-| AI card generation       | Present         | Better than baseline | High       |
-| Document-linked learning | Present         | Better than baseline | High       |
+### 7.4 文档漂移
+
+1. 旧版 `docs/card-system-v2.md` 曾将 `CardStudioPage` 错误描述为正式卡片列表页。
+2. 旧版评估框架曾保留“Status: All Clear”和“最终通过”叙事，不再符合当前状态。
 
 ---
 
-## 11. Current Baseline Snapshot
+## 8. 修复工作流
 
-This section is updated during execution.
+每个失败项统一按以下生命周期处理：
 
-### 11.1 Baseline Observations Before Repair
+1. 重现
+2. 归因
+3. 分类
+4. 最小正确修复
+5. 补充或更新测试
+6. 复跑受影响评估片段
+7. 更新本文档中的当前状态
 
-- No dedicated evaluation document existed before this file.
-- No dedicated evaluation automation existed before this file.
-- Core card-system pages are under-tested.
-- Card media and APKG support have code in progress in the working tree.
-- `docs/card-system-v2.md` currently overstates completion for some areas that still need verification.
+### 8.1 当前优先级
 
-### 11.2 Initial Risk Areas
+当前建议优先级如下：
 
-1. CardStudioPage functionality exists but lacks direct test coverage.
-2. ReviewPage functionality exists but lacks direct test coverage.
-3. Card renderers lack direct regression tests.
-4. Media support claims need structural and runtime verification.
-5. Image-occlusion UI remains unverified and likely incomplete.
+1. 修复真实实现缺陷：`highlight_crud_roundtrip`
+2. 修复评估脚本漂移：结构检查与测试标题依赖
+3. 修复 E2E 契约漂移：当前 UI 对应的 testid / 场景
+4. 扩展报告字段：将 gating failures 与脚本漂移显式分离
 
-### 11.3 Final Verified State
+### 8.2 脚本修订要求
 
-- The card edit workflow is now a real update path from React Query through Tauri Rust persistence.
-- Image occlusion cards now have a dedicated renderer and are usable in both card studio and review flow.
-- Card editor media upload, APKG import/export actions, and CSV export actions are covered by structural and workflow evaluation.
-- The final evaluation run generated `xuejian/test-results/eval-report.json` and `xuejian/test-results/eval-report.md` with `deliveryGatePassed: true`.
-- Final green run snapshot: 17 structural checks passed, targeted TypeScript checks passed, `cargo check` passed, 35 targeted Vitest tests passed, 12 Rust tests passed, and 2 Playwright scenarios passed.
-- Phase 6-9 items remain roadmap evaluation items and are outside the current delivery gate defined in Section 4.5.
+后续脚本整改必须满足以下规则：
 
----
-
-## 12. Repair Workflow
-
-Every failing item follows the same lifecycle.
-
-1. Reproduce the failure.
-2. Identify root cause.
-3. Implement the smallest correct fix.
-4. Add or update tests.
-5. Re-run the affected evaluation slice.
-6. Update this document with final status.
-
-Repair rules:
-
-- Prefer root-cause fixes over superficial guards.
-- Do not “pass” an item by weakening tests without justification.
-- Do not mark a feature complete if only static code exists without usable workflow.
+- `check-structure.mjs`
+  - 只检查当前主规范要求的能力
+  - 不再依赖旧页面职责
+  - 避免脆弱字符串匹配，优先使用文件、导出、testid、命令名、schema 值
+- `check-tests.mjs`
+  - 区分 card-system gating tests 与 repo-wide health tests
+  - 真实 Rust 缺陷必须独立呈现，不被总分掩盖
+- `check-e2e.mjs`
+  - 场景必须以当前 UI 契约为准
+  - 页面级 `data-testid` 若变动，必须同步脚本与主规范
+- `run-eval.mjs`
+  - 报告需要显式输出 gating failures、script drift、repo health warnings
 
 ---
 
-## 13. Pass and Fail Semantics
+## 9. 历史运行记录
 
-### 13.1 Item Status Values
+本节只记录历史事实，不代表当前状态。
 
-| Status    | Meaning                           |
-| --------- | --------------------------------- |
-| Pending   | Not yet evaluated                 |
-| In Review | Evidence is being collected       |
-| Failed    | Evaluated and did not pass        |
-| Passed    | Evaluated and accepted            |
-| Waived    | Explicitly excluded from the gate |
+### 9.1 2026-04-21 历史快照
 
-### 13.2 Waiver Policy
+仓库曾在 2026-04-21 形成一版“最终通过”的评估叙事，核心内容包括：
 
-Waivers are strongly discouraged.
+- 曾声明 `deliveryGatePassed: true`
+- 曾宣称结构检查、Vitest、Rust tests、Playwright 全绿
+- 曾将其写入旧版评估框架的“Final Verified State”
 
-A waiver is only allowed if:
+该历史快照仅可视为一次历史记录，不能替代当前基线。
 
-- the feature is explicitly outside the requested gate, and
-- the waiver is documented in this file, and
-- the waiver does not compromise the Phase 0-5 delivery gate
+### 9.2 当前与历史的区别
 
-At present, no waivers are granted.
+截至 2026-04-23：
 
----
+- 当前报告已重新生成
+- 当前门禁结论为失败
+- 当前整改框架以最新报告为准
 
-## 14. Execution Log
+因此，任何引用历史成功快照的表述都必须显式带日期，且不能写成当前结论。
 
-### 14.1 Run 1 - Framework Creation
-
-- Created this document.
-- Established evaluation matrix and pass criteria.
-- Next: implement automation scripts and begin collecting hard evidence.
-
-### 14.2 Run 2 - Baseline Evaluation
-
-- Structural baseline confirmed major gaps around real edit flow, image occlusion UI, media upload UX, direct page coverage, and automation absence.
-- Initial delivery gate failed before repair.
-
-### 14.3 Run 3 - Repair Cycle
-
-- Added card-system evaluation automation under `xuejian/scripts/eval/` and wired `npm run eval:cards`.
-- Implemented real update-card flow across TS gateway/query and Rust command/repository layers.
-- Added image occlusion rendering, media upload UI, mutable mock gateway behavior, targeted unit tests, targeted schema tests, and happy-path Playwright coverage.
-- Repaired Rust document/section repository issues and stabilized browser selectors for evaluation flows.
-
-### 14.4 Run 4 - Final Verification
-
-- Executed `npm run eval:cards` successfully on 2026-04-21.
-- Final report: Phase 0-5 average = 10, cross-architecture = 10, cross-IPC = 10, cross-engineering = 10.
-- Final report path: `xuejian/test-results/eval-report.json` and `xuejian/test-results/eval-report.md`.
-- Delivery gate status: passed.
-
----
-
-## 15. Exit Condition
-
-This document reaches “All Clear” only when:
-
-1. every Phase 0-5 feature has a final score and status,
-2. all gating cross-cutting items are passed,
-3. the generated evaluation report says `deliveryGatePassed: true`, and
-4. the execution log records the final green run.
-
-Until then, this document remains an active repair artifact rather than historical documentation.
-
-All exit conditions are satisfied as of 2026-04-21, and this document is now a historical verification record until the next card-system regression or scope expansion.

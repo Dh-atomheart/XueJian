@@ -320,7 +320,37 @@ export interface HeatmapEntry {
 
 // ==================== API配置相关 ====================
 
-export type AppThemeId = 'default' | 'comic-sketch' | 'contrast-paper'
+export type AppThemeId = 'default'
+
+export type LearningGoalId =
+  | 'knowledge_understanding'
+  | 'memory_strengthening'
+  | 'applied_practice'
+  | 'exam_preparation'
+  | 'interest_exploration'
+
+export type StudyTimeSlotId = 'morning' | 'afternoon' | 'evening' | 'late_night'
+
+export type StudyContentPreferenceId =
+  | 'psychology'
+  | 'cognitive_science'
+  | 'education'
+  | 'neuroscience'
+  | 'philosophy'
+  | 'sociology'
+  | 'economics'
+  | 'history'
+  | 'artificial_intelligence'
+  | 'data_science'
+  | 'self_improvement'
+  | 'other'
+
+export type ContentDifficultyId =
+  | 'introductory'
+  | 'beginner'
+  | 'intermediate'
+  | 'advanced'
+  | 'expert'
 
 export type ApiProvider =
   | 'openai'
@@ -342,6 +372,7 @@ export type WorkflowType =
   | 'knowledge_qa'
   | 'podcast_generation'
   | 'knowledge_graph'
+  | 'card_animation'
 
 export interface ModelCapabilities {
   vision: boolean
@@ -364,29 +395,33 @@ export interface AppSettings {
   language: 'zh-CN' | 'en-US'
   dailyNewCardLimit: number
   reviewTimeLimit: number
-  // New detailed-settings fields are optional in static TS only for legacy mocks/fixtures.
-  learningGoal?: string
-  dailyStudyMinutes?: number
-  studyTimePreference?: string
-  studyContentPreferences?: string[]
-  contentDifficultyPreference?: string
-  podcastTtsProvider: 'auto' | 'openai' | 'edge_tts' | 'elevenlabs' | 'fish_audio'
+  learningGoal: LearningGoalId
+  dailyStudyMinutes: number
+  studyTimePreference: 'flexible' | StudyTimeSlotId
+  studyTimePreferences: StudyTimeSlotId[]
+  studyContentPreferences: StudyContentPreferenceId[]
+  contentDifficultyPreference: ContentDifficultyId
+  podcastTtsProvider: 'auto' | 'openai' | 'edge_tts'
   podcastOpenaiModel: string
   podcastFishAudioEndpoint: string | null
   podcastVoiceOverrides: Record<string, string>
-  defaultVoice?: string
-  speechRate?: number
-  speechPitch?: number
-  speechVolume?: number
-  readingMode?: string
-  defaultPodcastStyle?: string
-  podcastEpisodeDurationMinutes?: number
-  podcastContentStructure?: string
-  podcastBackgroundMusic?: string
-  podcastIntroOutroEnabled?: boolean
-  voiceInputLanguage?: string
-  voiceInterruptEnabled?: boolean
-  podcastAutoPlayNextEpisode?: boolean
+  defaultVoice: string
+  speechRate: number
+  speechPitch: number
+  speechVolume: number
+  readingMode: 'natural' | 'focus' | 'narration'
+  defaultPodcastStyle: 'deep_dive' | 'lecture' | 'interview' | 'casual' | 'exam_prep'
+  podcastEpisodeDurationMinutes: number
+  podcastContentStructure:
+    | 'summary_then_details'
+    | 'problem_solution'
+    | 'story_driven'
+    | 'question_driven'
+  podcastBackgroundMusic: 'off' | 'soft_piano' | 'light_ambient' | 'study_lofi'
+  podcastIntroOutroEnabled: boolean
+  voiceInputLanguage: 'zh-CN' | 'en-US'
+  voiceInterruptEnabled: boolean
+  podcastAutoPlayNextEpisode: boolean
   podcastOutputFormat: 'mp3' | 'wav'
   podcastSkipReview: boolean
   podcastMaxLlmTokens: number

@@ -13,8 +13,9 @@ use crate::{
         AppendWorkflowEventRequest, Card, CardCandidate, CardCandidateCounts, CardFilters,
         CardRepository, CreateCardCandidateRequest, CreateCardRequest, CreateHighlightRequest,
         CreateReviewLogRequest, CreateWorkflowRunRequest, Document, DocumentAnchor,
-        DocumentAnchorRect, DocumentChunk, DocumentRepository, HeatmapEntry, Highlight, HighlightFilters,
-        MasteryBreakdown, ReviewLog, StudyStats, UpdateCardCandidateRequest, UpdateCardRequest, UpdateHighlightRequest, UpdateWorkflowRunRequest,
+        DocumentAnchorRect, DocumentChunk, DocumentRepository, HeatmapEntry, Highlight,
+        HighlightFilters, MasteryBreakdown, ReviewLog, StudyStats, UpdateCardCandidateRequest,
+        UpdateCardRequest, UpdateHighlightRequest, UpdateWorkflowRunRequest,
         UpsertWorkflowCheckpointRequest, WorkflowRepository, WorkflowRun,
     },
 };
@@ -787,7 +788,9 @@ pub fn update_card_candidate(
     let status = data.status.unwrap_or(current.status.clone());
     let score_overall = data.score_overall.unwrap_or(current.score_overall);
     let score_details = data.score_details.unwrap_or(current.score_details.clone());
-    let visibility_bucket = data.visibility_bucket.unwrap_or(current.visibility_bucket.clone());
+    let visibility_bucket = data
+        .visibility_bucket
+        .unwrap_or(current.visibility_bucket.clone());
     let generation_mode = data
         .generation_mode
         .unwrap_or_else(|| current.generation_mode.clone());
@@ -1007,7 +1010,8 @@ pub fn finalize_card_generation_workflow(
 
     let mut payload = load_card_generation_payload(&workflow_repo, &run)?;
     let result = card_repo.finalize_candidates_for_run(&run_id)?;
-    let highlight_result = card_repo.create_missing_highlights_for_run(&run_id, &payload.document_id)?;
+    let highlight_result =
+        card_repo.create_missing_highlights_for_run(&run_id, &payload.document_id)?;
     let counts = card_repo.count_candidates_for_run(&run_id)?;
     payload.pending_count = counts.pending as usize;
     payload.phase = "completed".to_string();
@@ -1093,7 +1097,8 @@ async fn execute_card_generation_worker(app_handle: &AppHandle, run_id: &str) ->
     }
 
     // Try Python orchestration service first
-    let orchestration_result = try_orchestration_card_generation(app_handle, run_id, &document, &payload).await;
+    let orchestration_result =
+        try_orchestration_card_generation(app_handle, run_id, &document, &payload).await;
 
     if let Ok(generated_count) = orchestration_result {
         payload.generated_count = generated_count;
@@ -1113,7 +1118,10 @@ async fn execute_card_generation_worker(app_handle: &AppHandle, run_id: &str) ->
             workflow_repo.append_event(AppendWorkflowEventRequest {
                 run_id: run_id.to_string(),
                 event_type: "fallback".to_string(),
-                message: Some("Orchestration service unavailable, using local rule-based generation".to_string()),
+                message: Some(
+                    "Orchestration service unavailable, using local rule-based generation"
+                        .to_string(),
+                ),
                 progress: None,
                 payload: None,
             })?;
@@ -1133,7 +1141,8 @@ async fn execute_card_generation_worker(app_handle: &AppHandle, run_id: &str) ->
             let budget = payload
                 .max_candidates
                 .saturating_sub(payload.generated_count);
-            let requests = build_candidates_for_chunk(run_id, &document, chunk, &anchor_index, budget);
+            let requests =
+                build_candidates_for_chunk(run_id, &document, chunk, &anchor_index, budget);
             let counts = {
                 let state = app_handle.state::<AppState>();
                 let db = state.lock_db()?;
@@ -1231,7 +1240,11 @@ async fn try_orchestration_card_generation(
     payload: &CardGenerationCheckpointPayload,
 ) -> Result<usize, String> {
     let state = app_handle.state::<AppState>();
-    let health = state.orchestration.health().await.map_err(|e| e.to_string())?;
+    let health = state
+        .orchestration
+        .health()
+        .await
+        .map_err(|e| e.to_string())?;
 
     let endpoint = health.endpoint.ok_or("No orchestration endpoint")?;
     if health.status != "healthy" && health.status != "degraded" {
@@ -1594,7 +1607,9 @@ fn build_candidates_for_chunk(
                     visibility_bucket: Some("default".to_string()),
                     generation_mode: Some("fallback_rule".to_string()),
                     fallback_reason: Some("rule_based_anchor_generation".to_string()),
-                    evaluation_summary: Some("Legacy fallback generation from anchor extraction".to_string()),
+                    evaluation_summary: Some(
+                        "Legacy fallback generation from anchor extraction".to_string(),
+                    ),
                     source_chunk_ids: Some(vec![chunk.id.clone()]),
                 }
             })
@@ -1764,7 +1779,9 @@ pub fn export_cards_csv(
 
     let output_path = data.output_path.trim().to_string();
     if output_path.is_empty() {
-        return Err(CommandError::InvalidInput("Missing output path".to_string()));
+        return Err(CommandError::InvalidInput(
+            "Missing output path".to_string(),
+        ));
     }
 
     let db = state.lock_db()?;
@@ -1785,8 +1802,11 @@ pub fn export_cards_csv(
         .map_err(|e| CommandError::Internal(format!("Write error: {e}")))?;
 
     // Header
-    writeln!(file, "front,back,tags,state,difficulty,stability,next_review,created_at")
-        .map_err(|e| CommandError::Internal(format!("Write error: {e}")))?;
+    writeln!(
+        file,
+        "front,back,tags,state,difficulty,stability,next_review,created_at"
+    )
+    .map_err(|e| CommandError::Internal(format!("Write error: {e}")))?;
 
     let card_count = cards.len();
     for card in &cards {
@@ -1851,10 +1871,13 @@ pub async fn pick_and_export_csv(
         .to_string_lossy()
         .to_string();
 
-    let result = export_cards_csv(state, ExportCardsCsvDto {
-        output_path,
-        document_id: data.document_id,
-    })?;
+    let result = export_cards_csv(
+        state,
+        ExportCardsCsvDto {
+            output_path,
+            document_id: data.document_id,
+        },
+    )?;
 
     Ok(Some(result))
 }
@@ -1905,15 +1928,17 @@ pub async fn export_annotated_pdf(
 
         (
             document.file_path,
-            highlights.into_iter().map(HighlightDto::from).collect::<Vec<_>>(),
+            highlights
+                .into_iter()
+                .map(HighlightDto::from)
+                .collect::<Vec<_>>(),
         )
     };
 
-    let health = state
-        .orchestration
-        .health()
-        .await
-        .map_err(|e| CommandError::Internal(format!("Orchestration service unavailable: {e}")))?;
+    let health =
+        state.orchestration.health().await.map_err(|e| {
+            CommandError::Internal(format!("Orchestration service unavailable: {e}"))
+        })?;
 
     let endpoint = health.endpoint.ok_or(CommandError::Internal(
         "No orchestration endpoint available".to_string(),
@@ -1937,7 +1962,10 @@ pub async fn export_annotated_pdf(
         .map_err(|e| CommandError::Internal(format!("Annotated PDF export request failed: {e}")))?;
 
     if !response.status().is_success() {
-        let body = response.text().await.unwrap_or_else(|_| "<no body>".to_string());
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "<no body>".to_string());
         return Err(CommandError::Internal(format!(
             "Annotated PDF export failed: {body}"
         )));
@@ -2007,7 +2035,8 @@ pub async fn upload_card_media(
     let source = PathBuf::from(&data.file_path);
     if !source.exists() {
         return Err(CommandError::InvalidInput(format!(
-            "File does not exist: {}", data.file_path
+            "File does not exist: {}",
+            data.file_path
         )));
     }
 
@@ -2026,9 +2055,7 @@ pub async fn upload_card_media(
     }
     .to_string();
 
-    let file_size = std::fs::metadata(&source)
-        .map(|m| m.len() as i64)
-        .ok();
+    let file_size = std::fs::metadata(&source).map(|m| m.len() as i64).ok();
 
     let media_dir = app
         .path()
@@ -2038,7 +2065,11 @@ pub async fn upload_card_media(
     std::fs::create_dir_all(&media_dir)
         .map_err(|e| CommandError::Internal(format!("Failed to create media dir: {e}")))?;
 
-    let storage_key = format!("{}.{}", uuid::Uuid::new_v4(), source.extension().and_then(|e| e.to_str()).unwrap_or("bin"));
+    let storage_key = format!(
+        "{}.{}",
+        uuid::Uuid::new_v4(),
+        source.extension().and_then(|e| e.to_str()).unwrap_or("bin")
+    );
     let dest = media_dir.join(&storage_key);
 
     std::fs::copy(&source, &dest)
@@ -2081,7 +2112,9 @@ pub async fn delete_card_media(
         let media_dir = app
             .path()
             .app_local_data_dir()
-            .map_err(|_| CommandError::Internal("Failed to resolve app local data dir".to_string()))?
+            .map_err(|_| {
+                CommandError::Internal("Failed to resolve app local data dir".to_string())
+            })?
             .join("card-media");
         let file_path = media_dir.join(&media.storage_key);
         if file_path.exists() {
@@ -2107,11 +2140,13 @@ pub async fn import_cards_apkg(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> CommandResult<ImportApkgResultDto> {
-    let health = state.orchestration.health().await
-        .map_err(|e| CommandError::Internal(format!("Orchestration service unavailable: {e}")))?;
+    let health =
+        state.orchestration.health().await.map_err(|e| {
+            CommandError::Internal(format!("Orchestration service unavailable: {e}"))
+        })?;
 
     let endpoint = health.endpoint.ok_or(CommandError::Internal(
-        "No orchestration endpoint available".to_string()
+        "No orchestration endpoint available".to_string(),
     ))?;
 
     let Some(file_path) = app
@@ -2151,12 +2186,14 @@ pub async fn import_cards_apkg(
         )));
     }
 
-    let result: serde_json::Value = response.json().await
+    let result: serde_json::Value = response
+        .json()
+        .await
         .map_err(|e| CommandError::Internal(format!("Invalid import response: {e}")))?;
 
-    let cards_data = result["cards"]
-        .as_array()
-        .ok_or(CommandError::Internal("No cards in import response".to_string()))?;
+    let cards_data = result["cards"].as_array().ok_or(CommandError::Internal(
+        "No cards in import response".to_string(),
+    ))?;
 
     let deck_name = result["deckName"]
         .as_str()
@@ -2175,14 +2212,13 @@ pub async fn import_cards_apkg(
             continue;
         }
 
-        let card_type = card_data["cardType"]
-            .as_str()
-            .unwrap_or("qa")
-            .to_string();
+        let card_type = card_data["cardType"].as_str().unwrap_or("qa").to_string();
 
-        let tags: Option<Vec<String>> = card_data["tags"]
-            .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        let tags: Option<Vec<String>> = card_data["tags"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
 
         let dedupe_key = {
             let mut hasher = Sha256::new();
@@ -2192,11 +2228,14 @@ pub async fn import_cards_apkg(
             format!("{:x}", hasher.finalize())
         };
 
-        let exists: bool = db.connection().query_row(
-            "SELECT EXISTS(SELECT 1 FROM cards WHERE dedupe_key = ?1)",
-            params![&dedupe_key],
-            |row| row.get(0),
-        ).unwrap_or(false);
+        let exists: bool = db
+            .connection()
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM cards WHERE dedupe_key = ?1)",
+                params![&dedupe_key],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
 
         if exists {
             skipped_duplicates += 1;
@@ -2254,11 +2293,13 @@ pub async fn pick_and_export_apkg(
         .to_string_lossy()
         .to_string();
 
-    let health = state.orchestration.health().await
-        .map_err(|e| CommandError::Internal(format!("Orchestration service unavailable: {e}")))?;
+    let health =
+        state.orchestration.health().await.map_err(|e| {
+            CommandError::Internal(format!("Orchestration service unavailable: {e}"))
+        })?;
 
     let endpoint = health.endpoint.ok_or(CommandError::Internal(
-        "No orchestration endpoint available".to_string()
+        "No orchestration endpoint available".to_string(),
     ))?;
 
     let client = reqwest::Client::builder()
@@ -2285,7 +2326,9 @@ pub async fn pick_and_export_apkg(
         )));
     }
 
-    let result: serde_json::Value = response.json().await
+    let result: serde_json::Value = response
+        .json()
+        .await
         .map_err(|e| CommandError::Internal(format!("Invalid export response: {e}")))?;
 
     Ok(Some(result))

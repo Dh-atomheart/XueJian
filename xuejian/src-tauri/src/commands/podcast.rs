@@ -194,8 +194,10 @@ pub fn get_podcast_episode(
     state: State<'_, AppState>,
     episode_id: String,
 ) -> CommandResult<Option<PodcastEpisodeDto>> {
-    Ok(auto_accept_review_if_due(&app_handle, state.inner(), &episode_id)?
-        .map(PodcastEpisodeDto::from))
+    Ok(
+        auto_accept_review_if_due(&app_handle, state.inner(), &episode_id)?
+            .map(PodcastEpisodeDto::from),
+    )
 }
 
 #[tauri::command]
@@ -275,14 +277,12 @@ pub fn cancel_podcast_episode(
 }
 
 #[tauri::command]
-pub fn delete_podcast_episode(
-    state: State<'_, AppState>,
-    episode_id: String,
-) -> CommandResult<()> {
+pub fn delete_podcast_episode(state: State<'_, AppState>, episode_id: String) -> CommandResult<()> {
     let audio_path = {
         let db = state.lock_db()?;
         let repo = PodcastRepository::new(&db);
-        repo.get_episode(&episode_id)?.and_then(|episode| episode.audio_path)
+        repo.get_episode(&episode_id)?
+            .and_then(|episode| episode.audio_path)
     };
 
     if let Some(path) = audio_path.as_deref() {
@@ -382,7 +382,11 @@ pub fn get_podcast_audio_segments(
 fn spawn_podcast_worker(app_handle: AppHandle, episode_id: String) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = execute_podcast_worker(&app_handle, &episode_id).await {
-            log::error!("Podcast worker failed for episode {}: {}", episode_id, error);
+            log::error!(
+                "Podcast worker failed for episode {}: {}",
+                episode_id,
+                error
+            );
             let _ = mark_podcast_failed(&app_handle, &episode_id, &error.to_string());
         }
     });
@@ -480,7 +484,8 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
             .collect::<Vec<_>>()
     };
 
-    let context_text = build_context_text(&episode.title, &episode.scope_description, &document_titles);
+    let context_text =
+        build_context_text(&episode.title, &episode.scope_description, &document_titles);
 
     let result = match try_orchestration_podcast(
         app_handle,
@@ -499,20 +504,26 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
     {
         Ok(result) => normalize_workflow_result(result, &episode.title, &context_text),
         Err(error) => {
-            log::warn!("Podcast orchestration unavailable, using fallback: {}", error);
+            log::warn!(
+                "Podcast orchestration unavailable, using fallback: {}",
+                error
+            );
             build_fallback_podcast_result(&episode.title, &context_text)
         }
     };
 
-    let script_json = result
-        .script_json
-        .clone()
-        .unwrap_or_else(|| build_fallback_podcast_result(&episode.title, &context_text).script_json.unwrap());
+    let script_json = result.script_json.clone().unwrap_or_else(|| {
+        build_fallback_podcast_result(&episode.title, &context_text)
+            .script_json
+            .unwrap()
+    });
     let duration_ms = result
         .duration_ms
         .unwrap_or_else(|| estimate_duration_from_script(&script_json));
     let episode_status = result.status.clone().unwrap_or_else(|| "ready".to_string());
-    let current_stage = result.current_stage.unwrap_or(if result.audio_path.is_some() { 6 } else { 4 });
+    let current_stage = result
+        .current_stage
+        .unwrap_or(if result.audio_path.is_some() { 6 } else { 4 });
 
     {
         let state = app_handle.state::<AppState>();
@@ -524,8 +535,10 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
             episode_id,
             &PodcastEpisodeUpdates {
                 script_json: Some(script_json),
-                outline_json: Some(Some(result.outline_json.clone().unwrap_or_default())).filter(|value| value.as_ref().is_some_and(|content| !content.is_empty())),
-                evaluation_json: Some(Some(result.evaluation_json.clone().unwrap_or_default())).filter(|value| value.as_ref().is_some_and(|content| !content.is_empty())),
+                outline_json: Some(Some(result.outline_json.clone().unwrap_or_default()))
+                    .filter(|value| value.as_ref().is_some_and(|content| !content.is_empty())),
+                evaluation_json: Some(Some(result.evaluation_json.clone().unwrap_or_default()))
+                    .filter(|value| value.as_ref().is_some_and(|content| !content.is_empty())),
                 audio_path: Some(result.audio_path.clone()),
                 duration_ms: Some(duration_ms),
                 status: Some(episode_status.clone()),
@@ -538,7 +551,12 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
         )?;
 
         if let Some(path) = updated_episode.audio_path.as_deref() {
-            persist_audio_segments_from_script(&podcast_repo, &updated_episode.id, &updated_episode.script_json, path)?;
+            persist_audio_segments_from_script(
+                &podcast_repo,
+                &updated_episode.id,
+                &updated_episode.script_json,
+                path,
+            )?;
         }
 
         if !run_id.is_empty() {
@@ -762,10 +780,17 @@ fn build_fallback_podcast_result(title: &str, context: &str) -> PodcastWorkflowR
 
 fn estimate_duration_from_script(script_json: &str) -> i64 {
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(script_json) {
-        if let Some(segments) = value.get("segments").and_then(|segments| segments.as_array()) {
+        if let Some(segments) = value
+            .get("segments")
+            .and_then(|segments| segments.as_array())
+        {
             let total: i64 = segments
                 .iter()
-                .filter_map(|segment| segment.get("durationMs").and_then(|duration| duration.as_i64()))
+                .filter_map(|segment| {
+                    segment
+                        .get("durationMs")
+                        .and_then(|duration| duration.as_i64())
+                })
                 .sum();
             if total > 0 {
                 return total;
@@ -801,7 +826,10 @@ fn build_context_text(title: &str, scope_description: &str, document_titles: &[S
     if scope_description.is_empty() {
         format!("文档集合: {}\n主题: {}", titles, title)
     } else {
-        format!("文档集合: {}\n主题: {}\n关注点: {}", titles, title, scope_description)
+        format!(
+            "文档集合: {}\n主题: {}\n关注点: {}",
+            titles, title, scope_description
+        )
     }
 }
 
@@ -817,7 +845,10 @@ fn persist_audio_segments_from_script(
 
     let script = serde_json::from_str::<serde_json::Value>(script_json)
         .map_err(|error| CommandError::Internal(error.to_string()))?;
-    let Some(segments) = script.get("segments").and_then(|segments| segments.as_array()) else {
+    let Some(segments) = script
+        .get("segments")
+        .and_then(|segments| segments.as_array())
+    else {
         return Ok(());
     };
 
@@ -860,7 +891,9 @@ fn parse_episode_timestamp(value: &str) -> Option<DateTime<Utc>> {
 fn load_review_timeout_minutes(state: &AppState) -> CommandResult<i64> {
     let db = state.lock_db()?;
     let settings_repo = SettingsRepository::new(&db);
-    Ok(i64::from(settings_repo.get_settings()?.review_time_limit.max(0)))
+    Ok(i64::from(
+        settings_repo.get_settings()?.review_time_limit.max(0),
+    ))
 }
 
 fn has_review_timed_out(episode: &PodcastEpisode, review_timeout_minutes: i64) -> bool {
@@ -892,8 +925,7 @@ fn apply_review_action(
         .get_episode(episode_id)?
         .ok_or(CommandError::NotFound)?;
 
-    let should_resume_audio =
-        episode.audio_path.is_none() && matches!(action, "accept" | "edit");
+    let should_resume_audio = episode.audio_path.is_none() && matches!(action, "accept" | "edit");
     let next_stage = if episode.audio_path.is_some() {
         6
     } else if should_resume_audio {
@@ -915,19 +947,31 @@ fn apply_review_action(
                     current_stage: Some(next_stage),
                     ..PodcastEpisodeUpdates::default()
                 },
-                if should_resume_audio { "running" } else { "completed" },
+                if should_resume_audio {
+                    "running"
+                } else {
+                    "completed"
+                },
                 if should_resume_audio {
                     "generating_audio"
                 } else {
                     "ready"
                 },
-                if should_resume_audio { "resumed" } else { "completed" },
+                if should_resume_audio {
+                    "resumed"
+                } else {
+                    "completed"
+                },
                 message_override.unwrap_or(if should_resume_audio {
                     "Review accepted, resuming podcast audio generation"
                 } else {
                     "Review accepted, podcast episode marked ready"
                 }),
-                if should_resume_audio { Some(0.72) } else { Some(1.0) },
+                if should_resume_audio {
+                    Some(0.72)
+                } else {
+                    Some(1.0)
+                },
                 if should_resume_audio {
                     None
                 } else {
@@ -952,19 +996,31 @@ fn apply_review_action(
                         current_stage: Some(next_stage),
                         ..PodcastEpisodeUpdates::default()
                     },
-                    if should_resume_audio { "running" } else { "completed" },
+                    if should_resume_audio {
+                        "running"
+                    } else {
+                        "completed"
+                    },
                     if should_resume_audio {
                         "generating_audio"
                     } else {
                         "ready"
                     },
-                    if should_resume_audio { "resumed" } else { "completed" },
+                    if should_resume_audio {
+                        "resumed"
+                    } else {
+                        "completed"
+                    },
                     message_override.unwrap_or(if should_resume_audio {
                         "Review edits saved, resuming podcast audio generation"
                     } else {
                         "Review edits saved, podcast episode marked ready"
                     }),
-                    if should_resume_audio { Some(0.72) } else { Some(1.0) },
+                    if should_resume_audio {
+                        Some(0.72)
+                    } else {
+                        Some(1.0)
+                    },
                     if should_resume_audio {
                         None
                     } else {

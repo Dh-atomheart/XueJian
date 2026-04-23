@@ -3,6 +3,7 @@ import {
   useDeferredValue,
   useEffect,
   useEffectEvent,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -158,11 +159,15 @@ export function KnowledgeGraphPage() {
     !!selectedCommunity?.id
   )
 
-  const selectedIncidentEdges = selectedNodeId
-    ? allEdges.filter(
-        (edge) => edge.fromNodeId === selectedNodeId || edge.toNodeId === selectedNodeId
-      )
-    : []
+  const selectedIncidentEdges = useMemo(
+    () =>
+      selectedNodeId
+        ? allEdges.filter(
+            (edge) => edge.fromNodeId === selectedNodeId || edge.toNodeId === selectedNodeId
+          )
+        : [],
+    [allEdges, selectedNodeId]
+  )
 
   const topCommunities = communities.filter((community) => community.level === 1)
   const bottomCommunities = communities.filter((community) => community.level === 0)

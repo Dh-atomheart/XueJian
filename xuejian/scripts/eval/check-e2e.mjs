@@ -17,10 +17,12 @@ export async function runE2EChecks() {
   return {
     name: 'e2e',
     passed: playwright.passed,
-    playwright: {
+    cardSystemGating: {
       ...playwright,
+      scope: 'card-system-gating',
       passedCount: countPassedFromText(`${playwright.stdout}\n${playwright.stderr}`),
       failedCount: countFailedFromText(`${playwright.stdout}\n${playwright.stderr}`),
+      scenarios: e2eTargets,
     },
   }
 }

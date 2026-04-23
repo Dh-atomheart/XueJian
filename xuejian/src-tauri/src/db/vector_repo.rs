@@ -78,7 +78,9 @@ impl<'a> VectorRepository<'a> {
                 &req.provider,
                 &req.model,
                 req.dimensions,
-                req.distance_metric.clone().unwrap_or_else(|| "cosine".to_string()),
+                req.distance_metric
+                    .clone()
+                    .unwrap_or_else(|| "cosine".to_string()),
                 req.is_active,
                 req.revision,
                 &now,
@@ -117,7 +119,8 @@ impl<'a> VectorRepository<'a> {
              ORDER BY revision DESC, created_at DESC",
         )?;
         let rows = stmt.query_map([], map_embedding_profile_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn set_active_embedding_profile(&self, id: &str) -> Result<Option<EmbeddingProfile>> {
@@ -146,12 +149,15 @@ impl<'a> VectorRepository<'a> {
     }
 
     pub fn mark_documents_embedding_stale(&self) -> Result<usize> {
-        self.db.connection().execute(
-            "UPDATE documents
+        self.db
+            .connection()
+            .execute(
+                "UPDATE documents
              SET status = 'embedding_stale', updated_at = ?1
              WHERE status = 'ready'",
-            params![chrono::Utc::now().to_rfc3339()],
-        ).map_err(Into::into)
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(Into::into)
     }
 
     pub fn replace_chunk_embeddings(
@@ -191,7 +197,10 @@ impl<'a> VectorRepository<'a> {
                 params![chunk_rowid],
             )?;
             transaction.execute(
-                &format!("INSERT INTO {} (rowid, embedding) VALUES (?1, ?2)", CHUNK_EMBEDDING_TABLE),
+                &format!(
+                    "INSERT INTO {} (rowid, embedding) VALUES (?1, ?2)",
+                    CHUNK_EMBEDDING_TABLE
+                ),
                 params![chunk_rowid, vector_json],
             )?;
             transaction.execute(
@@ -261,7 +270,8 @@ impl<'a> VectorRepository<'a> {
             })
         })?;
 
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     fn ensure_chunk_embedding_table(&self, dimensions: i32) -> Result<()> {
@@ -282,7 +292,9 @@ impl<'a> VectorRepository<'a> {
                     &format!("DROP TABLE IF EXISTS {}", CHUNK_EMBEDDING_TABLE),
                     [],
                 )?;
-                self.db.connection().execute("DELETE FROM document_chunk_embedding_state", [])?;
+                self.db
+                    .connection()
+                    .execute("DELETE FROM document_chunk_embedding_state", [])?;
             }
         }
 
@@ -337,10 +349,14 @@ mod tests {
         crate::db::configure_connection(&conn).expect("configure sqlite connection");
         conn.execute_batch(include_str!("../migrations/V1__initial_schema.sql"))
             .expect("apply v1 migration");
-        conn.execute_batch(include_str!("../migrations/V2__workflow_and_fts_foundation.sql"))
-            .expect("apply v2 migration");
-        conn.execute_batch(include_str!("../migrations/V3__card_generation_workflow.sql"))
-            .expect("apply v3 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V2__workflow_and_fts_foundation.sql"
+        ))
+        .expect("apply v2 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V3__card_generation_workflow.sql"
+        ))
+        .expect("apply v3 migration");
         conn.execute_batch(include_str!("../migrations/V4__points_ledger.sql"))
             .expect("apply v4 migration");
         conn.execute_batch(include_str!("../migrations/V5__card_animations.sql"))
@@ -349,8 +365,10 @@ mod tests {
             .expect("apply v6 migration");
         conn.execute_batch(include_str!("../migrations/V7__knowledge_graph.sql"))
             .expect("apply v7 migration");
-        conn.execute_batch(include_str!("../migrations/V8__points_daily_bonus_rule.sql"))
-            .expect("apply v8 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V8__points_daily_bonus_rule.sql"
+        ))
+        .expect("apply v8 migration");
         conn.execute_batch(include_str!("../migrations/V9__api_config_auth_mode.sql"))
             .expect("apply v9 migration");
         conn.execute_batch(include_str!("../migrations/V10__card_schema_extension.sql"))
@@ -359,8 +377,10 @@ mod tests {
             .expect("apply v11 migration");
         conn.execute_batch(include_str!("../migrations/V12__card_media.sql"))
             .expect("apply v12 migration");
-        conn.execute_batch(include_str!("../migrations/V13__agent_document_workflow_foundation.sql"))
-            .expect("apply v13 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V13__agent_document_workflow_foundation.sql"
+        ))
+        .expect("apply v13 migration");
         conn.execute_batch(include_str!("../migrations/V14__chunk_embedding_state.sql"))
             .expect("apply v14 migration");
         conn.execute_batch(include_str!("../migrations/V15__highlight_metadata.sql"))

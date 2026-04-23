@@ -73,7 +73,8 @@ impl<'a> CommunityRepository<'a> {
                 i64::from(community.collapsed),
             ],
         )?;
-        self.get_community(&id).map(|item| item.expect("community inserted"))
+        self.get_community(&id)
+            .map(|item| item.expect("community inserted"))
     }
 
     pub fn get_community(&self, id: &str) -> Result<Option<Community>> {
@@ -103,10 +104,15 @@ impl<'a> CommunityRepository<'a> {
         } else {
             stmt.query_map([], map_community_row)?
         };
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
-    pub fn update_community(&self, id: &str, updates: &CommunityUpdates) -> Result<Option<Community>> {
+    pub fn update_community(
+        &self,
+        id: &str,
+        updates: &CommunityUpdates,
+    ) -> Result<Option<Community>> {
         let Some(current) = self.get_community(id)? else {
             return Ok(None);
         };
@@ -133,10 +139,7 @@ impl<'a> CommunityRepository<'a> {
                     .parent_community_id
                     .clone()
                     .unwrap_or(current.parent_community_id),
-                updates
-                    .summary_json
-                    .clone()
-                    .unwrap_or(current.summary_json),
+                updates.summary_json.clone().unwrap_or(current.summary_json),
                 updates.node_count.unwrap_or(current.node_count),
                 updates.edge_count.unwrap_or(current.edge_count),
                 i64::from(updates.collapsed.unwrap_or(current.collapsed)),
@@ -155,7 +158,9 @@ impl<'a> CommunityRepository<'a> {
     }
 
     pub fn clear_communities(&self) -> Result<()> {
-        self.db.connection().execute("DELETE FROM knowledge_communities", [])?;
+        self.db
+            .connection()
+            .execute("DELETE FROM knowledge_communities", [])?;
         Ok(())
     }
 

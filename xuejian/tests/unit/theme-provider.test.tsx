@@ -9,12 +9,8 @@ import { settingsGateway } from '@/services/gateway/settings'
 function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: {
-      queries: {
-        retry: false,
-      },
-      mutations: {
-        retry: false,
-      },
+      queries: { retry: false },
+      mutations: { retry: false },
     },
   })
 }
@@ -33,8 +29,7 @@ afterEach(() => {
 })
 
 describe('theme provider', () => {
-  // @acceptance:v4-2-a1
-  it('applies the selected theme from settings page', async () => {
+  it('keeps the settings page on the official paper theme', async () => {
     const queryClient = createTestQueryClient()
 
     render(
@@ -48,18 +43,19 @@ describe('theme provider', () => {
     fireEvent.click(screen.getByText('通用').closest('button')!)
 
     await screen.findByText('主题包')
+    expect(screen.queryByTestId('theme-option-comic-sketch')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('theme-option-contrast-paper')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByTestId('theme-option-comic-sketch'))
+    fireEvent.click(screen.getByTestId('theme-option-default'))
 
     await waitFor(() => {
-      expect(document.documentElement.dataset.theme).toBe('comic-sketch')
+      expect(document.documentElement.dataset.theme).toBe('default')
       expect(document.documentElement.style.getPropertyValue('--paper-base')).toBe(
-        appThemes['comic-sketch'].cssVariables['--paper-base']
+        appThemes.default.cssVariables['--paper-base']
       )
     })
   })
 
-  // @acceptance:v4-2-a4
   it('falls back to the default theme when the value is unknown', () => {
     expect(resolveAppTheme('unknown-theme').id).toBe('default')
   })

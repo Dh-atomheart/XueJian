@@ -139,7 +139,9 @@ pub fn get_workflow_checkpoint(
     let repo = WorkflowRepository::new(&db);
 
     if let Some(checkpoint_ref) = checkpoint_ref {
-        return repo.get_checkpoint(&run_id, &checkpoint_ref).map_err(Into::into);
+        return repo
+            .get_checkpoint(&run_id, &checkpoint_ref)
+            .map_err(Into::into);
     }
 
     repo.get_latest_checkpoint(&run_id).map_err(Into::into)
@@ -171,7 +173,9 @@ pub async fn export_cards_apkg(
 ) -> CommandResult<ExportApkgResultDto> {
     let output_path = data.output_path.trim().to_string();
     if output_path.is_empty() {
-        return Err(CommandError::InvalidInput("Missing output path".to_string()));
+        return Err(CommandError::InvalidInput(
+            "Missing output path".to_string(),
+        ));
     }
 
     let health = state.orchestration.health().await?;
@@ -182,9 +186,9 @@ pub async fn export_cards_apkg(
         )));
     }
 
-    let endpoint = health.endpoint.ok_or_else(|| {
-        CommandError::Internal("Orchestration service not available".to_string())
-    })?;
+    let endpoint = health
+        .endpoint
+        .ok_or_else(|| CommandError::Internal("Orchestration service not available".to_string()))?;
 
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -218,9 +222,15 @@ pub async fn export_cards_apkg(
         .map_err(|e| CommandError::Internal(format!("Invalid response: {e}")))?;
 
     Ok(ExportApkgResultDto {
-        deck_name: result["deckName"].as_str().unwrap_or("XueJian Export").to_string(),
+        deck_name: result["deckName"]
+            .as_str()
+            .unwrap_or("XueJian Export")
+            .to_string(),
         card_count: result["cardCount"].as_u64().unwrap_or(0),
-        output_path: result["outputPath"].as_str().unwrap_or(&output_path).to_string(),
+        output_path: result["outputPath"]
+            .as_str()
+            .unwrap_or(&output_path)
+            .to_string(),
         exported_at: result["exportedAt"].as_str().unwrap_or("").to_string(),
     })
 }

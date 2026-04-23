@@ -7,8 +7,8 @@ use crate::{
     commands::{AppState, CommandError, CommandResult},
     db::{
         AnimationRepository, AppendWorkflowEventRequest, CardAnimation, CardRepository,
-        CreateCardAnimationRequest, CreateWorkflowRunRequest, UpdateWorkflowRunRequest,
-        WorkflowRepository,
+        CreateCardAnimationRequest, CreateWorkflowRunRequest, SettingsRepository,
+        UpdateWorkflowRunRequest, WorkflowRepository,
     },
 };
 
@@ -63,6 +63,46 @@ pub fn start_card_animation_workflow(
     state: State<'_, AppState>,
     data: StartCardAnimationDto,
 ) -> CommandResult<CardAnimationDto> {
+    let assigned_config_id = {
+        let db = state.lock_db()?;
+        let settings_repo = SettingsRepository::new(&db);
+        let assignment = settings_repo
+            .get_workflow_assignment("card_animation")?
+            .ok_or_else(|| {
+                CommandError::InvalidInput(
+                    "card_animation 尚未分配 BYOK 配置，请先为该工作流指定可用模型配置。"
+                        .to_string(),
+                )
+            })?;
+        let config = settings_repo
+            .get_api_config(&assignment.api_config_id)?
+            .ok_or(CommandError::NotFound)?;
+
+        if !config.is_enabled {
+            return Err(CommandError::InvalidInput(
+                "card_animation 绑定的 BYOK 配置已禁用，请重新分配可用配置。".to_string(),
+            ));
+        }
+
+        if config.auth_mode == "adc" {
+            return Err(CommandError::InvalidInput(
+                "card_animation 当前仅支持 api_key 模式的 BYOK 配置，Google ADC 仍为非 GA 能力。"
+                    .to_string(),
+            ));
+        }
+
+        config.id
+    };
+
+    {
+        let secrets = state.lock_secrets()?;
+        if !secrets.has_api_key(&assigned_config_id)? {
+            return Err(CommandError::InvalidInput(
+                "card_animation 绑定的 BYOK 配置尚未存储 API Key。".to_string(),
+            ));
+        }
+    }
+
     let animation = {
         let db = state.lock_db()?;
         let card_repo = CardRepository::new(&db);
@@ -128,10 +168,7 @@ pub fn get_card_animation(
 
 /// Delete the animation for a card.
 #[tauri::command]
-pub fn delete_card_animation(
-    state: State<'_, AppState>,
-    card_id: String,
-) -> CommandResult<()> {
+pub fn delete_card_animation(state: State<'_, AppState>, card_id: String) -> CommandResult<()> {
     let db = state.lock_db()?;
     let animation_repo = AnimationRepository::new(&db);
     animation_repo.delete_by_card_id(&card_id)?;
@@ -209,8 +246,16 @@ async fn execute_animation_worker(app_handle: &AppHandle, card_id: &str) -> Comm
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    let orchestration_result =
-        try_orchestration_animation(app_handle, run_id_str, &card.id, &card.front, &card.back, &tags, &anim_type).await;
+    let orchestration_result = try_orchestration_animation(
+        app_handle,
+        run_id_str,
+        &card.id,
+        &card.front,
+        &card.back,
+        &tags,
+        &anim_type,
+    )
+    .await;
 
     let script_json = match orchestration_result {
         Ok(script) => script,
@@ -231,19 +276,18 @@ async fn execute_animation_worker(app_handle: &AppHandle, card_id: &str) -> Comm
         animation_repo.set_ready(card_id, &script_json)?;
 
         if !run_id_str.is_empty() {
-            workflow_repo
-                .update_run(
-                    run_id_str,
-                    UpdateWorkflowRunRequest {
-                        status: Some("completed".to_string()),
-                        checkpoint_ref: Some("ready".to_string()),
-                        approval_payload: None,
-                        cost_usd: None,
-                        error_message: None,
-                        started_at: None,
-                        finished_at: Some(chrono::Utc::now().to_rfc3339()),
-                    },
-                )?;
+            workflow_repo.update_run(
+                run_id_str,
+                UpdateWorkflowRunRequest {
+                    status: Some("completed".to_string()),
+                    checkpoint_ref: Some("ready".to_string()),
+                    approval_payload: None,
+                    cost_usd: None,
+                    error_message: None,
+                    started_at: None,
+                    finished_at: Some(chrono::Utc::now().to_rfc3339()),
+                },
+            )?;
             workflow_repo.append_event(AppendWorkflowEventRequest {
                 run_id: run_id_str.to_string(),
                 event_type: "completed".to_string(),
@@ -274,10 +318,7 @@ async fn try_orchestration_animation(
         .map_err(|e| e.to_string())?;
     let endpoint = health.endpoint.ok_or("No orchestration endpoint")?;
     if health.status != "healthy" && health.status != "degraded" {
-        return Err(format!(
-            "Orchestration service status: {}",
-            health.status
-        ));
+        return Err(format!("Orchestration service status: {}", health.status));
     }
 
     let client = reqwest::Client::builder()
@@ -379,11 +420,7 @@ fn build_fallback_script(anim_type: &str, front: &str, back: &str, tags: &[Strin
     serde_json::to_string(&script).unwrap_or_else(|_| "{}".to_string())
 }
 
-fn mark_animation_failed(
-    app_handle: &AppHandle,
-    card_id: &str,
-    error: &str,
-) -> CommandResult<()> {
+fn mark_animation_failed(app_handle: &AppHandle, card_id: &str, error: &str) -> CommandResult<()> {
     let state = app_handle.state::<AppState>();
     let db = state.lock_db()?;
     let animation_repo = AnimationRepository::new(&db);

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Panel } from '@/components/ui/Panel'
 import { appThemeOptions } from '@/design-system/themes'
-import { reportAppError } from '@/lib/appFeedback'
+import { reportAppError, reportFeedback } from '@/lib/appFeedback'
 import { cn } from '@/lib/utils'
 import {
   hasUsableApiConfig,
@@ -24,26 +24,34 @@ import {
   useUpdateAppSettingsMutation,
   useWorkflowAssignmentsQuery,
 } from '@/queries'
+import { cardsGateway } from '@/services/gateway/cards'
 import { useAppUiStore } from '@/store'
-import type { ApiConfig, ApiProvider, DiscoveredModel, WorkflowType } from '@/types'
+import type {
+  ApiConfig,
+  ApiProvider,
+  AppSettings,
+  AppThemeId,
+  ContentDifficultyId,
+  DiscoveredModel,
+  LearningGoalId,
+  StudyContentPreferenceId,
+  StudyTimeSlotId,
+  WorkflowType,
+} from '@/types'
 import {
   detectProviderFromKey,
   getKeyStatusBadge,
   getProviderDefinition,
   getRecommendedModel,
   getStoredKeyPlaceholder,
-  normalizeLegacyProvider,
   PROVIDER_DEFINITIONS,
-  readLegacyAiConfig,
   validateApiKeyFormat,
   WORKFLOW_DEFINITIONS,
 } from './byok'
 
 type SettingsSectionId = 'ai' | 'learning' | 'podcast' | 'general'
 
-type ThemeId = 'default' | 'comic-sketch' | 'contrast-paper'
-
-type PodcastTtsProvider = 'auto' | 'openai' | 'edge_tts' | 'elevenlabs' | 'fish_audio'
+type PodcastTtsProvider = 'auto' | 'openai' | 'edge_tts'
 
 type PodcastOutputFormat = 'mp3' | 'wav'
 
@@ -96,26 +104,255 @@ const podcastProviderOptions: Array<{ value: PodcastTtsProvider; label: string }
   { value: 'auto', label: '自动选择' },
   { value: 'openai', label: 'OpenAI TTS' },
   { value: 'edge_tts', label: 'Edge TTS' },
-  { value: 'elevenlabs', label: 'ElevenLabs' },
-  { value: 'fish_audio', label: 'Fish Audio' },
 ]
 
-const themeSwatchClassMap: Record<ThemeId, { paper: string; ink: string; accent: string }> = {
-  default: {
-    paper: 'bg-[#fbfbf9]',
-    ink: 'bg-[#1a1a1a]',
-    accent: 'bg-[#f8e16c]',
+const languageOptions: Array<{ value: AppSettings['language']; label: string }> = [
+  { value: 'zh-CN', label: '中文（简体）' },
+  { value: 'en-US', label: 'English (US)' },
+]
+
+const learningGoalOptions: Array<{
+  value: LearningGoalId
+  label: string
+  description: string
+}> = [
+  {
+    value: 'knowledge_understanding',
+    label: '知识理解',
+    description: '深入理解知识概念与脉络。',
   },
-  'comic-sketch': {
-    paper: 'bg-[#f6eedf]',
-    ink: 'bg-[#2d1d12]',
-    accent: 'bg-[#d9804f]',
+  {
+    value: 'memory_strengthening',
+    label: '记忆强化',
+    description: '强化记忆与长期留存。',
   },
-  'contrast-paper': {
-    paper: 'bg-[#ffffff]',
-    ink: 'bg-[#111111]',
-    accent: 'bg-[#111111]',
+  {
+    value: 'applied_practice',
+    label: '应用实践',
+    description: '学以致用并解决问题。',
   },
+  {
+    value: 'exam_preparation',
+    label: '考试备考',
+    description: '面向考试与训练节奏。',
+  },
+  {
+    value: 'interest_exploration',
+    label: '兴趣探索',
+    description: '拓展视野与关联学习。',
+  },
+]
+
+const dailyStudyMinuteOptions = [15, 30, 45, 60, 90]
+const dailyNewCardOptions = [10, 20, 30, 50]
+const reviewTimeLimitOptions = [15, 30, 45, 60]
+
+const studyTimePreferenceOptions: Array<{
+  value: AppSettings['studyTimePreference']
+  label: string
+}> = [
+  { value: 'flexible', label: '灵活安排' },
+  { value: 'morning', label: '上午' },
+  { value: 'afternoon', label: '下午' },
+  { value: 'evening', label: '晚上' },
+  { value: 'late_night', label: '深夜' },
+]
+
+const studyTimeSlotOptions: Array<{
+  value: StudyTimeSlotId
+  label: string
+  timeRange: string
+}> = [
+  { value: 'morning', label: '上午', timeRange: '06:00 - 12:00' },
+  { value: 'afternoon', label: '下午', timeRange: '12:00 - 18:00' },
+  { value: 'evening', label: '晚上', timeRange: '18:00 - 22:00' },
+  { value: 'late_night', label: '深夜', timeRange: '22:00 - 06:00' },
+]
+
+const studyContentPreferenceOptions: Array<{
+  value: StudyContentPreferenceId
+  label: string
+}> = [
+  { value: 'psychology', label: '心理学' },
+  { value: 'cognitive_science', label: '认知科学' },
+  { value: 'education', label: '教育学' },
+  { value: 'neuroscience', label: '神经科学' },
+  { value: 'philosophy', label: '哲学' },
+  { value: 'sociology', label: '社会学' },
+  { value: 'economics', label: '经济学' },
+  { value: 'history', label: '历史学' },
+  { value: 'artificial_intelligence', label: '人工智能' },
+  { value: 'data_science', label: '数据科学' },
+  { value: 'self_improvement', label: '自我提升' },
+  { value: 'other', label: '其他' },
+]
+
+const contentDifficultyOptions: Array<{
+  value: ContentDifficultyId
+  label: string
+}> = [
+  { value: 'introductory', label: '入门' },
+  { value: 'beginner', label: '初级' },
+  { value: 'intermediate', label: '中级' },
+  { value: 'advanced', label: '高级' },
+  { value: 'expert', label: '专家级' },
+]
+
+const defaultVoiceOptions: Array<{ value: string; label: string }> = [
+  { value: 'gentle_female_xiaoxiao', label: '温和女声 · 晓晓' },
+  { value: 'calm_female_chenxi', label: '知性女声 · 晨曦' },
+  { value: 'warm_male_yunjian', label: '沉稳男声 · 云简' },
+  { value: 'bright_male_yunfan', label: '明亮男声 · 云帆' },
+]
+
+const readingModeOptions: Array<{
+  value: AppSettings['readingMode']
+  label: string
+}> = [
+  { value: 'natural', label: '自然流畅（推荐）' },
+  { value: 'focus', label: '专注拆解' },
+  { value: 'narration', label: '叙述播报' },
+]
+
+const podcastStyleOptions: Array<{
+  value: AppSettings['defaultPodcastStyle']
+  label: string
+}> = [
+  { value: 'deep_dive', label: 'Deep Dive' },
+  { value: 'lecture', label: 'Lecture' },
+  { value: 'interview', label: 'Interview' },
+  { value: 'casual', label: 'Casual' },
+  { value: 'exam_prep', label: 'Exam Prep' },
+]
+
+const podcastEpisodeDurationOptions = [5, 10, 15, 20, 30]
+
+const podcastStructureOptions: Array<{
+  value: AppSettings['podcastContentStructure']
+  label: string
+}> = [
+  { value: 'summary_then_details', label: '总分结构' },
+  { value: 'problem_solution', label: '问题-解决' },
+  { value: 'story_driven', label: '故事线索' },
+  { value: 'question_driven', label: '问答串联' },
+]
+
+const podcastBackgroundMusicOptions: Array<{
+  value: AppSettings['podcastBackgroundMusic']
+  label: string
+}> = [
+  { value: 'off', label: '关闭' },
+  { value: 'soft_piano', label: '钢琴轻音' },
+  { value: 'light_ambient', label: '氛围铺底' },
+  { value: 'study_lofi', label: '学习 Lo-fi' },
+]
+
+const voiceInputLanguageOptions: Array<{
+  value: AppSettings['voiceInputLanguage']
+  label: string
+}> = [
+  { value: 'zh-CN', label: '中文（简体）' },
+  { value: 'en-US', label: 'English (US)' },
+]
+
+const defaultSettingsSnapshot: AppSettings = {
+  theme: 'default',
+  language: 'zh-CN',
+  dailyNewCardLimit: 20,
+  reviewTimeLimit: 30,
+  learningGoal: 'knowledge_understanding',
+  dailyStudyMinutes: 30,
+  studyTimePreference: 'evening',
+  studyTimePreferences: ['afternoon', 'evening'],
+  studyContentPreferences: ['psychology', 'cognitive_science', 'self_improvement', 'education'],
+  contentDifficultyPreference: 'intermediate',
+  podcastTtsProvider: 'auto',
+  podcastOpenaiModel: 'tts-1',
+  podcastFishAudioEndpoint: null,
+  podcastVoiceOverrides: {},
+  defaultVoice: 'gentle_female_xiaoxiao',
+  speechRate: 1,
+  speechPitch: 0,
+  speechVolume: 0.8,
+  readingMode: 'natural',
+  defaultPodcastStyle: 'lecture',
+  podcastEpisodeDurationMinutes: 15,
+  podcastContentStructure: 'summary_then_details',
+  podcastBackgroundMusic: 'soft_piano',
+  podcastIntroOutroEnabled: true,
+  voiceInputLanguage: 'zh-CN',
+  voiceInterruptEnabled: true,
+  podcastAutoPlayNextEpisode: true,
+  podcastOutputFormat: 'mp3',
+  podcastSkipReview: true,
+  podcastMaxLlmTokens: 100000,
+  podcastMaxTtsCharacters: 50000,
+  podcastMaxEstimatedCostUsd: 1,
+}
+
+function resolveSettingsSnapshot(
+  source: Partial<AppSettings> | null | undefined
+): AppSettings {
+  return {
+    ...defaultSettingsSnapshot,
+    ...source,
+    studyTimePreferences:
+      source?.studyTimePreferences && source.studyTimePreferences.length > 0
+        ? [...source.studyTimePreferences]
+        : source?.studyTimePreference && source.studyTimePreference !== 'flexible'
+          ? [source.studyTimePreference]
+          : [...defaultSettingsSnapshot.studyTimePreferences],
+    studyContentPreferences:
+      source?.studyContentPreferences && source.studyContentPreferences.length > 0
+        ? [...source.studyContentPreferences]
+        : [...defaultSettingsSnapshot.studyContentPreferences],
+    podcastFishAudioEndpoint:
+      source && Object.prototype.hasOwnProperty.call(source, 'podcastFishAudioEndpoint')
+        ? source.podcastFishAudioEndpoint ?? null
+        : defaultSettingsSnapshot.podcastFishAudioEndpoint,
+    podcastVoiceOverrides: source?.podcastVoiceOverrides ?? defaultSettingsSnapshot.podcastVoiceOverrides,
+  }
+}
+
+function toggleSelection<T extends string>(current: T[], value: T, allowEmpty = false) {
+  if (current.includes(value)) {
+    return current.length === 1 && !allowEmpty ? current : current.filter((item) => item !== value)
+  }
+
+  return [...current, value]
+}
+
+function getOptionLabel<T extends string>(
+  options: Array<{ value: T; label: string }>,
+  value: T
+) {
+  return options.find((option) => option.value === value)?.label ?? value
+}
+
+function formatSelectionSummary<T extends string>(
+  options: Array<{ value: T; label: string }>,
+  values: T[]
+) {
+  if (values.length === 0) {
+    return '未设置'
+  }
+
+  return values.map((value) => getOptionLabel(options, value)).join('，')
+}
+
+function getSectionGlyph(sectionId: SettingsSectionId) {
+  switch (sectionId) {
+    case 'ai':
+      return 'AI'
+    case 'learning':
+      return '学'
+    case 'podcast':
+      return '播'
+    case 'general':
+      return '通'
+    default:
+      return '设'
+  }
 }
 
 function getBudgetMeterWidthClass(progress: number) {
@@ -218,11 +455,11 @@ function ConfigBudgetMeter({ config }: { config: ApiConfig }) {
           className={cn(
             'h-full rounded-full transition-all',
             progressWidthClass,
-            overBudget ? 'bg-red-500/70' : 'bg-ink/70'
+            overBudget ? 'bg-highlight-pink/70' : 'bg-ink/70'
           )}
         />
       </div>
-      <p className={cn('text-xs', overBudget ? 'text-red-600' : 'text-ink-soft')}>
+      <p className={cn('text-xs', overBudget ? 'text-ink' : 'text-ink-soft')}>
         {overBudget
           ? '预算已触顶，不会自动切换其他供应商。'
           : `本月已运行 ${data?.workflowRunsCount ?? 0} 次`}
@@ -438,6 +675,150 @@ function WorkflowAssignmentPanel({
   )
 }
 
+function SectionMetric({
+  label,
+  value,
+  detail,
+}: {
+  label: string
+  value: string
+  detail?: string
+}) {
+  return (
+    <div className="rounded-[24px] border border-line-soft/70 bg-paper-muted/55 p-4">
+      <p className="text-[11px] uppercase tracking-[0.2em] text-ink-soft">{label}</p>
+      <p className="mt-2 text-2xl font-semibold text-ink">{value}</p>
+      {detail ? <p className="mt-2 text-sm text-ink-muted">{detail}</p> : null}
+    </div>
+  )
+}
+
+function OptionChip({
+  active,
+  label,
+  meta,
+  onClick,
+  className,
+}: {
+  active: boolean
+  label: string
+  meta?: string
+  onClick: () => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'rounded-[22px] border px-4 py-3 text-left transition-colors',
+        active
+          ? 'border-ink/35 bg-ink/5 text-ink shadow-card'
+          : 'border-line-soft/70 bg-paper-card text-ink-muted hover:border-ink/20 hover:text-ink',
+        className
+      )}
+    >
+      <p className="text-sm font-medium">{label}</p>
+      {meta ? <p className="mt-1 text-xs text-ink-soft">{meta}</p> : null}
+    </button>
+  )
+}
+
+function SectionToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string
+  description: string
+  checked: boolean
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-[24px] border border-line-soft/70 bg-paper-card px-4 py-4">
+      <div>
+        <p className="font-medium text-ink">{label}</p>
+        <p className="mt-1 text-sm text-ink-muted">{description}</p>
+      </div>
+      <button
+        type="button"
+        aria-pressed={checked}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          'relative h-8 w-14 rounded-full border transition-colors',
+          checked ? 'border-ink/35 bg-ink' : 'border-line-soft bg-paper-muted'
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-1 h-6 w-6 rounded-full bg-paper-base transition-transform',
+            checked ? 'translate-x-7' : 'translate-x-1'
+          )}
+        />
+      </button>
+    </div>
+  )
+}
+
+function RangeField({
+  label,
+  description,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  formatter,
+}: {
+  label: string
+  description: string
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (value: number) => void
+  formatter: (value: number) => string
+}) {
+  return (
+    <div className="rounded-[24px] border border-line-soft/70 bg-paper-card px-4 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-medium text-ink">{label}</p>
+          <p className="mt-1 text-sm text-ink-muted">{description}</p>
+        </div>
+        <span className="text-sm text-ink-soft">{formatter(value)}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-4 w-full"
+        style={{ accentColor: 'rgb(var(--ink))' }}
+      />
+    </div>
+  )
+}
+
+function SummaryRow({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-line-soft/55 py-3 last:border-b-0">
+      <span className="text-sm text-ink-muted">{label}</span>
+      <span className="max-w-[180px] text-right text-sm font-medium text-ink">{value}</span>
+    </div>
+  )
+}
+
 export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: boolean }) {
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const storeActiveSection = useAppUiStore((state) => state.activeSettingsSection)
@@ -472,7 +853,6 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
   const [fetchedModelsByProvider, setFetchedModelsByProvider] = useState<
     Partial<Record<ApiProvider, DiscoveredModel[]>>
   >({})
-  const [migrationAttempted, setMigrationAttempted] = useState(false)
   const [dailyNewCardLimit, setDailyNewCardLimit] = useState(20)
   const [reviewTimeLimit, setReviewTimeLimit] = useState(30)
   const [podcastTtsProvider, setPodcastTtsProvider] = useState<PodcastTtsProvider>('auto')
@@ -484,9 +864,46 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
   const [podcastMaxLlmTokens, setPodcastMaxLlmTokens] = useState(100000)
   const [podcastMaxTtsCharacters, setPodcastMaxTtsCharacters] = useState(50000)
   const [podcastMaxEstimatedCostUsd, setPodcastMaxEstimatedCostUsd] = useState(1)
-  const [selectedTheme, setSelectedTheme] = useState<ThemeId>('default')
+  const [selectedTheme, setSelectedTheme] = useState<AppThemeId>('default')
+  const [selectedLanguage, setSelectedLanguage] = useState<AppSettings['language']>('zh-CN')
+  const [learningGoal, setLearningGoal] = useState<LearningGoalId>('knowledge_understanding')
+  const [dailyStudyMinutes, setDailyStudyMinutes] = useState(30)
+  const [studyTimePreference, setStudyTimePreference] =
+    useState<AppSettings['studyTimePreference']>('evening')
+  const [studyTimePreferences, setStudyTimePreferences] = useState<StudyTimeSlotId[]>([
+    'afternoon',
+    'evening',
+  ])
+  const [studyContentPreferences, setStudyContentPreferences] = useState<
+    StudyContentPreferenceId[]
+  >(['psychology', 'cognitive_science', 'self_improvement', 'education'])
+  const [contentDifficultyPreference, setContentDifficultyPreference] =
+    useState<ContentDifficultyId>('intermediate')
+  const [defaultVoice, setDefaultVoice] = useState('gentle_female_xiaoxiao')
+  const [speechRate, setSpeechRate] = useState(1)
+  const [speechPitch, setSpeechPitch] = useState(0)
+  const [speechVolume, setSpeechVolume] = useState(0.8)
+  const [readingMode, setReadingMode] = useState<AppSettings['readingMode']>('natural')
+  const [defaultPodcastStyle, setDefaultPodcastStyle] =
+    useState<AppSettings['defaultPodcastStyle']>('lecture')
+  const [podcastEpisodeDurationMinutes, setPodcastEpisodeDurationMinutes] = useState(15)
+  const [podcastContentStructure, setPodcastContentStructure] =
+    useState<AppSettings['podcastContentStructure']>('summary_then_details')
+  const [podcastBackgroundMusic, setPodcastBackgroundMusic] =
+    useState<AppSettings['podcastBackgroundMusic']>('soft_piano')
+  const [podcastIntroOutroEnabled, setPodcastIntroOutroEnabled] = useState(true)
+  const [voiceInputLanguage, setVoiceInputLanguage] =
+    useState<AppSettings['voiceInputLanguage']>('zh-CN')
+  const [voiceInterruptEnabled, setVoiceInterruptEnabled] = useState(true)
+  const [podcastAutoPlayNextEpisode, setPodcastAutoPlayNextEpisode] = useState(true)
+  const [savingSection, setSavingSection] = useState<SettingsSectionId | null>(null)
+  const [isExportingLearningData, setIsExportingLearningData] = useState(false)
+  const [isExportingCardsCsv, setIsExportingCardsCsv] = useState(false)
+  const [isClearingUiCache, setIsClearingUiCache] = useState(false)
+  const [hasInitializedSetupGuide, setHasInitializedSetupGuide] = useState(false)
 
   const usableConfigExists = hasUsableApiConfig(apiConfigs)
+  const showSetupGuide = forcedOnboarding || (!isApiConfigsLoading && !usableConfigExists)
   const currentProviderDefinition = getProviderDefinition(form.provider)
   const editingConfig = useMemo(
     () => (form.id ? (apiConfigs.find((config) => config.id === form.id) ?? null) : null),
@@ -512,37 +929,68 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
       : null
 
   useEffect(() => {
-    if (forcedOnboarding) {
-      setActiveSection('ai')
+    if (!showSetupGuide || hasInitializedSetupGuide) {
+      return
     }
-  }, [forcedOnboarding])
+
+    if (apiConfigs.length === 0) {
+      setEditorMode('create')
+      setForm(buildConfigForm('openai'))
+      setIsEditorOpen(true)
+      setConnectionMessage('当前未检测到可用模型配置，请先补充至少一组可用凭证。')
+      setConnectionTone('info')
+    } else {
+      setIsEditorOpen(true)
+    }
+
+    setHasInitializedSetupGuide(true)
+  }, [apiConfigs.length, hasInitializedSetupGuide, showSetupGuide])
+
+  useEffect(() => {
+    setActiveNavItem('settings')
+    setActiveSection('ai')
+  }, [setActiveNavItem, setActiveSection])
 
   useEffect(() => {
     if (!settings) {
       return
     }
 
-    setDailyNewCardLimit(settings.dailyNewCardLimit)
-    setReviewTimeLimit(settings.reviewTimeLimit)
-    setPodcastTtsProvider(settings.podcastTtsProvider)
-    setPodcastOpenaiModel(settings.podcastOpenaiModel)
-    setPodcastFishAudioEndpoint(settings.podcastFishAudioEndpoint ?? '')
-    setPodcastOutputFormat(settings.podcastOutputFormat)
-    setPodcastSkipReview(settings.podcastSkipReview)
-    setPodcastVoiceOverrides(formatVoiceOverrides(settings.podcastVoiceOverrides))
-    setPodcastMaxLlmTokens(settings.podcastMaxLlmTokens)
-    setPodcastMaxTtsCharacters(settings.podcastMaxTtsCharacters)
-    setPodcastMaxEstimatedCostUsd(settings.podcastMaxEstimatedCostUsd)
-    setSelectedTheme(settings.theme)
-  }, [settings])
+    const snapshot = resolveSettingsSnapshot(settings)
 
-  useEffect(() => {
-    if (forcedOnboarding && !isApiConfigsLoading && apiConfigs.length === 0) {
-      setEditorMode('create')
-      setForm(buildConfigForm('openai'))
-      setIsEditorOpen(true)
-    }
-  }, [apiConfigs.length, forcedOnboarding, isApiConfigsLoading])
+    setDailyNewCardLimit(snapshot.dailyNewCardLimit)
+    setReviewTimeLimit(snapshot.reviewTimeLimit)
+    setSelectedLanguage(snapshot.language)
+    setLearningGoal(snapshot.learningGoal)
+    setDailyStudyMinutes(snapshot.dailyStudyMinutes)
+    setStudyTimePreference(snapshot.studyTimePreference)
+    setStudyTimePreferences(snapshot.studyTimePreferences)
+    setStudyContentPreferences(snapshot.studyContentPreferences)
+    setContentDifficultyPreference(snapshot.contentDifficultyPreference)
+    setPodcastTtsProvider(snapshot.podcastTtsProvider)
+    setPodcastOpenaiModel(snapshot.podcastOpenaiModel)
+    setPodcastFishAudioEndpoint(snapshot.podcastFishAudioEndpoint ?? '')
+    setPodcastOutputFormat(snapshot.podcastOutputFormat)
+    setPodcastSkipReview(snapshot.podcastSkipReview)
+    setPodcastVoiceOverrides(formatVoiceOverrides(snapshot.podcastVoiceOverrides))
+    setPodcastMaxLlmTokens(snapshot.podcastMaxLlmTokens)
+    setPodcastMaxTtsCharacters(snapshot.podcastMaxTtsCharacters)
+    setPodcastMaxEstimatedCostUsd(snapshot.podcastMaxEstimatedCostUsd)
+    setDefaultVoice(snapshot.defaultVoice)
+    setSpeechRate(snapshot.speechRate)
+    setSpeechPitch(snapshot.speechPitch)
+    setSpeechVolume(snapshot.speechVolume)
+    setReadingMode(snapshot.readingMode)
+    setDefaultPodcastStyle(snapshot.defaultPodcastStyle)
+    setPodcastEpisodeDurationMinutes(snapshot.podcastEpisodeDurationMinutes)
+    setPodcastContentStructure(snapshot.podcastContentStructure)
+    setPodcastBackgroundMusic(snapshot.podcastBackgroundMusic)
+    setPodcastIntroOutroEnabled(snapshot.podcastIntroOutroEnabled)
+    setVoiceInputLanguage(snapshot.voiceInputLanguage)
+    setVoiceInterruptEnabled(snapshot.voiceInterruptEnabled)
+    setPodcastAutoPlayNextEpisode(snapshot.podcastAutoPlayNextEpisode)
+    setSelectedTheme(snapshot.theme)
+  }, [settings])
 
   useEffect(() => {
     if (editorMode !== 'edit' || !form.id || editingConfig) {
@@ -554,58 +1002,8 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
     setConnectionMessage(null)
     setConnectionTone('info')
     setProviderHint(null)
-    setIsEditorOpen(forcedOnboarding)
-  }, [editingConfig, editorMode, forcedOnboarding, form.id])
-
-  useEffect(() => {
-    if (migrationAttempted || isApiConfigsLoading || apiConfigs.length > 0) {
-      return
-    }
-
-    const legacy = readLegacyAiConfig()
-    setMigrationAttempted(true)
-    if (!legacy) {
-      return
-    }
-
-    const provider = normalizeLegacyProvider(legacy.provider)
-    const definition = getProviderDefinition(provider)
-
-    void (async () => {
-      try {
-        const created = await createApiConfigMutation.mutateAsync({
-          provider,
-          protocol: inferConfigProtocol(provider),
-          authMode: 'api_key',
-          name: `迁移自旧版 ${definition?.name ?? provider}`,
-          displayName: definition?.name ?? null,
-          model: legacy.model || getRecommendedModel(provider),
-          baseUrl: legacy.baseUrl ?? definition?.defaultBaseUrl ?? null,
-          budgetLimit: null,
-          isDefault: true,
-          isEnabled: true,
-        })
-
-        if (legacy.apiKey) {
-          await storeApiKeyMutation.mutateAsync({
-            configId: created.id,
-            apiKey: legacy.apiKey,
-          })
-        }
-      } catch (error) {
-        reportAppError('设置', error, {
-          title: '旧版模型配置迁移失败',
-          fallbackDetail: '旧版 aiConfig 无法自动迁移，请手动创建新的供应商配置。',
-        })
-      }
-    })()
-  }, [
-    apiConfigs.length,
-    createApiConfigMutation,
-    isApiConfigsLoading,
-    migrationAttempted,
-    storeApiKeyMutation,
-  ])
+    setIsEditorOpen(false)
+  }, [editingConfig, editorMode, form.id])
 
   const resetEditor = (provider: ApiProvider = 'openai') => {
     setEditorMode('create')
@@ -744,7 +1142,7 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
       setConnectionTone('success')
       setConnectionMessage('配置已保存。')
       setProviderHint(null)
-      if (!(forcedOnboarding && apiConfigs.length === 0 && !form.apiKey.trim())) {
+      if (!(showSetupGuide && apiConfigs.length === 0 && !form.apiKey.trim())) {
         setIsEditorOpen(false)
       }
     } catch (error) {
@@ -866,7 +1264,7 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
     }
   }
 
-  const handleSaveAppSettings = async () => {
+  const parsePodcastVoiceOverrides = () => {
     let parsedVoiceOverrides: Record<string, string>
     try {
       const parsed = JSON.parse(podcastVoiceOverrides || '{}')
@@ -886,28 +1284,204 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
         title: 'Voice Overrides 格式错误',
         fallbackDetail: 'voice override 需要是合法 JSON，例如 {"openai:zh-CN:host":"alloy"}。',
       })
+      return null
+    }
+
+    return parsedVoiceOverrides
+  }
+
+  const saveSettingsPatch = async (
+    sectionId: SettingsSectionId,
+    payload: Partial<AppSettings>,
+    errorTitle: string
+  ) => {
+    setSavingSection(sectionId)
+    try {
+      await updateSettingsMutation.mutateAsync(payload)
+    } catch (error) {
+      reportAppError('设置', error, {
+        title: errorTitle,
+        fallbackDetail: '请检查本地数据库与字段格式后重试。',
+      })
+    } finally {
+      setSavingSection((current) => (current === sectionId ? null : current))
+    }
+  }
+
+  const handleSaveLearningSettings = async () => {
+    await saveSettingsPatch(
+      'learning',
+      {
+        dailyNewCardLimit,
+        reviewTimeLimit,
+        learningGoal,
+        dailyStudyMinutes,
+        studyTimePreference,
+        studyTimePreferences,
+        studyContentPreferences,
+        contentDifficultyPreference,
+      },
+      '学习偏好保存失败'
+    )
+  }
+
+  const handleSavePodcastSettings = async () => {
+    const parsedVoiceOverrides = parsePodcastVoiceOverrides()
+    if (!parsedVoiceOverrides) {
       return
     }
 
-    try {
-      await updateSettingsMutation.mutateAsync({
-        dailyNewCardLimit,
-        reviewTimeLimit,
+    await saveSettingsPatch(
+      'podcast',
+      {
         podcastTtsProvider,
         podcastOpenaiModel: podcastOpenaiModel.trim() || 'tts-1',
         podcastFishAudioEndpoint: podcastFishAudioEndpoint.trim() || null,
         podcastVoiceOverrides: parsedVoiceOverrides,
+        defaultVoice,
+        speechRate,
+        speechPitch,
+        speechVolume,
+        readingMode,
+        defaultPodcastStyle,
+        podcastEpisodeDurationMinutes,
+        podcastContentStructure,
+        podcastBackgroundMusic,
+        podcastIntroOutroEnabled,
+        voiceInputLanguage,
+        voiceInterruptEnabled,
+        podcastAutoPlayNextEpisode,
         podcastOutputFormat,
         podcastSkipReview,
         podcastMaxLlmTokens,
         podcastMaxTtsCharacters,
         podcastMaxEstimatedCostUsd,
+      },
+      '播客与语音设置保存失败'
+    )
+  }
+
+  const handleSaveGeneralSettings = async () => {
+    await saveSettingsPatch(
+      'general',
+      {
+        theme: selectedTheme,
+        language: selectedLanguage,
+      },
+      '通用设置保存失败'
+    )
+  }
+
+  const handleThemeSelect = (themeId: AppThemeId) => {
+    setSelectedTheme(themeId)
+    updateSettingsMutation.mutate({ theme: themeId })
+  }
+
+  const handleRestoreLearningDefaults = () => {
+    setDailyNewCardLimit(defaultSettingsSnapshot.dailyNewCardLimit)
+    setReviewTimeLimit(defaultSettingsSnapshot.reviewTimeLimit)
+    setLearningGoal(defaultSettingsSnapshot.learningGoal)
+    setDailyStudyMinutes(defaultSettingsSnapshot.dailyStudyMinutes)
+    setStudyTimePreference(defaultSettingsSnapshot.studyTimePreference)
+    setStudyTimePreferences([...defaultSettingsSnapshot.studyTimePreferences])
+    setStudyContentPreferences([...defaultSettingsSnapshot.studyContentPreferences])
+    setContentDifficultyPreference(defaultSettingsSnapshot.contentDifficultyPreference)
+  }
+
+  const handleRestorePodcastDefaults = () => {
+    setPodcastTtsProvider(defaultSettingsSnapshot.podcastTtsProvider)
+    setPodcastOpenaiModel(defaultSettingsSnapshot.podcastOpenaiModel)
+    setPodcastFishAudioEndpoint(defaultSettingsSnapshot.podcastFishAudioEndpoint ?? '')
+    setPodcastOutputFormat(defaultSettingsSnapshot.podcastOutputFormat)
+    setPodcastSkipReview(defaultSettingsSnapshot.podcastSkipReview)
+    setPodcastVoiceOverrides(formatVoiceOverrides(defaultSettingsSnapshot.podcastVoiceOverrides))
+    setPodcastMaxLlmTokens(defaultSettingsSnapshot.podcastMaxLlmTokens)
+    setPodcastMaxTtsCharacters(defaultSettingsSnapshot.podcastMaxTtsCharacters)
+    setPodcastMaxEstimatedCostUsd(defaultSettingsSnapshot.podcastMaxEstimatedCostUsd)
+    setDefaultVoice(defaultSettingsSnapshot.defaultVoice)
+    setSpeechRate(defaultSettingsSnapshot.speechRate)
+    setSpeechPitch(defaultSettingsSnapshot.speechPitch)
+    setSpeechVolume(defaultSettingsSnapshot.speechVolume)
+    setReadingMode(defaultSettingsSnapshot.readingMode)
+    setDefaultPodcastStyle(defaultSettingsSnapshot.defaultPodcastStyle)
+    setPodcastEpisodeDurationMinutes(defaultSettingsSnapshot.podcastEpisodeDurationMinutes)
+    setPodcastContentStructure(defaultSettingsSnapshot.podcastContentStructure)
+    setPodcastBackgroundMusic(defaultSettingsSnapshot.podcastBackgroundMusic)
+    setPodcastIntroOutroEnabled(defaultSettingsSnapshot.podcastIntroOutroEnabled)
+    setVoiceInputLanguage(defaultSettingsSnapshot.voiceInputLanguage)
+    setVoiceInterruptEnabled(defaultSettingsSnapshot.voiceInterruptEnabled)
+    setPodcastAutoPlayNextEpisode(defaultSettingsSnapshot.podcastAutoPlayNextEpisode)
+  }
+
+  const handleRestoreGeneralDefaults = () => {
+    setSelectedTheme(defaultSettingsSnapshot.theme)
+    setSelectedLanguage(defaultSettingsSnapshot.language)
+    updateSettingsMutation.mutate({ theme: defaultSettingsSnapshot.theme })
+  }
+
+  const handleExportLearningData = async () => {
+    setIsExportingLearningData(true)
+    try {
+      const result = await cardsGateway.pickAndExportApkg()
+      if (result) {
+        reportFeedback({
+          scope: '设置',
+          title: '学习数据已导出',
+          detail: result.outputPath,
+        })
+      }
+    } catch (error) {
+      reportAppError('设置', error, {
+        title: '导出学习数据失败',
+        fallbackDetail: '请确认导出位置可写并重试。',
+      })
+    } finally {
+      setIsExportingLearningData(false)
+    }
+  }
+
+  const handleExportCardsCsv = async () => {
+    setIsExportingCardsCsv(true)
+    try {
+      const result = await cardsGateway.pickAndExportCsv()
+      if (result) {
+        reportFeedback({
+          scope: '设置',
+          title: '卡片 CSV 已导出',
+          detail: result.outputPath,
+        })
+      }
+    } catch (error) {
+      reportAppError('设置', error, {
+        title: '导出 CSV 失败',
+        fallbackDetail: '请确认导出位置可写并重试。',
+      })
+    } finally {
+      setIsExportingCardsCsv(false)
+    }
+  }
+
+  const handleClearUiCache = async () => {
+    if (!window.confirm('确认清理界面缓存吗？这不会删除已经导入的学习数据。')) {
+      return
+    }
+
+    setIsClearingUiCache(true)
+    try {
+      window.localStorage.removeItem('xuejian-app-store')
+      window.sessionStorage.clear()
+      reportFeedback({
+        scope: '设置',
+        title: '界面缓存已清理',
+        detail: '已移除本地界面缓存，下次启动将按最新设置重新构建。',
       })
     } catch (error) {
       reportAppError('设置', error, {
-        title: '应用设置保存失败',
-        fallbackDetail: '请检查本地数据库和字段格式。',
+        title: '清理界面缓存失败',
+        fallbackDetail: '请关闭应用后重试。',
       })
+    } finally {
+      setIsClearingUiCache(false)
     }
   }
 
@@ -925,9 +1499,24 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
   }, [workflowAssignments])
 
   const section = settingsSections.find((item) => item.id === activeSection) ?? settingsSections[0]
+  const configuredApiCount = apiConfigs.length
+  const readyApiCount = apiConfigs.filter(
+    (config) => config.isEnabled && config.hasStoredCredential
+  ).length
+  const preferredStudyTimeLabel = getOptionLabel(
+    studyTimePreferenceOptions,
+    studyTimePreference
+  )
+  const activeStudyTimeLabel = formatSelectionSummary(studyTimeSlotOptions, studyTimePreferences)
+  const activeContentSummary = formatSelectionSummary(
+    studyContentPreferenceOptions,
+    studyContentPreferences
+  )
+  const learningGoalLabel = getOptionLabel(learningGoalOptions, learningGoal)
+  const difficultyLabel = getOptionLabel(contentDifficultyOptions, contentDifficultyPreference)
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-[1280px] px-4 py-6 sm:px-6 lg:px-8">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div className="space-y-2">
           <button
@@ -940,11 +1529,11 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
           </button>
           <div>
             <p className="text-[11px] uppercase tracking-[0.32em] text-ink-soft">
-              Settings Workspace
+              SETTINGS
             </p>
             <h1 className="mt-2 text-3xl font-semibold text-ink">设置</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">
-              {forcedOnboarding
+              {showSetupGuide
                 ? '首次进入前，请先配置至少一组可用的模型凭证。AI 模型子页会保持在前台，直到系统识别到可用凭证。'
                 : '按子页拆分 BYOK、学习偏好、播客参数和通用设置，避免把所有配置塞进一张长表单。'}
             </p>
@@ -952,8 +1541,11 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[240px,minmax(0,1fr)]">
-        <Panel variant="panel" className="rounded-[30px] p-3 lg:sticky lg:top-6 lg:h-fit">
+      <div className="grid gap-6 lg:grid-cols-[280px,minmax(0,1fr)]">
+        <Panel
+          variant="panel"
+          className="rounded-[32px] border border-line-soft/70 bg-paper-base/95 p-3 lg:sticky lg:top-6 lg:h-fit"
+        >
           <div className="space-y-2">
             {settingsSections.map((item) => {
               const active = item.id === activeSection
@@ -963,17 +1555,31 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
                   type="button"
                   onClick={() => setActiveSection(item.id)}
                   className={cn(
-                    'w-full rounded-[22px] px-4 py-4 text-left transition-colors',
+                    'w-full rounded-[24px] px-4 py-4 text-left transition-colors',
                     active
-                      ? 'border-l-2 border-l-ink bg-ink/5 text-ink'
+                      ? 'bg-ink/5 text-ink shadow-card'
                       : 'text-ink-muted hover:bg-ink/3 hover:text-ink'
                   )}
                 >
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    {item.eyebrow}
-                  </p>
-                  <p className="mt-1 font-medium">{item.title}</p>
-                  <p className="mt-1 text-sm text-ink-muted">{item.description}</p>
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={cn(
+                        'flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] border text-sm font-semibold',
+                        active
+                          ? 'border-ink/25 bg-paper-base text-ink'
+                          : 'border-line-soft/70 bg-paper-muted/50 text-ink-soft'
+                      )}
+                    >
+                      {getSectionGlyph(item.id)}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        {item.eyebrow}
+                      </p>
+                      <p className="mt-1 font-medium">{item.title}</p>
+                      <p className="mt-1 text-sm text-ink-muted">{item.description}</p>
+                    </div>
+                  </div>
                 </button>
               )
             })}
@@ -981,26 +1587,135 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
         </Panel>
 
         <div className="space-y-6">
-          <Panel variant="paperCard" className="rounded-[32px] p-6 md:p-8">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-ink-soft">
-              {section.eyebrow}
-            </p>
-            <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-              <div>
-                <h2 className="text-2xl font-semibold text-ink">{section.title}</h2>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">
-                  {section.description}
-                </p>
+          <Panel
+            variant="paperCard"
+            className="overflow-hidden rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+          >
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+              <div className="flex items-start gap-4">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-line-soft/70 bg-paper-muted/60 text-lg font-semibold text-ink">
+                  {getSectionGlyph(section.id)}
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-ink-soft">
+                    {section.eyebrow}
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold text-ink">{section.title}</h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">
+                    {section.description}
+                  </p>
+                </div>
               </div>
+              <div className="flex flex-wrap gap-3">
+                {activeSection === 'ai' ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => resetEditor('openai')}
+                    data-testid="settings-toggle-add-config"
+                  >
+                    添加供应商
+                  </Button>
+                ) : null}
+                {activeSection === 'learning' ? (
+                  <Button variant="outline" onClick={handleRestoreLearningDefaults}>
+                    恢复默认设置
+                  </Button>
+                ) : null}
+                {activeSection === 'podcast' ? (
+                  <Button variant="outline" onClick={handleRestorePodcastDefaults}>
+                    恢复默认设置
+                  </Button>
+                ) : null}
+                {activeSection === 'general' ? (
+                  <Button variant="outline" onClick={handleRestoreGeneralDefaults}>
+                    恢复默认设置
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
               {activeSection === 'ai' ? (
-                <Button
-                  variant="outline"
-                  onClick={() => resetEditor('openai')}
-                  disabled={forcedOnboarding}
-                  data-testid="settings-toggle-add-config"
-                >
-                  添加配置
-                </Button>
+                <>
+                  <SectionMetric
+                    label="已配置供应商"
+                    value={String(configuredApiCount)}
+                    detail={`其中 ${readyApiCount} 个已具备可用凭证`}
+                  />
+                  <SectionMetric
+                    label="默认策略"
+                    value={usableConfigExists ? '已就绪' : '待补齐'}
+                    detail={usableConfigExists ? '工作流可以分配到稳定配置' : '请先补充至少一组可用 Key'}
+                  />
+                  <SectionMetric
+                    label="工作流分配"
+                    value={String(workflowAssignments.length)}
+                    detail="不同任务可绑定不同成本与能力的模型"
+                  />
+                </>
+              ) : null}
+
+              {activeSection === 'learning' ? (
+                <>
+                  <SectionMetric
+                    label="每日时长"
+                    value={`${dailyStudyMinutes} 分钟`}
+                    detail={`${dailyNewCardLimit} 张新卡 / ${reviewTimeLimit} 分钟复习上限`}
+                  />
+                  <SectionMetric
+                    label="学习目标"
+                    value={learningGoalLabel}
+                    detail={`内容难度当前为${difficultyLabel}`}
+                  />
+                  <SectionMetric
+                    label="推荐时段"
+                    value={preferredStudyTimeLabel}
+                    detail={activeStudyTimeLabel}
+                  />
+                </>
+              ) : null}
+
+              {activeSection === 'podcast' ? (
+                <>
+                  <SectionMetric
+                    label="默认语音"
+                    value={getOptionLabel(defaultVoiceOptions, defaultVoice)}
+                    detail={`${Math.round(speechVolume * 100)}% 音量 · ${readingMode}`}
+                  />
+                  <SectionMetric
+                    label="播客风格"
+                    value={getOptionLabel(podcastStyleOptions, defaultPodcastStyle)}
+                    detail={`${podcastEpisodeDurationMinutes} 分钟 / ${podcastOutputFormat.toUpperCase()}`}
+                  />
+                  <SectionMetric
+                    label="语音输入"
+                    value={getOptionLabel(voiceInputLanguageOptions, voiceInputLanguage)}
+                    detail={podcastAutoPlayNextEpisode ? '启用自动播放下一集' : '手动控制下一集播放'}
+                  />
+                </>
+              ) : null}
+
+              {activeSection === 'general' ? (
+                <>
+                  <SectionMetric
+                    label="官方主题"
+                    value={
+                      appThemeOptions.find((theme) => theme.id === selectedTheme)?.label ??
+                      selectedTheme
+                    }
+                    detail="保留唯一官方纸感主题"
+                  />
+                  <SectionMetric
+                    label="界面语言"
+                    value={getOptionLabel(languageOptions, selectedLanguage)}
+                    detail="语言修改需要点击保存通用设置"
+                  />
+                  <SectionMetric
+                    label="数据导出"
+                    value="APKG / CSV"
+                    detail="学习数据和卡片导出入口集中在当前面板"
+                  />
+                </>
               ) : null}
             </div>
           </Panel>
@@ -1030,6 +1745,17 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
                     <p className="mt-1">已满足工作流运行条件：{usableConfigExists ? '是' : '否'}</p>
                   </div>
                 </div>
+
+                {showSetupGuide ? (
+                  <div
+                    className="mt-6 rounded-[28px] border border-[#ceb18f]/70 bg-[#fbf4ea] px-5 py-4 text-sm text-[#7c5c39]"
+                    data-testid="settings-setup-callout"
+                  >
+                    {apiConfigs.length === 0
+                      ? '当前未检测到可用模型配置。你可以先创建并验证一组凭证，其他设置子页仍可继续浏览。'
+                      : '当前已有模型配置，但系统尚未检测到可用凭证。请检查 Key、连接状态或重新验证。'}
+                  </div>
+                ) : null}
 
                 {apiConfigs.length === 0 ? (
                   <div className="mt-6 rounded-[28px] border border-dashed border-line-soft bg-paper-muted/40 px-6 py-10 text-center">
@@ -1084,7 +1810,7 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
                       回传给前端。
                     </p>
                   </div>
-                  {!forcedOnboarding ? (
+                  {isEditorOpen ? (
                     <Button variant="ghost" onClick={() => setIsEditorOpen(false)}>
                       收起表单
                     </Button>
@@ -1176,8 +1902,8 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
                       <p
                         className={cn(
                           'mt-1',
-                          apiKeyValidation.severity === 'error' && 'text-red-600',
-                          apiKeyValidation.severity === 'success' && 'text-green-700',
+                          apiKeyValidation.severity === 'error' && 'text-ink',
+                          apiKeyValidation.severity === 'success' && 'text-ink',
                           apiKeyValidation.severity === 'info' && 'text-ink-muted'
                         )}
                       >
@@ -1303,8 +2029,8 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
                         <p
                           className={cn(
                             'mt-3 text-sm',
-                            connectionTone === 'success' && 'text-green-700',
-                            connectionTone === 'error' && 'text-red-600',
+                            connectionTone === 'success' && 'text-ink',
+                            connectionTone === 'error' && 'text-ink',
                             connectionTone === 'info' && 'text-ink-muted'
                           )}
                         >
@@ -1339,7 +2065,7 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
                       删除 Key
                     </Button>
                   ) : null}
-                  {!forcedOnboarding ? (
+                  {isEditorOpen ? (
                     <Button variant="outline" onClick={() => setIsEditorOpen(false)}>
                       取消
                     </Button>
@@ -1357,273 +2083,798 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
           ) : null}
 
           {activeSection === 'learning' ? (
-            <Panel
-              variant="paperCard"
-              className="space-y-6 rounded-[32px] border border-line-soft/80 p-6 md:p-8"
-            >
-              <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">学习偏好</p>
-                <h3 className="text-xl font-semibold text-ink">把节奏控制在每天都能坚持的范围</h3>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block space-y-2">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    每日新卡片数量
-                  </span>
-                  <select
-                    value={dailyNewCardLimit}
-                    onChange={(event) => setDailyNewCardLimit(Number(event.target.value))}
-                    title="每日新卡片数量"
-                    className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
-                  >
-                    {[10, 20, 30, 50].map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr),300px]">
+              <div className="space-y-6">
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      学习目标
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">定义这轮学习要优先实现什么</h3>
+                    <p className="text-sm leading-6 text-ink-muted">
+                      系统会依据你的目标调整推荐内容、复习节奏与解释方式。
+                    </p>
+                  </div>
+                  <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                    {learningGoalOptions.map((option) => (
+                      <OptionChip
+                        key={option.value}
+                        active={learningGoal === option.value}
+                        label={option.label}
+                        meta={option.description}
+                        onClick={() => setLearningGoal(option.value)}
+                      />
                     ))}
-                  </select>
-                </label>
+                  </div>
+                </Panel>
 
-                <label className="block space-y-2">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    每日复习时长上限
-                  </span>
-                  <select
-                    value={reviewTimeLimit}
-                    onChange={(event) => setReviewTimeLimit(Number(event.target.value))}
-                    title="每日复习时长上限"
-                    className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
-                  >
-                    {[15, 30, 45, 60].map((item) => (
-                      <option key={item} value={item}>
-                        {item} 分钟
-                      </option>
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      每日节奏
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">把学习时长和任务强度控制在可持续区间</h3>
+                  </div>
+
+                  <div className="mt-6 space-y-6">
+                    <div>
+                      <p className="text-sm font-medium text-ink">每日学习时长</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-5">
+                        {dailyStudyMinuteOptions.map((item) => (
+                          <OptionChip
+                            key={item}
+                            active={dailyStudyMinutes === item}
+                            label={`${item} 分钟`}
+                            onClick={() => setDailyStudyMinutes(item)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div>
+                        <p className="text-sm font-medium text-ink">每日新卡数量</p>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          {dailyNewCardOptions.map((item) => (
+                            <OptionChip
+                              key={item}
+                              active={dailyNewCardLimit === item}
+                              label={`${item} 张`}
+                              onClick={() => setDailyNewCardLimit(item)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-sm font-medium text-ink">复习时长上限</p>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          {reviewTimeLimitOptions.map((item) => (
+                            <OptionChip
+                              key={item}
+                              active={reviewTimeLimit === item}
+                              label={`${item} 分钟`}
+                              onClick={() => setReviewTimeLimit(item)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Panel>
+
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      学习时间偏好
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">先选整体节奏，再标出最适合你的时段</h3>
+                  </div>
+
+                  <div className="mt-6 space-y-6">
+                    <div>
+                      <p className="text-sm font-medium text-ink">默认推荐时段</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                        {studyTimePreferenceOptions.map((option) => (
+                          <OptionChip
+                            key={option.value}
+                            active={studyTimePreference === option.value}
+                            label={option.label}
+                            onClick={() => setStudyTimePreference(option.value)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-medium text-ink">活跃学习时段</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        {studyTimeSlotOptions.map((option) => (
+                          <OptionChip
+                            key={option.value}
+                            active={studyTimePreferences.includes(option.value)}
+                            label={option.label}
+                            meta={option.timeRange}
+                            onClick={() =>
+                              setStudyTimePreferences((current) =>
+                                toggleSelection(current, option.value)
+                              )
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </Panel>
+
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      学习内容偏好
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">选择你希望系统优先推送的主题领域</h3>
+                  </div>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    {studyContentPreferenceOptions.map((option) => (
+                      <OptionChip
+                        key={option.value}
+                        active={studyContentPreferences.includes(option.value)}
+                        label={option.label}
+                        onClick={() =>
+                          setStudyContentPreferences((current) =>
+                            toggleSelection(current, option.value)
+                          )
+                        }
+                        className="min-w-[132px]"
+                      />
                     ))}
-                  </select>
-                </label>
+                  </div>
+                  <p className="mt-4 text-sm text-ink-soft">
+                    已选择 {studyContentPreferences.length} 个偏好领域
+                  </p>
+                </Panel>
+
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      内容难度
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">控制解释深度与推荐内容的复杂度</h3>
+                  </div>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                    {contentDifficultyOptions.map((option) => (
+                      <OptionChip
+                        key={option.value}
+                        active={contentDifficultyPreference === option.value}
+                        label={option.label}
+                        onClick={() => setContentDifficultyPreference(option.value)}
+                      />
+                    ))}
+                  </div>
+                </Panel>
               </div>
 
-              <div className="flex justify-end">
-                <Button onClick={handleSaveAppSettings}>保存学习设置</Button>
-              </div>
-            </Panel>
+              <Panel
+                variant="paperCard"
+                className="h-fit space-y-4 rounded-[32px] border border-line-soft/80 p-6 xl:sticky xl:top-6"
+              >
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                    偏好概览
+                  </p>
+                  <h3 className="text-xl font-semibold text-ink">当前学习设置摘要</h3>
+                </div>
+                <SummaryRow label="学习目标" value={learningGoalLabel} />
+                <SummaryRow label="每日时长" value={`${dailyStudyMinutes} 分钟`} />
+                <SummaryRow label="推荐时段" value={preferredStudyTimeLabel} />
+                <SummaryRow label="活跃时段" value={activeStudyTimeLabel} />
+                <SummaryRow label="内容领域" value={activeContentSummary} />
+                <SummaryRow label="内容难度" value={difficultyLabel} />
+
+                <div className="grid gap-3 pt-2">
+                  <Button
+                    onClick={handleSaveLearningSettings}
+                    disabled={savingSection === 'learning'}
+                  >
+                    {savingSection === 'learning' ? '正在保存…' : '保存偏好设置'}
+                  </Button>
+                  <Button variant="outline" onClick={handleRestoreLearningDefaults}>
+                    恢复默认设置
+                  </Button>
+                </div>
+              </Panel>
+            </div>
           ) : null}
 
           {activeSection === 'podcast' ? (
-            <Panel
-              variant="paperCard"
-              className="space-y-6 rounded-[32px] border border-line-soft/80 p-6 md:p-8"
-            >
-              <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">播客与语音</p>
-                <h3 className="text-xl font-semibold text-ink">
-                  把生成脚本、TTS 和预算集中在一个面板里
-                </h3>
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr),300px]">
+              <div className="space-y-6">
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      语音合成设置
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">先确定默认声线，再细调收听体验</h3>
+                  </div>
+
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    <label className="block space-y-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        默认语音
+                      </span>
+                      <select
+                        value={defaultVoice}
+                        onChange={(event) => setDefaultVoice(event.target.value)}
+                        title="默认语音"
+                        className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
+                      >
+                        {defaultVoiceOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        朗读模式
+                      </span>
+                      <select
+                        value={readingMode}
+                        onChange={(event) =>
+                          setReadingMode(event.target.value as AppSettings['readingMode'])
+                        }
+                        title="朗读模式"
+                        className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
+                      >
+                        {readingModeOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-6 grid gap-4 xl:grid-cols-3">
+                    <RangeField
+                      label="语速"
+                      description="控制播客与文本朗读的整体语速。"
+                      value={speechRate}
+                      min={0.75}
+                      max={1.5}
+                      step={0.05}
+                      onChange={setSpeechRate}
+                      formatter={(value) => `${value.toFixed(2)}x`}
+                    />
+                    <RangeField
+                      label="语调"
+                      description="微调声音偏低沉或偏明亮。"
+                      value={speechPitch}
+                      min={-0.5}
+                      max={0.5}
+                      step={0.05}
+                      onChange={setSpeechPitch}
+                      formatter={(value) => `${Math.round(value * 100)}%`}
+                    />
+                    <RangeField
+                      label="音量"
+                      description="作为播客播放与预览的默认音量。"
+                      value={speechVolume}
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      onChange={setSpeechVolume}
+                      formatter={(value) => `${Math.round(value * 100)}%`}
+                    />
+                  </div>
+                </Panel>
+
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      播客生成设置
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">定义默认节目风格、结构和氛围</h3>
+                  </div>
+
+                  <div className="mt-6 space-y-6">
+                    <div>
+                      <p className="text-sm font-medium text-ink">默认播客风格</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        {podcastStyleOptions.map((option) => (
+                          <OptionChip
+                            key={option.value}
+                            active={defaultPodcastStyle === option.value}
+                            label={option.label}
+                            onClick={() => setDefaultPodcastStyle(option.value)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-medium text-ink">单集时长</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
+                        {podcastEpisodeDurationOptions.map((item) => (
+                          <OptionChip
+                            key={item}
+                            active={podcastEpisodeDurationMinutes === item}
+                            label={`${item} 分钟`}
+                            onClick={() => setPodcastEpisodeDurationMinutes(item)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <label className="block space-y-2">
+                        <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                          内容结构
+                        </span>
+                        <select
+                          value={podcastContentStructure}
+                          onChange={(event) =>
+                            setPodcastContentStructure(
+                              event.target.value as AppSettings['podcastContentStructure']
+                            )
+                          }
+                          title="内容结构"
+                          className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
+                        >
+                          {podcastStructureOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="block space-y-2">
+                        <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                          背景音乐
+                        </span>
+                        <select
+                          value={podcastBackgroundMusic}
+                          onChange={(event) =>
+                            setPodcastBackgroundMusic(
+                              event.target.value as AppSettings['podcastBackgroundMusic']
+                            )
+                          }
+                          title="背景音乐"
+                          className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
+                        >
+                          {podcastBackgroundMusicOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <SectionToggle
+                        label="自动添加片头片尾"
+                        description="为播客生成开场和结尾提示语。"
+                        checked={podcastIntroOutroEnabled}
+                        onChange={setPodcastIntroOutroEnabled}
+                      />
+                      <SectionToggle
+                        label="跳过人工审阅"
+                        description="生成脚本后直接进入后续语音合成流程。"
+                        checked={podcastSkipReview}
+                        onChange={setPodcastSkipReview}
+                      />
+                    </div>
+                  </div>
+                </Panel>
+
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      语音交互与引擎
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">集中管理输入语言、TTS 路由和预算限制</h3>
+                  </div>
+
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    <label className="block space-y-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        语音输入语言
+                      </span>
+                      <select
+                        value={voiceInputLanguage}
+                        onChange={(event) =>
+                          setVoiceInputLanguage(
+                            event.target.value as AppSettings['voiceInputLanguage']
+                          )
+                        }
+                        title="语音输入语言"
+                        className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
+                      >
+                        {voiceInputLanguageOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        默认 TTS 提供商
+                      </span>
+                      <select
+                        value={podcastTtsProvider}
+                        onChange={(event) =>
+                          setPodcastTtsProvider(event.target.value as PodcastTtsProvider)
+                        }
+                        title="默认 TTS 提供商"
+                        className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
+                      >
+                        {podcastProviderOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        OpenAI TTS 模型
+                      </span>
+                      <Input
+                        value={podcastOpenaiModel}
+                        onChange={(event) => setPodcastOpenaiModel(event.target.value)}
+                        className="h-11 rounded-full px-4"
+                      />
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        输出格式
+                      </span>
+                      <select
+                        value={podcastOutputFormat}
+                        onChange={(event) =>
+                          setPodcastOutputFormat(event.target.value as PodcastOutputFormat)
+                        }
+                        title="输出格式"
+                        className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
+                      >
+                        <option value="mp3">MP3</option>
+                        <option value="wav">WAV</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-6 grid gap-4 md:grid-cols-3">
+                    <label className="block space-y-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        最大 LLM Tokens
+                      </span>
+                      <Input
+                        type="number"
+                        value={String(podcastMaxLlmTokens)}
+                        onChange={(event) =>
+                          setPodcastMaxLlmTokens(Number(event.target.value) || 0)
+                        }
+                        className="h-11 rounded-full px-4"
+                      />
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        最大 TTS 字符数
+                      </span>
+                      <Input
+                        type="number"
+                        value={String(podcastMaxTtsCharacters)}
+                        onChange={(event) =>
+                          setPodcastMaxTtsCharacters(Number(event.target.value) || 0)
+                        }
+                        className="h-11 rounded-full px-4"
+                      />
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                        脚本预算上限（USD）
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={String(podcastMaxEstimatedCostUsd)}
+                        onChange={(event) =>
+                          setPodcastMaxEstimatedCostUsd(Number(event.target.value) || 0)
+                        }
+                        className="h-11 rounded-full px-4"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    <SectionToggle
+                      label="允许语音打断"
+                      description="在播客播放过程中接收并响应新的语音输入。"
+                      checked={voiceInterruptEnabled}
+                      onChange={setVoiceInterruptEnabled}
+                    />
+                    <SectionToggle
+                      label="自动播放下一集"
+                      description="当前集播放完成后自动衔接下一集。"
+                      checked={podcastAutoPlayNextEpisode}
+                      onChange={setPodcastAutoPlayNextEpisode}
+                    />
+                  </div>
+
+                  <label className="mt-6 block space-y-2">
+                    <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      Voice Overrides (JSON)
+                    </span>
+                    <textarea
+                      value={podcastVoiceOverrides}
+                      onChange={(event) => setPodcastVoiceOverrides(event.target.value)}
+                      className="min-h-[180px] w-full rounded-[24px] border border-line-soft bg-paper-card px-4 py-3 font-mono text-sm text-ink"
+                    />
+                  </label>
+                </Panel>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block space-y-2">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    默认 TTS 提供商
-                  </span>
-                  <select
-                    value={podcastTtsProvider}
-                    onChange={(event) =>
-                      setPodcastTtsProvider(event.target.value as PodcastTtsProvider)
-                    }
-                    title="默认 TTS 提供商"
-                    className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
-                  >
-                    {podcastProviderOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block space-y-2">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    OpenAI TTS 模型
-                  </span>
-                  <Input
-                    value={podcastOpenaiModel}
-                    onChange={(event) => setPodcastOpenaiModel(event.target.value)}
-                    className="h-11 rounded-full px-4"
-                  />
-                </label>
-
-                <label className="block space-y-2">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    Fish Audio Endpoint
-                  </span>
-                  <Input
-                    value={podcastFishAudioEndpoint}
-                    onChange={(event) => setPodcastFishAudioEndpoint(event.target.value)}
-                    className="h-11 rounded-full px-4"
-                  />
-                </label>
-
-                <label className="block space-y-2">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    默认输出格式
-                  </span>
-                  <select
-                    value={podcastOutputFormat}
-                    onChange={(event) =>
-                      setPodcastOutputFormat(event.target.value as PodcastOutputFormat)
-                    }
-                    title="默认输出格式"
-                    className="h-11 w-full rounded-full border border-line-soft bg-paper-card px-4 text-sm text-ink"
-                  >
-                    <option value="mp3">MP3</option>
-                    <option value="wav">WAV</option>
-                  </select>
-                </label>
-
-                <label className="block space-y-2">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    最大 LLM Tokens
-                  </span>
-                  <Input
-                    value={String(podcastMaxLlmTokens)}
-                    onChange={(event) => setPodcastMaxLlmTokens(Number(event.target.value) || 0)}
-                    className="h-11 rounded-full px-4"
-                  />
-                </label>
-
-                <label className="block space-y-2">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    最大 TTS 字符数
-                  </span>
-                  <Input
-                    value={String(podcastMaxTtsCharacters)}
-                    onChange={(event) =>
-                      setPodcastMaxTtsCharacters(Number(event.target.value) || 0)
-                    }
-                    className="h-11 rounded-full px-4"
-                  />
-                </label>
-
-                <label className="block space-y-2 md:col-span-2">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    脚本预算上限（USD）
-                  </span>
-                  <Input
-                    value={String(podcastMaxEstimatedCostUsd)}
-                    onChange={(event) =>
-                      setPodcastMaxEstimatedCostUsd(Number(event.target.value) || 0)
-                    }
-                    className="h-11 rounded-full px-4"
-                  />
-                </label>
-              </div>
-
-              <label className="flex items-center gap-3 rounded-[22px] border border-line-soft/70 bg-paper-muted/60 px-4 py-3 text-sm text-ink-muted">
-                <input
-                  type="checkbox"
-                  checked={podcastSkipReview}
-                  onChange={(event) => setPodcastSkipReview(event.target.checked)}
+              <Panel
+                variant="paperCard"
+                className="h-fit space-y-4 rounded-[32px] border border-line-soft/80 p-6 xl:sticky xl:top-6"
+              >
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                    播放摘要
+                  </p>
+                  <h3 className="text-xl font-semibold text-ink">当前播客与语音配置</h3>
+                </div>
+                <SummaryRow
+                  label="默认语音"
+                  value={getOptionLabel(defaultVoiceOptions, defaultVoice)}
                 />
-                跳过播客脚本人工审阅
-              </label>
-
-              <label className="block space-y-2">
-                <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                  Voice Overrides (JSON)
-                </span>
-                <textarea
-                  value={podcastVoiceOverrides}
-                  onChange={(event) => setPodcastVoiceOverrides(event.target.value)}
-                  className="min-h-[180px] w-full rounded-[24px] border border-line-soft bg-paper-card px-4 py-3 font-mono text-sm text-ink"
+                <SummaryRow
+                  label="朗读模式"
+                  value={getOptionLabel(readingModeOptions, readingMode)}
                 />
-              </label>
+                <SummaryRow
+                  label="播客风格"
+                  value={getOptionLabel(podcastStyleOptions, defaultPodcastStyle)}
+                />
+                <SummaryRow label="单集时长" value={`${podcastEpisodeDurationMinutes} 分钟`} />
+                <SummaryRow
+                  label="背景音乐"
+                  value={getOptionLabel(podcastBackgroundMusicOptions, podcastBackgroundMusic)}
+                />
+                <SummaryRow
+                  label="语音输入"
+                  value={getOptionLabel(voiceInputLanguageOptions, voiceInputLanguage)}
+                />
+                <SummaryRow label="输出格式" value={podcastOutputFormat.toUpperCase()} />
 
-              <div className="flex justify-end">
-                <Button onClick={handleSaveAppSettings}>保存播客设置</Button>
-              </div>
-            </Panel>
+                <div className="grid gap-3 pt-2">
+                  <Button
+                    onClick={handleSavePodcastSettings}
+                    disabled={savingSection === 'podcast'}
+                  >
+                    {savingSection === 'podcast' ? '正在保存…' : '保存设置'}
+                  </Button>
+                  <Button variant="outline" onClick={handleRestorePodcastDefaults}>
+                    恢复默认设置
+                  </Button>
+                </div>
+              </Panel>
+            </div>
           ) : null}
 
           {activeSection === 'general' ? (
-            <div className="space-y-6">
-              <Panel
-                variant="paperCard"
-                className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
-              >
-                <div className="space-y-2">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">主题包</p>
-                  <h3 className="text-xl font-semibold text-ink">
-                    切换主题时立即预览，不额外增加保存步骤
-                  </h3>
-                </div>
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr),320px]">
+              <div className="space-y-6">
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">主题包</p>
+                    <h3 className="text-xl font-semibold text-ink">
+                      保留唯一官方主题，并让切换立即生效
+                    </h3>
+                    <p className="text-sm leading-6 text-ink-muted">
+                      旧版实验主题已退役，当前只维护统一的纸感视觉系统。
+                    </p>
+                  </div>
 
-                <div className="mt-6 grid gap-4 md:grid-cols-3">
-                  {appThemeOptions.map((theme) => {
-                    const active = selectedTheme === theme.id
-                    const swatchClasses = themeSwatchClassMap[theme.id]
-                    return (
-                      <button
-                        key={theme.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedTheme(theme.id)
-                          updateSettingsMutation.mutate({ theme: theme.id })
-                        }}
-                        data-testid={`theme-option-${theme.id}`}
-                        className={cn(
-                          'rounded-[28px] border p-4 text-left transition-colors',
-                          active ? 'border-ink/40 bg-ink/5' : 'border-line-soft/80 bg-paper-card'
-                        )}
-                      >
-                        <p className="font-medium text-ink">{theme.label}</p>
-                        <p className="mt-1 text-sm text-ink-muted">{theme.description}</p>
-                        <div className="mt-4 flex gap-2">
-                          <span
-                            className={cn(
-                              'h-6 w-6 rounded-full border border-line-soft',
-                              swatchClasses.paper
-                            )}
-                          />
-                          <span
-                            className={cn(
-                              'h-6 w-6 rounded-full border border-line-soft',
-                              swatchClasses.ink
-                            )}
-                          />
-                          <span
-                            className={cn(
-                              'h-6 w-6 rounded-full border border-line-soft',
-                              swatchClasses.accent
-                            )}
-                          />
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
-              </Panel>
+                  <div className="mt-6 grid gap-4">
+                    {appThemeOptions.map((theme) => {
+                      const active = selectedTheme === theme.id
+                      return (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          onClick={() => handleThemeSelect(theme.id)}
+                          data-testid={`theme-option-${theme.id}`}
+                          className={cn(
+                            'rounded-[28px] border p-5 text-left transition-colors',
+                            active
+                              ? 'border-ink/35 bg-ink/5 shadow-card'
+                              : 'border-line-soft/80 bg-paper-card'
+                          )}
+                        >
+                          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="font-medium text-ink">{theme.label}</p>
+                              <p className="mt-1 text-sm text-ink-muted">{theme.description}</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <span
+                                className="h-8 w-8 rounded-full border border-line-soft"
+                                style={{ backgroundColor: theme.preview.paper }}
+                              />
+                              <span
+                                className="h-8 w-8 rounded-full border border-line-soft"
+                                style={{ backgroundColor: theme.preview.ink }}
+                              />
+                              <span
+                                className="h-8 w-8 rounded-full border border-line-soft"
+                                style={{ backgroundColor: theme.preview.accent }}
+                              />
+                            </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </Panel>
 
-              <Panel
-                variant="paperCard"
-                className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
-              >
-                <div className="space-y-2">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">数据管理</p>
-                  <h3 className="text-xl font-semibold text-ink">
-                    保持导出入口可见，但不把重操作塞进导航
-                  </h3>
-                </div>
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <Button variant="outline">导出学习数据</Button>
-                  <Button variant="ghost">清除本地缓存</Button>
-                </div>
-                <div className="mt-6 rounded-[24px] border border-line-soft/70 bg-paper-muted/60 p-4 text-sm text-ink-muted">
-                  <p className="font-medium text-ink">关于</p>
-                  <p className="mt-2">学笺 XueJian · 纸感工作台 + BYOK 模型系统。</p>
-                </div>
-              </Panel>
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      语言与显示
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">设置界面语言与基础体验偏好</h3>
+                  </div>
+
+                  <div className="mt-6 grid gap-3 md:grid-cols-2">
+                    {languageOptions.map((option) => (
+                      <OptionChip
+                        key={option.value}
+                        active={selectedLanguage === option.value}
+                        label={option.label}
+                        onClick={() => setSelectedLanguage(option.value)}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="mt-6 rounded-[24px] border border-line-soft/70 bg-paper-muted/55 p-4 text-sm text-ink-muted">
+                    <p className="font-medium text-ink">保存提示</p>
+                    <p className="mt-2">
+                      主题切换会立即应用；语言和其他通用配置在点击“保存通用设置”后统一写入。
+                    </p>
+                  </div>
+                </Panel>
+
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6 md:p-8"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">关于</p>
+                    <h3 className="text-xl font-semibold text-ink">当前界面基于新的官方纸感工作台</h3>
+                  </div>
+
+                  <div className="mt-6 rounded-[24px] border border-line-soft/70 bg-paper-muted/55 p-5 text-sm leading-6 text-ink-muted">
+                    <p className="font-medium text-ink">学笺 XueJian</p>
+                    <p className="mt-2">
+                      以纸感工作台为统一视觉语言，连接 BYOK 模型配置、学习计划、播客生成与知识工作流。
+                    </p>
+                  </div>
+                </Panel>
+              </div>
+
+              <div className="space-y-6 xl:sticky xl:top-6 xl:h-fit">
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      数据管理
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">导出与缓存操作</h3>
+                  </div>
+
+                  <div className="mt-6 grid gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={handleExportLearningData}
+                      disabled={isExportingLearningData}
+                    >
+                      {isExportingLearningData ? '正在导出学习数据…' : '导出学习数据'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleExportCardsCsv}
+                      disabled={isExportingCardsCsv}
+                    >
+                      {isExportingCardsCsv ? '正在导出卡片 CSV…' : '导出卡片 CSV'}
+                    </Button>
+                    <Button variant="ghost" onClick={handleClearUiCache} disabled={isClearingUiCache}>
+                      {isClearingUiCache ? '正在清理缓存…' : '清理界面缓存'}
+                    </Button>
+                  </div>
+                </Panel>
+
+                <Panel
+                  variant="paperCard"
+                  className="rounded-[32px] border border-line-soft/80 p-6"
+                >
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                      通用摘要
+                    </p>
+                    <h3 className="text-xl font-semibold text-ink">当前系统状态</h3>
+                  </div>
+                  <SummaryRow
+                    label="主题"
+                    value={
+                      appThemeOptions.find((theme) => theme.id === selectedTheme)?.label ??
+                      selectedTheme
+                    }
+                  />
+                  <SummaryRow
+                    label="语言"
+                    value={getOptionLabel(languageOptions, selectedLanguage)}
+                  />
+                  <SummaryRow label="模型配置" value={`${configuredApiCount} 个供应商配置`} />
+                  <SummaryRow label="可用凭证" value={`${readyApiCount} 个已就绪`} />
+
+                  <div className="grid gap-3 pt-2">
+                    <Button
+                      onClick={handleSaveGeneralSettings}
+                      disabled={savingSection === 'general'}
+                    >
+                      {savingSection === 'general' ? '正在保存…' : '保存通用设置'}
+                    </Button>
+                    <Button variant="outline" onClick={handleRestoreGeneralDefaults}>
+                      恢复默认设置
+                    </Button>
+                  </div>
+                </Panel>
+              </div>
             </div>
           ) : null}
         </div>

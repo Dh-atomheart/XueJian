@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SidebarRail } from '@/components/shell/SidebarRail'
+import { AppShell } from '@/components/shell/AppShell'
 
 function createTestQueryClient() {
   return new QueryClient({
@@ -16,12 +16,13 @@ afterEach(() => {
   cleanup()
 })
 
-// @acceptance:v4-4-a3
-describe('sidebar rail icons', () => {
+describe('app shell navigation icons', () => {
   it('renders all navigation icons with rounded stroke geometry', async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
-        <SidebarRail />
+        <AppShell>
+          <div>stub</div>
+        </AppShell>
       </QueryClientProvider>
     )
 

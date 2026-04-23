@@ -168,8 +168,9 @@ describe('BYOK workflow routing and budget tracking', () => {
     })
 
     const allAssignments = await apiConfigGateway.setAllWorkflowAssignments(config.id)
-    expect(allAssignments).toHaveLength(5)
+    expect(allAssignments).toHaveLength(6)
     expect(allAssignments.every((item) => item.apiConfigId === config.id)).toBe(true)
+    expect(allAssignments.some((item) => item.workflowType === 'card_animation')).toBe(true)
 
     await apiConfigGateway.deleteWorkflowAssignment('knowledge_qa')
     await expect(apiConfigGateway.getWorkflowAssignment('knowledge_qa')).resolves.toBeNull()
@@ -236,8 +237,7 @@ describe('stats UI stays restrained — no heavy dashboard', () => {
     expect(keys.length).toBeLessThanOrEqual(3)
   })
 
-  it('settings page preferences section shows at most 4 fields', async () => {
-    // AppSettings keeps a restrained surface: learning preferences plus podcast defaults.
+  it('settings gateway exposes the expanded detailed settings surface', async () => {
     const { settingsGateway } = await import('@/services/gateway/settings')
     const settings = await settingsGateway.get()
     const keys = Object.keys(settings)
@@ -253,8 +253,26 @@ describe('stats UI stays restrained — no heavy dashboard', () => {
         'podcastMaxLlmTokens',
         'podcastMaxTtsCharacters',
         'podcastMaxEstimatedCostUsd',
+        'learningGoal',
+        'dailyStudyMinutes',
+        'studyTimePreference',
+        'studyContentPreferences',
+        'contentDifficultyPreference',
+        'defaultVoice',
+        'speechRate',
+        'speechPitch',
+        'speechVolume',
+        'readingMode',
+        'defaultPodcastStyle',
+        'podcastEpisodeDurationMinutes',
+        'podcastContentStructure',
+        'podcastBackgroundMusic',
+        'podcastIntroOutroEnabled',
+        'voiceInputLanguage',
+        'voiceInterruptEnabled',
+        'podcastAutoPlayNextEpisode',
       ])
     )
-    expect(keys.length).toBeLessThanOrEqual(13)
+    expect(keys.length).toBeGreaterThanOrEqual(30)
   })
 })

@@ -58,7 +58,9 @@ pub fn search_knowledge(
     data: SearchKnowledgeDto,
 ) -> CommandResult<Vec<ChunkSearchResultDto>> {
     if data.query.trim().is_empty() {
-        return Err(CommandError::InvalidInput("Query must not be empty".to_string()));
+        return Err(CommandError::InvalidInput(
+            "Query must not be empty".to_string(),
+        ));
     }
 
     let db = state.lock_db()?;
@@ -84,7 +86,9 @@ pub async fn start_knowledge_qa_workflow(
     data: StartKnowledgeQaDto,
 ) -> CommandResult<WorkflowRun> {
     if data.question.trim().is_empty() {
-        return Err(CommandError::InvalidInput("Question must not be empty".to_string()));
+        return Err(CommandError::InvalidInput(
+            "Question must not be empty".to_string(),
+        ));
     }
 
     let run = {
@@ -148,7 +152,9 @@ fn spawn_knowledge_qa_worker(
     document_ids: Option<Vec<String>>,
 ) {
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = execute_knowledge_qa_worker(&app_handle, &run_id, &question, &document_ids).await {
+        if let Err(error) =
+            execute_knowledge_qa_worker(&app_handle, &run_id, &question, &document_ids).await
+        {
             log::error!("Knowledge QA workflow {run_id} failed: {error}");
             mark_run_failed(&app_handle, &run_id, &error.to_string());
         }
@@ -190,9 +196,10 @@ async fn execute_knowledge_qa_worker(
     }
 
     // Get orchestration endpoint
-    let health = state.orchestration.health().await.map_err(|e| {
-        CommandError::Internal(format!("Orchestration health check failed: {e}"))
-    })?;
+    let health =
+        state.orchestration.health().await.map_err(|e| {
+            CommandError::Internal(format!("Orchestration health check failed: {e}"))
+        })?;
 
     let endpoint = health.endpoint.ok_or(CommandError::Internal(
         "Orchestration service not available".to_string(),
@@ -224,10 +231,7 @@ async fn execute_knowledge_qa_worker(
         .map_err(|e| CommandError::Internal(format!("HTTP request failed: {e}")))?;
 
     if response.status().is_success() {
-        let result: serde_json::Value = response
-            .json()
-            .await
-            .unwrap_or(serde_json::json!({}));
+        let result: serde_json::Value = response.json().await.unwrap_or(serde_json::json!({}));
         complete_knowledge_qa_run(app_handle, run_id, result);
         Ok(())
     } else {

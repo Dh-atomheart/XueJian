@@ -14,17 +14,17 @@ const DEFAULT_PODCAST_OUTPUT_FORMAT: &str = "mp3";
 const DEFAULT_PODCAST_MAX_LLM_TOKENS: i32 = 100_000;
 const DEFAULT_PODCAST_MAX_TTS_CHARACTERS: i32 = 50_000;
 const DEFAULT_PODCAST_MAX_ESTIMATED_COST_USD: f64 = 1.0;
-const DEFAULT_LEARNING_GOAL: &str = "exam_prep";
+const DEFAULT_LEARNING_GOAL: &str = "knowledge_understanding";
 const DEFAULT_DAILY_STUDY_MINUTES: i32 = 30;
 const DEFAULT_STUDY_TIME_PREFERENCE: &str = "evening";
-const DEFAULT_CONTENT_DIFFICULTY_PREFERENCE: &str = "adaptive";
-const DEFAULT_DEFAULT_VOICE: &str = "alloy";
+const DEFAULT_CONTENT_DIFFICULTY_PREFERENCE: &str = "intermediate";
+const DEFAULT_DEFAULT_VOICE: &str = "gentle_female_xiaoxiao";
 const DEFAULT_SPEECH_RATE: f64 = 1.0;
 const DEFAULT_SPEECH_PITCH: f64 = 0.0;
-const DEFAULT_SPEECH_VOLUME: f64 = 1.0;
+const DEFAULT_SPEECH_VOLUME: f64 = 0.8;
 const DEFAULT_READING_MODE: &str = "natural";
-const DEFAULT_PODCAST_STYLE: &str = "conversational";
-const DEFAULT_PODCAST_EPISODE_DURATION_MINUTES: i32 = 10;
+const DEFAULT_PODCAST_STYLE: &str = "knowledge_popularization";
+const DEFAULT_PODCAST_EPISODE_DURATION_MINUTES: i32 = 15;
 const DEFAULT_PODCAST_CONTENT_STRUCTURE: &str = "summary_then_details";
 const DEFAULT_PODCAST_BACKGROUND_MUSIC: &str = "soft_piano";
 const DEFAULT_PODCAST_INTRO_OUTRO_ENABLED: bool = true;
@@ -44,8 +44,17 @@ fn default_study_time_preference() -> String {
     DEFAULT_STUDY_TIME_PREFERENCE.to_string()
 }
 
+fn default_study_time_preferences() -> Vec<String> {
+    vec!["afternoon".to_string(), "evening".to_string()]
+}
+
 fn default_study_content_preferences() -> Vec<String> {
-    vec!["concepts".to_string(), "examples".to_string()]
+    vec![
+        "psychology".to_string(),
+        "cognitive_science".to_string(),
+        "self_improvement".to_string(),
+        "education".to_string(),
+    ]
 }
 
 fn default_content_difficulty_preference() -> String {
@@ -177,6 +186,8 @@ pub struct AppSettings {
     pub daily_study_minutes: i32,
     #[serde(default = "default_study_time_preference")]
     pub study_time_preference: String,
+    #[serde(default = "default_study_time_preferences")]
+    pub study_time_preferences: Vec<String>,
     #[serde(default = "default_study_content_preferences")]
     pub study_content_preferences: Vec<String>,
     #[serde(default = "default_content_difficulty_preference")]
@@ -227,6 +238,7 @@ pub struct UpdateAppSettingsRequest {
     pub learning_goal: Option<String>,
     pub daily_study_minutes: Option<i32>,
     pub study_time_preference: Option<String>,
+    pub study_time_preferences: Option<Vec<String>>,
     pub study_content_preferences: Option<Vec<String>>,
     pub content_difficulty_preference: Option<String>,
     pub podcast_tts_provider: Option<String>,
@@ -375,7 +387,8 @@ impl<'a> SettingsRepository<'a> {
 
         let provider = normalize_provider(req.provider.unwrap_or_else(|| current.provider.clone()));
         let protocol = infer_protocol(&provider);
-        let auth_mode = normalize_auth_mode(req.auth_mode.unwrap_or_else(|| current.auth_mode.clone()));
+        let auth_mode =
+            normalize_auth_mode(req.auth_mode.unwrap_or_else(|| current.auth_mode.clone()));
         let name = req.name.unwrap_or(current.name);
         let base_url = req.base_url.or(current.base_url);
         let model = req.model.or(current.model);
@@ -449,7 +462,11 @@ impl<'a> SettingsRepository<'a> {
             "UPDATE api_configs
              SET key_status = ?1, key_verified_at = ?2
              WHERE id = ?3",
-            params![normalize_key_status(key_status.to_string()), key_verified_at, id],
+            params![
+                normalize_key_status(key_status.to_string()),
+                key_verified_at,
+                id
+            ],
         )?;
         Ok(())
     }
@@ -474,7 +491,10 @@ impl<'a> SettingsRepository<'a> {
             .map_err(Into::into)
     }
 
-    pub fn get_workflow_assignment(&self, workflow_type: &str) -> Result<Option<WorkflowModelAssignment>> {
+    pub fn get_workflow_assignment(
+        &self,
+        workflow_type: &str,
+    ) -> Result<Option<WorkflowModelAssignment>> {
         let mut stmt = self.db.connection().prepare(
             "SELECT workflow_type, api_config_id, assigned_at, updated_at
              FROM workflow_model_assignments
@@ -544,7 +564,11 @@ impl<'a> SettingsRepository<'a> {
             .map_err(Into::into)
     }
 
-    pub fn get_budget_usage(&self, api_config_id: &str, period: &str) -> Result<Option<ProviderBudgetUsage>> {
+    pub fn get_budget_usage(
+        &self,
+        api_config_id: &str,
+        period: &str,
+    ) -> Result<Option<ProviderBudgetUsage>> {
         let mut stmt = self.db.connection().prepare(
             "SELECT id, api_config_id, period, estimated_cost_usd, workflow_runs_count, updated_at
              FROM provider_budget_usage
@@ -644,10 +668,15 @@ impl<'a> SettingsRepository<'a> {
             theme: req.theme.unwrap_or(current.theme),
             language: req.language.unwrap_or(current.language),
             learning_goal: req.learning_goal.unwrap_or(current.learning_goal),
-            daily_study_minutes: req.daily_study_minutes.unwrap_or(current.daily_study_minutes),
+            daily_study_minutes: req
+                .daily_study_minutes
+                .unwrap_or(current.daily_study_minutes),
             study_time_preference: req
                 .study_time_preference
                 .unwrap_or(current.study_time_preference),
+            study_time_preferences: req
+                .study_time_preferences
+                .unwrap_or(current.study_time_preferences),
             study_content_preferences: req
                 .study_content_preferences
                 .unwrap_or(current.study_content_preferences),
@@ -734,6 +763,7 @@ fn default_app_settings() -> AppSettings {
         learning_goal: default_learning_goal(),
         daily_study_minutes: default_daily_study_minutes(),
         study_time_preference: default_study_time_preference(),
+        study_time_preferences: default_study_time_preferences(),
         study_content_preferences: default_study_content_preferences(),
         content_difficulty_preference: default_content_difficulty_preference(),
         podcast_tts_provider: DEFAULT_PODCAST_TTS_PROVIDER.to_string(),
@@ -782,14 +812,20 @@ fn merge_settings_value(target: &mut serde_json::Value, source: serde_json::Valu
 }
 
 fn sanitize_settings(settings: AppSettings) -> AppSettings {
+    let legacy_study_time_preference = settings.study_time_preference.clone();
+
     AppSettings {
-        daily_new_card_limit: settings.daily_new_card_limit.max(0),
-        review_time_limit: settings.review_time_limit.max(0),
+        daily_new_card_limit: settings.daily_new_card_limit.clamp(0, 1000),
+        review_time_limit: settings.review_time_limit.clamp(0, 1440),
         theme: sanitize_theme(settings.theme),
         language: sanitize_language(settings.language),
         learning_goal: sanitize_learning_goal(settings.learning_goal),
-        daily_study_minutes: settings.daily_study_minutes.max(0),
+        daily_study_minutes: settings.daily_study_minutes.clamp(0, 1440),
         study_time_preference: sanitize_study_time_preference(settings.study_time_preference),
+        study_time_preferences: sanitize_study_time_preferences(
+            settings.study_time_preferences,
+            &legacy_study_time_preference,
+        ),
         study_content_preferences: sanitize_study_content_preferences(
             settings.study_content_preferences,
         ),
@@ -806,27 +842,32 @@ fn sanitize_settings(settings: AppSettings) -> AppSettings {
         speech_volume: sanitize_speech_volume(settings.speech_volume),
         reading_mode: sanitize_reading_mode(settings.reading_mode),
         default_podcast_style: sanitize_default_podcast_style(settings.default_podcast_style),
-        podcast_episode_duration_minutes: settings.podcast_episode_duration_minutes.max(1),
+        podcast_episode_duration_minutes: settings.podcast_episode_duration_minutes.clamp(1, 180),
         podcast_content_structure: sanitize_podcast_content_structure(
             settings.podcast_content_structure,
         ),
-        podcast_background_music: sanitize_podcast_background_music(settings.podcast_background_music),
+        podcast_background_music: sanitize_podcast_background_music(
+            settings.podcast_background_music,
+        ),
         podcast_intro_outro_enabled: settings.podcast_intro_outro_enabled,
         voice_input_language: sanitize_voice_input_language(settings.voice_input_language),
         voice_interrupt_enabled: settings.voice_interrupt_enabled,
         podcast_auto_play_next_episode: settings.podcast_auto_play_next_episode,
         podcast_output_format: sanitize_podcast_output_format(settings.podcast_output_format),
         podcast_skip_review: settings.podcast_skip_review,
-        podcast_max_llm_tokens: settings.podcast_max_llm_tokens.max(0),
-        podcast_max_tts_characters: settings.podcast_max_tts_characters.max(0),
-        podcast_max_estimated_cost_usd: settings.podcast_max_estimated_cost_usd.max(0.0),
+        podcast_max_llm_tokens: settings.podcast_max_llm_tokens.clamp(0, 1_000_000),
+        podcast_max_tts_characters: settings.podcast_max_tts_characters.clamp(0, 1_000_000),
+        podcast_max_estimated_cost_usd: settings
+            .podcast_max_estimated_cost_usd
+            .clamp(0.0, 10_000.0),
     }
 }
 
 fn sanitize_theme(theme: String) -> String {
-    match theme.as_str() {
-        "default" | "comic-sketch" | "contrast-paper" => theme,
-        _ => DEFAULT_THEME.to_string(),
+    if theme.trim() == "default" {
+        DEFAULT_THEME.to_string()
+    } else {
+        DEFAULT_THEME.to_string()
     }
 }
 
@@ -839,19 +880,47 @@ fn sanitize_language(language: String) -> String {
 
 fn sanitize_learning_goal(goal: String) -> String {
     match goal.trim() {
-        "exam_prep" | "concept_mastery" | "long_term_retention" | "skill_building" => {
-            goal.trim().to_string()
-        }
+        "knowledge_understanding"
+        | "memory_strengthening"
+        | "applied_practice"
+        | "exam_preparation"
+        | "interest_exploration" => goal.trim().to_string(),
+        "exam_prep" => "exam_preparation".to_string(),
+        "concept_mastery" => "knowledge_understanding".to_string(),
+        "long_term_retention" => "memory_strengthening".to_string(),
+        "skill_building" => "applied_practice".to_string(),
         _ => DEFAULT_LEARNING_GOAL.to_string(),
     }
 }
 
 fn sanitize_study_time_preference(value: String) -> String {
     match value.trim() {
-        "morning" | "afternoon" | "evening" | "late_night" | "flexible" => {
-            value.trim().to_string()
-        }
+        "morning" | "afternoon" | "evening" | "late_night" | "flexible" => value.trim().to_string(),
         _ => DEFAULT_STUDY_TIME_PREFERENCE.to_string(),
+    }
+}
+
+fn sanitize_study_time_preferences(values: Vec<String>, legacy_summary: &str) -> Vec<String> {
+    let sanitized = values
+        .into_iter()
+        .filter_map(|value| {
+            let trimmed = value.trim();
+            match trimmed {
+                "morning" | "afternoon" | "evening" | "late_night" => Some(trimmed.to_string()),
+                _ => None,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if !sanitized.is_empty() {
+        return sanitized;
+    }
+
+    match legacy_summary.trim() {
+        "morning" | "afternoon" | "evening" | "late_night" => {
+            vec![legacy_summary.trim().to_string()]
+        }
+        _ => default_study_time_preferences(),
     }
 }
 
@@ -861,9 +930,18 @@ fn sanitize_study_content_preferences(values: Vec<String>) -> Vec<String> {
         .filter_map(|value| {
             let trimmed = value.trim();
             match trimmed {
-                "concepts" | "examples" | "exercises" | "summaries" | "flashcards" => {
-                    Some(trimmed.to_string())
-                }
+                "psychology"
+                | "cognitive_science"
+                | "education"
+                | "neuroscience"
+                | "philosophy"
+                | "sociology"
+                | "economics"
+                | "history"
+                | "artificial_intelligence"
+                | "data_science"
+                | "self_improvement"
+                | "other" => Some(trimmed.to_string()),
                 _ => None,
             }
         })
@@ -878,7 +956,12 @@ fn sanitize_study_content_preferences(values: Vec<String>) -> Vec<String> {
 
 fn sanitize_content_difficulty_preference(value: String) -> String {
     match value.trim() {
-        "foundation" | "adaptive" | "challenging" => value.trim().to_string(),
+        "introductory" | "beginner" | "intermediate" | "advanced" | "expert" => {
+            value.trim().to_string()
+        }
+        "foundation" => "beginner".to_string(),
+        "adaptive" => "intermediate".to_string(),
+        "challenging" => "advanced".to_string(),
         _ => DEFAULT_CONTENT_DIFFICULTY_PREFERENCE.to_string(),
     }
 }
@@ -916,11 +999,11 @@ fn sanitize_default_voice(value: String) -> String {
 }
 
 fn sanitize_speech_rate(value: f64) -> f64 {
-    value.clamp(0.0, 2.0)
+    value.clamp(0.5, 1.5)
 }
 
 fn sanitize_speech_pitch(value: f64) -> f64 {
-    value.clamp(-1.0, 1.0)
+    value.clamp(-0.5, 0.5)
 }
 
 fn sanitize_speech_volume(value: f64) -> f64 {
@@ -929,25 +1012,34 @@ fn sanitize_speech_volume(value: f64) -> f64 {
 
 fn sanitize_reading_mode(value: String) -> String {
     match value.trim() {
-        "natural" | "focused" | "narration" => value.trim().to_string(),
+        "natural" | "focus" | "narration" => value.trim().to_string(),
+        "focused" => "focus".to_string(),
         _ => DEFAULT_READING_MODE.to_string(),
     }
 }
 
 fn sanitize_default_podcast_style(value: String) -> String {
     match value.trim() {
-        "conversational" | "news_brief" | "deep_dive" | "storytelling" => {
-            value.trim().to_string()
-        }
+        "knowledge_popularization"
+        | "deep_analysis"
+        | "friendly_conversation"
+        | "exam_coaching" => value.trim().to_string(),
+        "conversational" => "friendly_conversation".to_string(),
+        "news_brief" => "knowledge_popularization".to_string(),
+        "deep_dive" => "deep_analysis".to_string(),
+        "storytelling" => "friendly_conversation".to_string(),
         _ => DEFAULT_PODCAST_STYLE.to_string(),
     }
 }
 
 fn sanitize_podcast_content_structure(value: String) -> String {
     match value.trim() {
-        "summary_then_details" | "highlights_only" | "timeline_story" | "qa_dialogue" => {
+        "summary_then_details" | "problem_solution" | "story_driven" | "question_driven" => {
             value.trim().to_string()
         }
+        "highlights_only" => "problem_solution".to_string(),
+        "timeline_story" => "story_driven".to_string(),
+        "qa_dialogue" => "question_driven".to_string(),
         _ => DEFAULT_PODCAST_CONTENT_STRUCTURE.to_string(),
     }
 }
@@ -996,7 +1088,8 @@ fn normalize_provider(provider: String) -> String {
     let normalized = provider.trim().to_ascii_lowercase();
 
     match normalized.as_str() {
-        "deepseek" | "openai" | "anthropic" | "google" | "custom_openai" | "custom_anthropic" | "custom_google" => normalized,
+        "deepseek" | "openai" | "anthropic" | "google" | "custom_openai" | "custom_anthropic"
+        | "custom_google" => normalized,
         "custom" | "openai_compatible" | "qianfan" => "custom_openai".to_string(),
         _ => "custom_openai".to_string(),
     }
@@ -1004,14 +1097,20 @@ fn normalize_provider(provider: String) -> String {
 
 fn infer_protocol(provider: &str) -> Option<String> {
     match provider {
-        "openai" | "anthropic" | "google" | "custom_anthropic" | "custom_google" => Some("native".to_string()),
+        "openai" | "anthropic" | "google" | "custom_anthropic" | "custom_google" => {
+            Some("native".to_string())
+        }
         "deepseek" | "custom_openai" => Some("openai-compatible".to_string()),
         _ => None,
     }
 }
 
 fn normalize_protocol(protocol: Option<String>) -> Option<String> {
-    match protocol.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    match protocol
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         Some("native") => Some("native".to_string()),
         Some("openai-compatible") => Some("openai-compatible".to_string()),
         Some(_) => None,
@@ -1051,8 +1150,10 @@ mod tests {
             .expect("apply v9 migration");
         conn.execute_batch(include_str!("../migrations/V10__card_schema_extension.sql"))
             .expect("apply v10 migration");
-        conn.execute_batch(include_str!("../migrations/V18__byok_workflow_assignments.sql"))
-            .expect("apply v18 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V18__byok_workflow_assignments.sql"
+        ))
+        .expect("apply v18 migration");
         conn.execute(
             "INSERT OR IGNORE INTO users (id, name) VALUES ('default', '默认用户')",
             [],
@@ -1254,5 +1355,158 @@ mod tests {
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].provider, "custom_openai");
         assert_eq!(configs[0].protocol.as_deref(), Some("openai-compatible"));
+    }
+
+    #[test]
+    fn get_settings_backfills_new_fields_for_legacy_json() {
+        let db = test_db();
+        db.connection()
+            .execute(
+                "UPDATE users SET settings = ?1 WHERE id = 'default'",
+                params![r#"{"theme":"default","language":"zh-CN","daily_new_card_limit":20,"review_time_limit":30,"podcast_tts_provider":"auto","podcast_openai_model":"tts-1","podcast_fish_audio_endpoint":null,"podcast_voice_overrides":{},"podcast_output_format":"mp3","podcast_skip_review":true,"podcast_max_llm_tokens":100000,"podcast_max_tts_characters":50000,"podcast_max_estimated_cost_usd":1.0}"#],
+            )
+            .expect("store legacy settings");
+
+        let repo = SettingsRepository::new(&db);
+        let settings = repo.get_settings().expect("load settings");
+
+        assert_eq!(settings.learning_goal, DEFAULT_LEARNING_GOAL);
+        assert_eq!(settings.daily_study_minutes, DEFAULT_DAILY_STUDY_MINUTES);
+        assert_eq!(
+            settings.study_time_preference,
+            DEFAULT_STUDY_TIME_PREFERENCE
+        );
+        assert_eq!(
+            settings.study_time_preferences,
+            default_study_time_preferences()
+        );
+        assert_eq!(
+            settings.study_content_preferences,
+            default_study_content_preferences()
+        );
+        assert_eq!(
+            settings.content_difficulty_preference,
+            DEFAULT_CONTENT_DIFFICULTY_PREFERENCE
+        );
+        assert_eq!(settings.default_voice, DEFAULT_DEFAULT_VOICE);
+        assert_eq!(settings.speech_rate, DEFAULT_SPEECH_RATE);
+        assert_eq!(settings.speech_pitch, DEFAULT_SPEECH_PITCH);
+        assert_eq!(settings.speech_volume, DEFAULT_SPEECH_VOLUME);
+        assert_eq!(settings.reading_mode, DEFAULT_READING_MODE);
+        assert_eq!(settings.default_podcast_style, DEFAULT_PODCAST_STYLE);
+        assert_eq!(
+            settings.podcast_episode_duration_minutes,
+            DEFAULT_PODCAST_EPISODE_DURATION_MINUTES
+        );
+        assert_eq!(
+            settings.podcast_content_structure,
+            DEFAULT_PODCAST_CONTENT_STRUCTURE
+        );
+        assert_eq!(
+            settings.podcast_background_music,
+            DEFAULT_PODCAST_BACKGROUND_MUSIC
+        );
+        assert_eq!(
+            settings.podcast_intro_outro_enabled,
+            DEFAULT_PODCAST_INTRO_OUTRO_ENABLED
+        );
+        assert_eq!(settings.voice_input_language, DEFAULT_VOICE_INPUT_LANGUAGE);
+        assert_eq!(
+            settings.voice_interrupt_enabled,
+            DEFAULT_VOICE_INTERRUPT_ENABLED
+        );
+        assert_eq!(
+            settings.podcast_auto_play_next_episode,
+            DEFAULT_PODCAST_AUTO_PLAY_NEXT_EPISODE
+        );
+    }
+
+    #[test]
+    fn update_settings_sanitizes_new_fields() {
+        let db = test_db();
+        let repo = SettingsRepository::new(&db);
+
+        let settings = repo
+            .update_settings(UpdateAppSettingsRequest {
+                daily_new_card_limit: None,
+                review_time_limit: None,
+                theme: None,
+                language: None,
+                learning_goal: Some("invalid".to_string()),
+                daily_study_minutes: Some(-15),
+                study_time_preference: Some("unknown".to_string()),
+                study_time_preferences: Some(vec![
+                    "".to_string(),
+                    "invalid".to_string(),
+                    "late_night".to_string(),
+                ]),
+                study_content_preferences: Some(vec![
+                    "".to_string(),
+                    "invalid".to_string(),
+                    "exercises".to_string(),
+                ]),
+                content_difficulty_preference: Some("impossible".to_string()),
+                podcast_tts_provider: None,
+                podcast_openai_model: None,
+                podcast_fish_audio_endpoint: None,
+                podcast_voice_overrides: None,
+                default_voice: Some("   ".to_string()),
+                speech_rate: Some(9.0),
+                speech_pitch: Some(-9.0),
+                speech_volume: Some(5.0),
+                reading_mode: Some("invalid".to_string()),
+                default_podcast_style: Some("invalid".to_string()),
+                podcast_episode_duration_minutes: Some(0),
+                podcast_content_structure: Some("invalid".to_string()),
+                podcast_background_music: Some("invalid".to_string()),
+                podcast_intro_outro_enabled: Some(false),
+                voice_input_language: Some("invalid".to_string()),
+                voice_interrupt_enabled: Some(false),
+                podcast_auto_play_next_episode: Some(false),
+                podcast_output_format: None,
+                podcast_skip_review: None,
+                podcast_max_llm_tokens: None,
+                podcast_max_tts_characters: None,
+                podcast_max_estimated_cost_usd: None,
+            })
+            .expect("update settings");
+
+        assert_eq!(settings.learning_goal, DEFAULT_LEARNING_GOAL);
+        assert_eq!(settings.daily_study_minutes, 0);
+        assert_eq!(
+            settings.study_time_preference,
+            DEFAULT_STUDY_TIME_PREFERENCE
+        );
+        assert_eq!(
+            settings.study_time_preferences,
+            vec!["late_night".to_string()]
+        );
+        assert_eq!(
+            settings.study_content_preferences,
+            default_study_content_preferences()
+        );
+        assert_eq!(
+            settings.content_difficulty_preference,
+            DEFAULT_CONTENT_DIFFICULTY_PREFERENCE
+        );
+        assert_eq!(settings.default_voice, DEFAULT_DEFAULT_VOICE);
+        assert_eq!(settings.speech_rate, 1.5);
+        assert_eq!(settings.speech_pitch, -0.5);
+        assert_eq!(settings.speech_volume, 1.0);
+        assert_eq!(settings.reading_mode, DEFAULT_READING_MODE);
+        assert_eq!(settings.default_podcast_style, DEFAULT_PODCAST_STYLE);
+        assert_eq!(settings.podcast_episode_duration_minutes, 1);
+        assert_eq!(
+            settings.podcast_content_structure,
+            DEFAULT_PODCAST_CONTENT_STRUCTURE
+        );
+        assert_eq!(
+            settings.podcast_background_music,
+            DEFAULT_PODCAST_BACKGROUND_MUSIC
+        );
+        assert!(!settings.podcast_intro_outro_enabled);
+        assert_eq!(settings.voice_input_language, DEFAULT_VOICE_INPUT_LANGUAGE);
+        assert!(!settings.voice_interrupt_enabled);
+        assert!(!settings.podcast_auto_play_next_episode);
     }
 }

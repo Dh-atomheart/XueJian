@@ -548,7 +548,11 @@ impl<'a> DocumentRepository<'a> {
         }
 
         let limit = limit.unwrap_or(10);
-        let placeholders: Vec<String> = document_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 3)).collect();
+        let placeholders: Vec<String> = document_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 3))
+            .collect();
         let in_clause = placeholders.join(", ");
 
         let sql = format!(
@@ -572,7 +576,8 @@ impl<'a> DocumentRepository<'a> {
             param_values.push(Box::new(doc_id.clone()));
         }
 
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
 
         let chunks = stmt.query_map(&*params_ref, |row| {
             Ok(DocumentChunkSearchResult {
@@ -636,54 +641,34 @@ mod tests {
             "../migrations/V3__card_generation_workflow.sql"
         ))
         .expect("apply v3 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V4__points_ledger.sql"
-        ))
-        .expect("apply v4 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V5__card_animations.sql"
-        ))
-        .expect("apply v5 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V6__podcast_episodes.sql"
-        ))
-        .expect("apply v6 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V7__knowledge_graph.sql"
-        ))
-        .expect("apply v7 migration");
+        conn.execute_batch(include_str!("../migrations/V4__points_ledger.sql"))
+            .expect("apply v4 migration");
+        conn.execute_batch(include_str!("../migrations/V5__card_animations.sql"))
+            .expect("apply v5 migration");
+        conn.execute_batch(include_str!("../migrations/V6__podcast_episodes.sql"))
+            .expect("apply v6 migration");
+        conn.execute_batch(include_str!("../migrations/V7__knowledge_graph.sql"))
+            .expect("apply v7 migration");
         conn.execute_batch(include_str!(
             "../migrations/V8__points_daily_bonus_rule.sql"
         ))
         .expect("apply v8 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V9__api_config_auth_mode.sql"
-        ))
-        .expect("apply v9 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V10__card_schema_extension.sql"
-        ))
-        .expect("apply v10 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V11__anchor_provenance.sql"
-        ))
-        .expect("apply v11 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V12__card_media.sql"
-        ))
-        .expect("apply v12 migration");
+        conn.execute_batch(include_str!("../migrations/V9__api_config_auth_mode.sql"))
+            .expect("apply v9 migration");
+        conn.execute_batch(include_str!("../migrations/V10__card_schema_extension.sql"))
+            .expect("apply v10 migration");
+        conn.execute_batch(include_str!("../migrations/V11__anchor_provenance.sql"))
+            .expect("apply v11 migration");
+        conn.execute_batch(include_str!("../migrations/V12__card_media.sql"))
+            .expect("apply v12 migration");
         conn.execute_batch(include_str!(
             "../migrations/V13__agent_document_workflow_foundation.sql"
         ))
         .expect("apply v13 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V14__chunk_embedding_state.sql"
-        ))
-        .expect("apply v14 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V15__highlight_metadata.sql"
-        ))
-        .expect("apply v15 migration");
+        conn.execute_batch(include_str!("../migrations/V14__chunk_embedding_state.sql"))
+            .expect("apply v14 migration");
+        conn.execute_batch(include_str!("../migrations/V15__highlight_metadata.sql"))
+            .expect("apply v15 migration");
 
         Database { conn }
     }

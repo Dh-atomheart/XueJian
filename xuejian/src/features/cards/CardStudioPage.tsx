@@ -160,27 +160,36 @@ export function CardStudioPage() {
 
   if (readyDocuments.length === 0) {
     return (
-      <Panel variant="panel" className="rounded-[32px] p-8">
-        <div className="mx-auto flex min-h-[70vh] max-w-3xl flex-col items-center justify-center gap-6 text-center">
-          <div className="inline-flex items-center rounded-full border border-ink/10 bg-white/70 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-ink-soft">
-            卡片工坊
+      <div data-testid="card-studio-page">
+        <Panel variant="panel" className="rounded-[32px] p-8">
+          <div
+            className="mx-auto flex min-h-[70vh] max-w-3xl flex-col items-center justify-center gap-6 text-center"
+            data-testid="card-studio-empty-state"
+          >
+            <div className="inline-flex items-center rounded-full border border-ink/10 bg-white/70 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-ink-soft">
+              卡片工坊
+            </div>
+            <h1 className="font-display text-4xl leading-tight text-ink">
+              先导入并解析文档，才能开始卡片生产。
+            </h1>
+            <p className="max-w-2xl text-sm leading-7 text-ink-muted">
+              这里会把稳定的分块和锚点转成可确认的卡片候选。请先在文档库导入文档，再回来启动和确认卡片流程。
+            </p>
+            <Button
+              variant="sketch"
+              data-testid="card-studio-open-library"
+              onClick={() => setActiveNavItem('library')}
+            >
+              前往文档库
+            </Button>
           </div>
-          <h1 className="font-display text-4xl leading-tight text-ink">
-            先导入并解析文档，才能开始卡片生产。
-          </h1>
-          <p className="max-w-2xl text-sm leading-7 text-ink-muted">
-            这里会把稳定的分块和锚点转成可确认的卡片候选。请先在文档库导入文档，再回来启动和确认卡片流程。
-          </p>
-          <Button variant="sketch" onClick={() => setActiveNavItem('library')}>
-            前往文档库
-          </Button>
-        </div>
-      </Panel>
+        </Panel>
+      </div>
     )
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6" data-testid="card-studio-page">
       <Panel variant="panel" className="overflow-hidden rounded-[32px] p-0">
         <div className="grid gap-6 bg-[radial-gradient(circle_at_top_left,rgba(248,225,108,0.18),transparent_35%),linear-gradient(135deg,rgba(255,255,255,0.86),rgba(251,251,249,0.94))] px-6 py-6 lg:grid-cols-[minmax(0,1.3fr)_360px]">
           <div className="space-y-4">
@@ -220,6 +229,7 @@ export function CardStudioPage() {
               <Button
                 variant="sketch"
                 className="w-full justify-center"
+                data-testid="card-studio-start-generation"
                 disabled={!selectedDocument || startMutation.isPending}
                 onClick={() => {
                   if (!selectedDocument) return
@@ -234,6 +244,7 @@ export function CardStudioPage() {
               <Button
                 variant="outline"
                 className="w-full justify-center"
+                data-testid="card-studio-resume-generation"
                 disabled={!activeRun || !LIVE_STATUSES.has(activeRun.status) || resumeMutation.isPending}
                 onClick={() => activeRun && resumeMutation.mutate(activeRun.id)}
               >
@@ -249,6 +260,7 @@ export function CardStudioPage() {
           <button
             key={document.id}
             onClick={() => setSelectedDocumentId(document.id)}
+            data-testid={`card-studio-document-${document.id}`}
             className={cn(
               'rounded-[24px] border px-4 py-4 text-left transition-colors',
               selectedDocumentId === document.id
@@ -265,7 +277,11 @@ export function CardStudioPage() {
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_360px]">
-        <Panel variant="paperCard" className="rounded-[30px]">
+        <Panel
+          variant="paperCard"
+          className="rounded-[30px]"
+          data-testid="card-studio-candidate-list"
+        >
           <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.26em] text-ink-soft">候选确认队列</p>
@@ -283,6 +299,7 @@ export function CardStudioPage() {
           <div className="mb-4 flex flex-wrap gap-2">
             <Button
               variant="outline"
+              data-testid="card-studio-bulk-accept"
               disabled={!activeRun || pendingCount === 0 || isBusy}
               onClick={() =>
                 activeRun &&
@@ -297,6 +314,7 @@ export function CardStudioPage() {
             </Button>
             <Button
               variant="outline"
+              data-testid="card-studio-bulk-reject"
               disabled={!activeRun || pendingCount === 0 || isBusy}
               onClick={() =>
                 activeRun &&
@@ -311,6 +329,7 @@ export function CardStudioPage() {
             </Button>
             <Button
               variant="sketch"
+              data-testid="card-studio-finalize-generation"
               disabled={!activeRun || candidates.length === 0 || isBusy}
               onClick={() => activeRun && finalizeMutation.mutate(activeRun.id)}
             >
@@ -348,7 +367,7 @@ export function CardStudioPage() {
         </Panel>
 
         <div className="space-y-6">
-          <Panel variant="paperCard" className="rounded-[28px]">
+          <Panel variant="paperCard" className="rounded-[28px]" data-testid="card-studio-run-list">
             <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">批次列表</p>
             <div className="mt-4 space-y-3">
               {runsForDocument.length === 0 ? (
@@ -380,12 +399,20 @@ export function CardStudioPage() {
             </div>
           </Panel>
 
-          <Panel variant="paperCard" className="rounded-[28px]">
+          <Panel
+            variant="paperCard"
+            className="rounded-[28px]"
+            data-testid="card-studio-checkpoint-panel"
+          >
             <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">检查点</p>
             <CheckpointSummary checkpoint={checkpoint?.payload ?? null} />
           </Panel>
 
-          <Panel variant="paperCard" className="rounded-[28px]">
+          <Panel
+            variant="paperCard"
+            className="rounded-[28px]"
+            data-testid="card-studio-events-panel"
+          >
             <p className="text-xs uppercase tracking-[0.24em] text-ink-soft">事件流</p>
             <EventFeed events={events} />
           </Panel>
@@ -420,7 +447,10 @@ function CandidateCard({
     front !== candidate.front || back !== candidate.back || tagsInput !== candidate.tags.join(', ')
 
   return (
-    <div className="rounded-[26px] border border-line-soft bg-paper-muted/50 p-4">
+    <div
+      className="rounded-[26px] border border-line-soft bg-paper-muted/50 p-4"
+      data-testid={`card-studio-candidate-${candidate.id}`}
+    >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <p className="text-xs uppercase tracking-[0.22em] text-ink-soft">

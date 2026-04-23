@@ -18,7 +18,11 @@ export function HomeQuickActionsPanel({
   onImported,
 }: HomeQuickActionsPanelProps) {
   return (
-    <Panel variant="paperCard" className="space-y-5 p-6">
+    <Panel
+      variant="paperCard"
+      className="space-y-5 p-6"
+      data-testid="home-quick-actions-panel"
+    >
       <div>
         <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">Quick Start</p>
         <h2 className="mt-2 font-ui text-xl text-ink">快速开始</h2>

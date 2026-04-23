@@ -402,9 +402,7 @@ pub fn list_graph_nodes(state: State<'_, AppState>) -> CommandResult<Vec<Knowled
 }
 
 #[tauri::command]
-pub fn list_all_graph_edges(
-    state: State<'_, AppState>,
-) -> CommandResult<Vec<KnowledgeEdgeDto>> {
+pub fn list_all_graph_edges(state: State<'_, AppState>) -> CommandResult<Vec<KnowledgeEdgeDto>> {
     let db = state.lock_db()?;
     let repo = KnowledgeGraphRepository::new(&db);
     Ok(repo.list_all_edges()?.into_iter().map(Into::into).collect())
@@ -425,13 +423,12 @@ pub fn list_graph_edges(
 }
 
 #[tauri::command]
-pub fn get_node_sources(
-    state: State<'_, AppState>,
-    node_id: String,
-) -> CommandResult<Vec<String>> {
+pub fn get_node_sources(state: State<'_, AppState>, node_id: String) -> CommandResult<Vec<String>> {
     let db = state.lock_db()?;
     let repo = KnowledgeGraphRepository::new(&db);
-    let node = repo.get_node_by_id(&node_id)?.ok_or(CommandError::NotFound)?;
+    let node = repo
+        .get_node_by_id(&node_id)?
+        .ok_or(CommandError::NotFound)?;
     Ok(serde_json::from_str(&node.source_ids_json).unwrap_or_default())
 }
 
@@ -489,10 +486,7 @@ pub fn merge_graph_nodes(
 }
 
 #[tauri::command]
-pub fn delete_graph_node(
-    state: State<'_, AppState>,
-    node_id: String,
-) -> CommandResult<()> {
+pub fn delete_graph_node(state: State<'_, AppState>, node_id: String) -> CommandResult<()> {
     let db = state.lock_db()?;
     let repo = KnowledgeGraphRepository::new(&db);
     repo.delete_node(&node_id)?;
@@ -548,10 +542,7 @@ pub fn update_knowledge_edge(
 }
 
 #[tauri::command]
-pub fn delete_knowledge_edge(
-    state: State<'_, AppState>,
-    edge_id: String,
-) -> CommandResult<()> {
+pub fn delete_knowledge_edge(state: State<'_, AppState>, edge_id: String) -> CommandResult<()> {
     let db = state.lock_db()?;
     let repo = KnowledgeGraphRepository::new(&db);
     repo.delete_edge(&edge_id)?;
@@ -603,9 +594,7 @@ pub fn toggle_community_collapse(
 }
 
 #[tauri::command]
-pub fn list_graph_build_runs(
-    state: State<'_, AppState>,
-) -> CommandResult<Vec<GraphBuildRunDto>> {
+pub fn list_graph_build_runs(state: State<'_, AppState>) -> CommandResult<Vec<GraphBuildRunDto>> {
     let db = state.lock_db()?;
     let repo = KnowledgeGraphRepository::new(&db);
     Ok(repo
@@ -616,10 +605,7 @@ pub fn list_graph_build_runs(
 }
 
 #[tauri::command]
-pub fn cancel_graph_build(
-    state: State<'_, AppState>,
-    build_run_id: String,
-) -> CommandResult<()> {
+pub fn cancel_graph_build(state: State<'_, AppState>, build_run_id: String) -> CommandResult<()> {
     let db = state.lock_db()?;
     let graph_repo = KnowledgeGraphRepository::new(&db);
     let workflow_repo = WorkflowRepository::new(&db);
@@ -654,9 +640,7 @@ pub fn cancel_graph_build(
 }
 
 #[tauri::command]
-pub fn get_graph_stats(
-    state: State<'_, AppState>,
-) -> CommandResult<GraphStatsDto> {
+pub fn get_graph_stats(state: State<'_, AppState>) -> CommandResult<GraphStatsDto> {
     let db = state.lock_db()?;
     let repo = KnowledgeGraphRepository::new(&db);
     let stats = repo.get_graph_stats()?;
@@ -716,7 +700,10 @@ async fn execute_graph_build_worker(
         workflow_repo.append_event(AppendWorkflowEventRequest {
             run_id: run_id_str.to_string(),
             event_type: "started".to_string(),
-            message: Some(format!("Extracting from {} document(s)", document_ids.len())),
+            message: Some(format!(
+                "Extracting from {} document(s)",
+                document_ids.len()
+            )),
             progress: Some(0.1),
             payload: None,
         })?;
@@ -733,9 +720,7 @@ async fn execute_graph_build_worker(
     {
         Ok(result) => result,
         Err(error) => {
-            log::warn!(
-                "Python orchestration unavailable for graph build, using fallback: {error}"
-            );
+            log::warn!("Python orchestration unavailable for graph build, using fallback: {error}");
             build_fallback_graph(&document_ids)
         }
     };
@@ -878,11 +863,7 @@ fn build_fallback_graph(document_ids: &[String]) -> OrchestrationGraphPayload {
     }
 }
 
-fn mark_build_failed(
-    app_handle: &AppHandle,
-    build_run_id: &str,
-    error: &str,
-) -> CommandResult<()> {
+fn mark_build_failed(app_handle: &AppHandle, build_run_id: &str, error: &str) -> CommandResult<()> {
     let state = app_handle.state::<AppState>();
     let db = state.lock_db()?;
     let graph_repo = KnowledgeGraphRepository::new(&db);
@@ -1006,17 +987,23 @@ fn persist_graph_payload(
     }
 
     for embedding in payload.entity_embeddings {
-        let Some(node_id) = ref_to_id
-            .get(&embedding.node_id)
-            .cloned()
-            .or_else(|| graph_repo.get_node_by_id(&embedding.node_id).ok().flatten().map(|node| node.id))
-        else {
+        let Some(node_id) = ref_to_id.get(&embedding.node_id).cloned().or_else(|| {
+            graph_repo
+                .get_node_by_id(&embedding.node_id)
+                .ok()
+                .flatten()
+                .map(|node| node.id)
+        }) else {
             continue;
         };
         if embedding.vector.is_empty() {
             continue;
         }
-        graph_repo.save_entity_embedding(&node_id, &embedding.embedding_model, &embedding.vector)?;
+        graph_repo.save_entity_embedding(
+            &node_id,
+            &embedding.embedding_model,
+            &embedding.vector,
+        )?;
     }
 
     let mut edges_created = 0i64;
@@ -1111,9 +1098,7 @@ fn persist_graph_payload(
         nodes_created: payload.nodes_created.unwrap_or(nodes_created),
         edges_created: payload.edges_created.unwrap_or(edges_created),
         nodes_merged,
-        communities_detected: payload
-            .communities_detected
-            .unwrap_or(communities_detected),
+        communities_detected: payload.communities_detected.unwrap_or(communities_detected),
     })
 }
 
@@ -1121,10 +1106,7 @@ fn parse_json_string_array(value: &str) -> Vec<String> {
     serde_json::from_str(value).unwrap_or_default()
 }
 
-fn merge_json_string_arrays(
-    left: &str,
-    right: &str,
-) -> crate::db::Result<String> {
+fn merge_json_string_arrays(left: &str, right: &str) -> crate::db::Result<String> {
     let mut values = parse_json_string_array(left);
     values.extend(parse_json_string_array(right));
     values.sort();

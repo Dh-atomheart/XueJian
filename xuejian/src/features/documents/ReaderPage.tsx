@@ -137,6 +137,8 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
     [pageCards, reader.selectedCardId]
   )
 
+  const resolvedSelectedHighlightId = reader.selectedHighlightId ?? activeHighlightId
+
   const focusRect = useMemo<FocusRect | null>(() => {
     if (!pageViewport) {
       return null
@@ -150,18 +152,18 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
       return resolveReaderRect(selectedCardRect, pageViewport)
     }
 
-    const activeHighlight = highlights.find((item) => item.id === activeHighlightId)
+    const activeHighlight = highlights.find((item) => item.id === resolvedSelectedHighlightId)
     const activeHighlightRect =
       (activeHighlight ? highlightRectOverrides[activeHighlight.id]?.[0] : undefined) ??
       activeHighlight?.rectangles[0]
 
     return activeHighlightRect ? resolveReaderRect(activeHighlightRect, pageViewport) : null
   }, [
-    activeHighlightId,
     anchorRectsById,
     highlightRectOverrides,
     highlights,
     pageViewport,
+    resolvedSelectedHighlightId,
     selectedCard,
   ])
 
@@ -232,7 +234,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
         <div className="space-y-4 bg-[radial-gradient(circle_at_top_left,rgb(var(--highlight-yellow)/0.18),transparent_34%),linear-gradient(180deg,rgb(var(--paper-base)/0.92),rgb(var(--paper-soft)/0.92))] px-4 py-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_280px]">
             <div className="space-y-3">
-              <div className="inline-flex items-center rounded-full border border-ink/10 bg-white/70 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-ink-soft">
+              <div className="inline-flex items-center rounded-full border border-ink/10 bg-paper-card/70 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-ink-soft">
                 阅读工作台
               </div>
               <div className="space-y-2">
@@ -250,7 +252,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-ink/10 bg-white/75 px-4 py-4 shadow-card">
+            <div className="rounded-[24px] border border-ink/10 bg-paper-card/75 px-4 py-4 shadow-card">
               <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">本页操作</p>
               <div className="mt-3 space-y-3 text-sm leading-6 text-ink-muted">
                 <p>高亮会短暂聚焦，不会长期遮挡正文。</p>
@@ -324,7 +326,8 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                     highlights={highlights}
                     highlightRectOverrides={highlightRectOverrides}
                     viewport={pageViewport}
-                    selectedHighlightId={activeHighlightId}
+                    selectedHighlightId={resolvedSelectedHighlightId}
+                    hoveredHighlightId={reader.hoveredHighlightId}
                     onHighlightClick={handleHighlightClick}
                   />
 

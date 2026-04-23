@@ -50,7 +50,8 @@ pub fn run() {
                 }
             };
 
-            let host_gateway = match gateway::host_http::HostHttpGateway::new(app.handle().clone()) {
+            let host_gateway = match gateway::host_http::HostHttpGateway::new(app.handle().clone())
+            {
                 Ok(gateway) => gateway,
                 Err(error) => {
                     log::error!("Failed to create host HTTP gateway: {}", error);
@@ -71,16 +72,17 @@ pub fn run() {
 
             log::info!("Host HTTP gateway started on port {host_gateway_port}");
 
-            let orchestration = match tasks::OrchestrationService::new(app.handle(), Some(host_gateway_port)) {
-                Ok(orchestration) => orchestration,
-                Err(error) => {
-                    log::error!("Failed to initialize orchestration service: {}", error);
-                    return Err(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Orchestration service initialization failed: {error}"),
-                    )));
-                }
-            };
+            let orchestration =
+                match tasks::OrchestrationService::new(app.handle(), Some(host_gateway_port)) {
+                    Ok(orchestration) => orchestration,
+                    Err(error) => {
+                        log::error!("Failed to initialize orchestration service: {}", error);
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Orchestration service initialization failed: {error}"),
+                        )));
+                    }
+                };
 
             app.manage(AppState::new(db, secrets, orchestration));
 

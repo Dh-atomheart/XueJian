@@ -143,7 +143,7 @@ export type NavItemId =
 - 阅读器 → 文档库：`closeReader()` 返回
 - 学习完成 → 首页/我的：`setActiveNavItem('home')` 或 `setActiveNavItem('profile')`
 - 任意页 → 设置：`setActiveNavItem('settings')`
-- 无 API 配置时：强制锁定在设置页（现有逻辑保持）
+- 无 API 配置时：不锁定导航；通过顶部提示、提醒卡和 Settings CTA 引导用户补齐配置
 
 ### 1.4 用户旅程
 
@@ -151,7 +151,7 @@ export type NavItemId =
 
 ```
 启动应用
-  → 检测无 api_config → 强制跳转设置页（BYOK 引导）
+  → 检测无 api_config → 显示顶部提示与 BYOK 引导 CTA（不强制跳转）
   → 配置 API Key → 连接测试通过
   → 自动跳转首页
   → 首页显示空状态："导入第一份文档开始学习"
@@ -194,6 +194,14 @@ export type NavItemId =
   → 启动生成 → 等待（排队→检索→大纲→脚本→评估→音频→拼接）
   → 生成完成 → 播放器收听 → 或下载
 ```
+
+#### 1.4.6 AI/BYOK 缺配置时的统一行为
+
+- 页面访问权限与 AI 能力可执行性必须分离描述。
+- 缺少 AI/BYOK 配置时，Home、Library、Reader、Cards、Knowledge、Graph、Podcast、Profile、Settings 都允许进入和浏览。
+- 仅真正发起 AI 调用的动作受限，例如提问、启动图谱生成、启动播客生成、启动卡片生成、需要可用配置的 workflow assignment。
+- 受限动作统一表现为按钮置灰或内联 notice，不自动跳转 Settings，不改写其他导航，不打断当前浏览上下文。
+- 从业务页进入 Settings 后，应允许用户返回原页面或保留原来源上下文。
 
 ---
 

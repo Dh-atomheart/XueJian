@@ -66,6 +66,159 @@ const nullableDateValueSchema: z.ZodType<Date | null, z.ZodTypeDef, unknown> = z
   z.date().nullable()
 )
 
+const stringSettingSchema = (defaultValue: string) =>
+  z
+    .preprocess((value) => (typeof value === 'string' ? value.trim() : value), z.string().min(1))
+    .catch(defaultValue)
+    .default(defaultValue)
+
+const stringArraySettingSchema = (defaultValues: string[]) =>
+  z
+    .preprocess(
+      (value) =>
+        Array.isArray(value)
+          ? value
+              .filter((item): item is string => typeof item === 'string')
+              .map((item) => item.trim())
+              .filter(Boolean)
+          : value,
+      z.array(z.string().min(1))
+    )
+    .catch(defaultValues)
+    .default(defaultValues)
+    .transform((values) => (values.length > 0 ? values : [...defaultValues]))
+
+const boundedNumberSettingSchema = (defaultValue: number, minimum: number, maximum: number) =>
+  z
+    .number()
+    .catch(defaultValue)
+    .default(defaultValue)
+    .transform((value) => Math.min(maximum, Math.max(minimum, value)))
+
+const boundedIntSettingSchema = (defaultValue: number, minimum: number, maximum: number) =>
+  z
+    .number()
+    .int()
+    .catch(defaultValue)
+    .default(defaultValue)
+    .transform((value) => Math.min(maximum, Math.max(minimum, value)))
+
+const optionalEndpointSchema = z
+  .preprocess((value) => (typeof value === 'string' ? value.trim() : value), z.string())
+  .nullable()
+  .catch(null)
+  .transform((value) => (value && value.length > 0 ? value : null))
+
+const voiceOverridesSchema = z
+  .preprocess(
+    (value) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(
+            Object.entries(value as Record<string, unknown>)
+              .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+              .map(([key, itemValue]) => [key.trim(), itemValue.trim()])
+              .filter(([key, itemValue]) => key.length > 0 && itemValue.length > 0)
+          )
+        : value,
+    z.record(z.string())
+  )
+  .catch({})
+  .default({})
+
+const studyTimeSlotValues = ['morning', 'afternoon', 'evening', 'late_night'] as const
+const studyContentPreferenceValues = [
+  'psychology',
+  'cognitive_science',
+  'education',
+  'neuroscience',
+  'philosophy',
+  'sociology',
+  'economics',
+  'history',
+  'artificial_intelligence',
+  'data_science',
+  'self_improvement',
+  'other',
+] as const
+
+const legacyLearningGoalMap = {
+  exam_prep: 'exam_preparation',
+  concept_mastery: 'knowledge_understanding',
+  long_term_retention: 'memory_strengthening',
+  skill_building: 'applied_practice',
+} as const
+
+const legacyDifficultyMap = {
+  foundation: 'beginner',
+  adaptive: 'intermediate',
+  challenging: 'advanced',
+} as const
+
+const legacyPodcastStyleMap = {
+  conversational: 'casual',
+  news_brief: 'lecture',
+  deep_dive: 'deep_dive',
+  storytelling: 'interview',
+  knowledge_popularization: 'lecture',
+  deep_analysis: 'deep_dive',
+  friendly_conversation: 'casual',
+  exam_coaching: 'exam_prep',
+} as const
+
+const legacyReadingModeMap = {
+  focused: 'focus',
+  narration: 'narration',
+  natural: 'natural',
+} as const
+
+function normalizeLegacyAppSettingsPayload(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return value
+  }
+
+  const payload = { ...(value as Record<string, unknown>) }
+
+  if (typeof payload.theme === 'string' && payload.theme !== 'default') {
+    payload.theme = 'default'
+  }
+
+  if (typeof payload.learningGoal === 'string') {
+    payload.learningGoal =
+      legacyLearningGoalMap[payload.learningGoal as keyof typeof legacyLearningGoalMap] ??
+      payload.learningGoal
+  }
+
+  if (!Array.isArray(payload.studyTimePreferences)) {
+    const legacyStudyTimePreference =
+      typeof payload.studyTimePreference === 'string' ? payload.studyTimePreference : null
+    payload.studyTimePreferences =
+      legacyStudyTimePreference && studyTimeSlotValues.includes(legacyStudyTimePreference as never)
+        ? [legacyStudyTimePreference]
+        : ['afternoon', 'evening']
+  }
+
+  if (typeof payload.contentDifficultyPreference === 'string') {
+    payload.contentDifficultyPreference =
+      legacyDifficultyMap[
+        payload.contentDifficultyPreference as keyof typeof legacyDifficultyMap
+      ] ?? payload.contentDifficultyPreference
+  }
+
+  if (typeof payload.defaultPodcastStyle === 'string') {
+    payload.defaultPodcastStyle =
+      legacyPodcastStyleMap[payload.defaultPodcastStyle as keyof typeof legacyPodcastStyleMap] ??
+      payload.defaultPodcastStyle
+  }
+
+  if (typeof payload.readingMode === 'string') {
+    payload.readingMode =
+      legacyReadingModeMap[payload.readingMode as keyof typeof legacyReadingModeMap] ??
+      payload.readingMode
+  }
+
+  return payload
+}
+
 // ==================== DocumentIR v1 Schemas ====================
 
 export const documentIRBlockTypeSchema = z.enum([
@@ -152,39 +305,92 @@ export const documentIRSchema = z.object({
 
 // ==================== App Settings ====================
 
-export const appSettingsSchema = z.object({
-  theme: z.enum(['default', 'comic-sketch', 'contrast-paper']),
-  language: z.enum(['zh-CN', 'en-US']),
-  dailyNewCardLimit: z.number().int().nonnegative(),
-  reviewTimeLimit: z.number().int().nonnegative(),
-  learningGoal: z.string().default('exam_prep'),
-  dailyStudyMinutes: z.number().int().nonnegative().default(30),
-  studyTimePreference: z.string().default('evening'),
-  studyContentPreferences: z.array(z.string()).default(['concepts', 'examples']),
-  contentDifficultyPreference: z.string().default('adaptive'),
-  podcastTtsProvider: z.enum(['auto', 'openai', 'edge_tts', 'elevenlabs', 'fish_audio']),
-  podcastOpenaiModel: z.string().min(1),
-  podcastFishAudioEndpoint: z.string().nullable(),
-  podcastVoiceOverrides: z.record(z.string()),
-  defaultVoice: z.string().default('alloy'),
-  speechRate: z.number().min(0).max(2).default(1),
-  speechPitch: z.number().min(-1).max(1).default(0),
-  speechVolume: z.number().min(0).max(1).default(1),
-  readingMode: z.string().default('natural'),
-  defaultPodcastStyle: z.string().default('conversational'),
-  podcastEpisodeDurationMinutes: z.number().int().positive().default(10),
-  podcastContentStructure: z.string().default('summary_then_details'),
-  podcastBackgroundMusic: z.string().default('soft_piano'),
-  podcastIntroOutroEnabled: z.boolean().default(true),
-  voiceInputLanguage: z.string().default('zh-CN'),
-  voiceInterruptEnabled: z.boolean().default(true),
-  podcastAutoPlayNextEpisode: z.boolean().default(true),
-  podcastOutputFormat: z.enum(['mp3', 'wav']),
-  podcastSkipReview: z.boolean(),
-  podcastMaxLlmTokens: z.number().int().nonnegative(),
-  podcastMaxTtsCharacters: z.number().int().nonnegative(),
-  podcastMaxEstimatedCostUsd: z.number().nonnegative(),
-}) as z.ZodType<AppSettings>
+export const appSettingsSchema = z.preprocess(
+  normalizeLegacyAppSettingsPayload,
+  z.object({
+    theme: z.literal('default').catch('default').default('default'),
+    language: z.enum(['zh-CN', 'en-US']).catch('zh-CN').default('zh-CN'),
+    dailyNewCardLimit: boundedIntSettingSchema(20, 0, 1000),
+    reviewTimeLimit: boundedIntSettingSchema(30, 0, 1440),
+    learningGoal: z
+      .enum([
+        'knowledge_understanding',
+        'memory_strengthening',
+        'applied_practice',
+        'exam_preparation',
+        'interest_exploration',
+      ])
+      .catch('knowledge_understanding')
+      .default('knowledge_understanding'),
+    dailyStudyMinutes: boundedIntSettingSchema(30, 0, 1440),
+    studyTimePreference: z
+      .enum(['morning', 'afternoon', 'evening', 'late_night', 'flexible'])
+      .catch('evening')
+      .default('evening'),
+    studyTimePreferences: z
+      .preprocess(
+        (value) =>
+          Array.isArray(value)
+            ? value
+                .filter((item): item is string => typeof item === 'string')
+                .map((item) => item.trim())
+                .filter((item) => studyTimeSlotValues.includes(item as never))
+            : value,
+        z.array(z.enum(studyTimeSlotValues))
+      )
+      .catch(['afternoon', 'evening'])
+      .default(['afternoon', 'evening'])
+      .transform((values) => (values.length > 0 ? values : ['afternoon', 'evening'])),
+    studyContentPreferences: stringArraySettingSchema([
+      'psychology',
+      'cognitive_science',
+      'self_improvement',
+      'education',
+    ]).transform((values) => {
+      const validValues = values.filter((value) =>
+        studyContentPreferenceValues.includes(value as never)
+      )
+      return validValues.length > 0
+        ? validValues
+        : ['psychology', 'cognitive_science', 'self_improvement', 'education']
+    }),
+    contentDifficultyPreference: z
+      .enum(['introductory', 'beginner', 'intermediate', 'advanced', 'expert'])
+      .catch('intermediate')
+      .default('intermediate'),
+    podcastTtsProvider: z.enum(['auto', 'openai', 'edge_tts']).catch('auto').default('auto'),
+    podcastOpenaiModel: stringSettingSchema('tts-1'),
+    podcastFishAudioEndpoint: optionalEndpointSchema.default(null),
+    podcastVoiceOverrides: voiceOverridesSchema,
+    defaultVoice: stringSettingSchema('gentle_female_xiaoxiao'),
+    speechRate: boundedNumberSettingSchema(1, 0.5, 1.5),
+    speechPitch: boundedNumberSettingSchema(0, -0.5, 0.5),
+    speechVolume: boundedNumberSettingSchema(0.8, 0, 1),
+    readingMode: z.enum(['natural', 'focus', 'narration']).catch('natural').default('natural'),
+    defaultPodcastStyle: z
+      .enum(['deep_dive', 'lecture', 'interview', 'casual', 'exam_prep'])
+      .catch('lecture')
+      .default('lecture'),
+    podcastEpisodeDurationMinutes: boundedIntSettingSchema(15, 1, 180),
+    podcastContentStructure: z
+      .enum(['summary_then_details', 'problem_solution', 'story_driven', 'question_driven'])
+      .catch('summary_then_details')
+      .default('summary_then_details'),
+    podcastBackgroundMusic: z
+      .enum(['off', 'soft_piano', 'light_ambient', 'study_lofi'])
+      .catch('soft_piano')
+      .default('soft_piano'),
+    podcastIntroOutroEnabled: z.boolean().catch(true).default(true),
+    voiceInputLanguage: z.enum(['zh-CN', 'en-US']).catch('zh-CN').default('zh-CN'),
+    voiceInterruptEnabled: z.boolean().catch(true).default(true),
+    podcastAutoPlayNextEpisode: z.boolean().catch(true).default(true),
+    podcastOutputFormat: z.enum(['mp3', 'wav']).catch('mp3').default('mp3'),
+    podcastSkipReview: z.boolean().catch(true).default(true),
+    podcastMaxLlmTokens: boundedIntSettingSchema(100000, 0, 1_000_000),
+    podcastMaxTtsCharacters: boundedIntSettingSchema(50000, 0, 1_000_000),
+    podcastMaxEstimatedCostUsd: boundedNumberSettingSchema(1, 0, 10_000),
+  })
+) as z.ZodType<AppSettings>
 
 export const apiProviderSchema = z.enum([
   'openai',
@@ -223,6 +429,7 @@ export const workflowTypeSchema = z.enum([
   'knowledge_qa',
   'podcast_generation',
   'knowledge_graph',
+  'card_animation',
 ])
 
 export const apiConfigSchema = z.object({

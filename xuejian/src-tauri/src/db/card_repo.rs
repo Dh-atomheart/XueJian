@@ -331,7 +331,9 @@ impl<'a> CardRepository<'a> {
             })
         })?;
 
-        media.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        media
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn delete_card_media(&self, id: &str) -> Result<Option<CardMedia>> {
@@ -355,7 +357,9 @@ impl<'a> CardRepository<'a> {
         };
 
         if media.is_some() {
-            self.db.connection().execute("DELETE FROM card_media WHERE id = ?1", params![id])?;
+            self.db
+                .connection()
+                .execute("DELETE FROM card_media WHERE id = ?1", params![id])?;
         }
 
         Ok(media)
@@ -369,7 +373,9 @@ impl<'a> CardRepository<'a> {
                     next_review, dedupe_key, created_at, updated_at
              FROM cards WHERE id = ?1",
         )?;
-        stmt.query_row(params![id], map_card_row).optional().map_err(Into::into)
+        stmt.query_row(params![id], map_card_row)
+            .optional()
+            .map_err(Into::into)
     }
 
     pub fn create_review_log(&self, req: CreateReviewLogRequest) -> Result<ReviewLog> {
@@ -382,9 +388,16 @@ impl<'a> CardRepository<'a> {
                 retrievability, next_review, interval_days
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
-                &id, &req.card_id, &req.rating, &now, &req.state,
-                req.difficulty, req.stability, req.retrievability,
-                req.next_review, req.interval_days,
+                &id,
+                &req.card_id,
+                &req.rating,
+                &now,
+                &req.state,
+                req.difficulty,
+                req.stability,
+                req.retrievability,
+                req.next_review,
+                req.interval_days,
             ],
         )?;
 
@@ -402,7 +415,11 @@ impl<'a> CardRepository<'a> {
         })
     }
 
-    pub fn list_review_logs(&self, card_id: Option<&str>, limit: Option<i64>) -> Result<Vec<ReviewLog>> {
+    pub fn list_review_logs(
+        &self,
+        card_id: Option<&str>,
+        limit: Option<i64>,
+    ) -> Result<Vec<ReviewLog>> {
         let limit = limit.unwrap_or(100);
         let mut stmt = self.db.connection().prepare(
             "SELECT id, card_id, rating, reviewed_at, state, difficulty, stability,
@@ -452,11 +469,10 @@ impl<'a> CardRepository<'a> {
             |row| row.get(0),
         )?;
 
-        let total_minutes: i64 = self.db.connection().query_row(
-            "SELECT COUNT(*) FROM review_logs",
-            [],
-            |row| row.get(0),
-        )?;
+        let total_minutes: i64 =
+            self.db
+                .connection()
+                .query_row("SELECT COUNT(*) FROM review_logs", [], |row| row.get(0))?;
 
         let active_days_this_week: i64 = self.db.connection().query_row(
             "SELECT COUNT(DISTINCT date(reviewed_at, 'localtime'))
@@ -478,11 +494,13 @@ impl<'a> CardRepository<'a> {
         };
 
         let mut streak_days = 0_i64;
-        let mut cursor = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d")
-            .map_err(|e| crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        let mut cursor = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d").map_err(|e| {
+            crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        })?;
         for date in dates {
-            let parsed = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
-                .map_err(|e| crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+            let parsed = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|e| {
+                crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+            })?;
             if parsed == cursor {
                 streak_days += 1;
                 cursor = cursor.pred_opt().unwrap_or(cursor);
@@ -538,7 +556,8 @@ impl<'a> CardRepository<'a> {
             })
         })?;
 
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn get_daily_stats(&self, date: &str) -> Result<(i64, i64, Option<f64>)> {
@@ -661,7 +680,7 @@ impl<'a> CardRepository<'a> {
              WHERE state != 'suspended'
                AND (next_review IS NULL OR next_review <= ?1)
              ORDER BY next_review ASC
-             LIMIT ?2"
+             LIMIT ?2",
         )?;
 
         let cards = stmt.query_map(params![&today, limit], map_card_row)?;
@@ -1039,7 +1058,8 @@ impl<'a> CardRepository<'a> {
                 .transpose()
                 .map_err(json_encode_error)?;
             let new_card_id = Uuid::new_v4().to_string();
-            let export_guid = Uuid::new_v5(&Uuid::NAMESPACE_URL, new_card_id.as_bytes()).to_string();
+            let export_guid =
+                Uuid::new_v5(&Uuid::NAMESPACE_URL, new_card_id.as_bytes()).to_string();
             transaction.execute(
                 "INSERT INTO cards (
                     id, group_id, title, card_type, export_guid, document_id, anchor_id,
@@ -1256,11 +1276,15 @@ impl<'a> CardRepository<'a> {
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };
 
-        let mut page_order: std::collections::HashMap<i32, usize> = std::collections::HashMap::new();
+        let mut page_order: std::collections::HashMap<i32, usize> =
+            std::collections::HashMap::new();
         let mut result = BatchCreateHighlightsResult::default();
 
-        for (anchor_id, front, source_quote, source_page, dedupe_key, anchor_rects, _created_at) in accepted_candidates {
-            let Some(card) = self.find_card_by_document_and_dedupe(document_id, &dedupe_key)? else {
+        for (anchor_id, front, source_quote, source_page, dedupe_key, anchor_rects, _created_at) in
+            accepted_candidates
+        {
+            let Some(card) = self.find_card_by_document_and_dedupe(document_id, &dedupe_key)?
+            else {
                 result.unlinked += 1;
                 continue;
             };
@@ -1328,7 +1352,9 @@ fn map_card_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Card> {
         id: row.get(0)?,
         group_id: row.get(1)?,
         title: row.get(2)?,
-        card_type: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "qa".to_string()),
+        card_type: row
+            .get::<_, Option<String>>(3)?
+            .unwrap_or_else(|| "qa".to_string()),
         cluster_id: row.get(4)?,
         export_guid: row.get(5)?,
         front: row.get(6)?,
@@ -1369,7 +1395,9 @@ fn map_card_candidate_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CardCandi
         section_id: row.get(3)?,
         anchor_id: row.get(4)?,
         title: row.get(5)?,
-        card_type: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "qa".to_string()),
+        card_type: row
+            .get::<_, Option<String>>(6)?
+            .unwrap_or_else(|| "qa".to_string()),
         front: row.get(7)?,
         back: row.get(8)?,
         tags: decode_tags(row.get(9)?)?,
@@ -1379,7 +1407,9 @@ fn map_card_candidate_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CardCandi
         score_overall: row.get(13)?,
         score_details,
         visibility_bucket: row.get(15)?,
-        generation_mode: row.get::<_, Option<String>>(16)?.unwrap_or_else(|| "llm".to_string()),
+        generation_mode: row
+            .get::<_, Option<String>>(16)?
+            .unwrap_or_else(|| "llm".to_string()),
         fallback_reason: row.get(17)?,
         evaluation_summary: row.get(18)?,
         source_chunk_ids,
@@ -1486,46 +1516,34 @@ mod tests {
             "../migrations/V3__card_generation_workflow.sql"
         ))
         .expect("apply v3 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V4__points_ledger.sql"
-        ))
-        .expect("apply v4 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V5__card_animations.sql"
-        ))
-        .expect("apply v5 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V6__podcast_episodes.sql"
-        ))
-        .expect("apply v6 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V7__knowledge_graph.sql"
-        ))
-        .expect("apply v7 migration");
+        conn.execute_batch(include_str!("../migrations/V4__points_ledger.sql"))
+            .expect("apply v4 migration");
+        conn.execute_batch(include_str!("../migrations/V5__card_animations.sql"))
+            .expect("apply v5 migration");
+        conn.execute_batch(include_str!("../migrations/V6__podcast_episodes.sql"))
+            .expect("apply v6 migration");
+        conn.execute_batch(include_str!("../migrations/V7__knowledge_graph.sql"))
+            .expect("apply v7 migration");
         conn.execute_batch(include_str!(
             "../migrations/V8__points_daily_bonus_rule.sql"
         ))
         .expect("apply v8 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V9__api_config_auth_mode.sql"
-        ))
-        .expect("apply v9 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V10__card_schema_extension.sql"
-        ))
-        .expect("apply v10 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V11__anchor_provenance.sql"
-        ))
-        .expect("apply v11 migration");
-        conn.execute_batch(include_str!(
-            "../migrations/V12__card_media.sql"
-        ))
-        .expect("apply v12 migration");
+        conn.execute_batch(include_str!("../migrations/V9__api_config_auth_mode.sql"))
+            .expect("apply v9 migration");
+        conn.execute_batch(include_str!("../migrations/V10__card_schema_extension.sql"))
+            .expect("apply v10 migration");
+        conn.execute_batch(include_str!("../migrations/V11__anchor_provenance.sql"))
+            .expect("apply v11 migration");
+        conn.execute_batch(include_str!("../migrations/V12__card_media.sql"))
+            .expect("apply v12 migration");
         conn.execute_batch(include_str!(
             "../migrations/V13__agent_document_workflow_foundation.sql"
         ))
         .expect("apply v13 migration");
+        conn.execute_batch(include_str!("../migrations/V14__chunk_embedding_state.sql"))
+            .expect("apply v14 migration");
+        conn.execute_batch(include_str!("../migrations/V15__highlight_metadata.sql"))
+            .expect("apply v15 migration");
 
         Database { conn }
     }
@@ -1834,7 +1852,8 @@ mod tests {
         assert_eq!(updated.text_content, "Updated text");
         assert_eq!(updated.color, "#FF0000");
 
-        repo.delete_highlight(&highlight.id).expect("delete highlight");
+        repo.delete_highlight(&highlight.id)
+            .expect("delete highlight");
 
         let after_delete = repo
             .list_highlights(HighlightFilters {

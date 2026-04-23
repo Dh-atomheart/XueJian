@@ -289,7 +289,7 @@ export function KnowledgeQaPage() {
   }, [])
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-5 overflow-y-auto p-6">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">

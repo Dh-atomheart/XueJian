@@ -7,7 +7,11 @@ interface HomeHeatmapPanelProps {
 
 export function HomeHeatmapPanel({ entries }: HomeHeatmapPanelProps) {
   return (
-    <Panel variant="paperCard" className="space-y-5 p-6 md:p-7">
+    <Panel
+      variant="paperCard"
+      className="space-y-5 p-6 md:p-7"
+      data-testid="home-heatmap-panel"
+    >
       <div>
         <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">Learning Rhythm</p>
         <h2 className="mt-2 font-ui text-xl text-ink">学习热力图</h2>

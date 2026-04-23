@@ -338,7 +338,6 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
                               highlight?.pageNumber ?? card.sourcePage ?? reader.currentPage
                             )
                             selectCard(card.id)
-                            selectHighlight(highlight?.id ?? null)
                           }}
                           onToggleExpand={() => {
                             setExpandedCardId((current) => (current === card.id ? null : card.id))
@@ -348,7 +347,6 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
                               highlight?.pageNumber ?? card.sourcePage ?? reader.currentPage
                             )
                             selectCard(card.id)
-                            selectHighlight(highlight?.id ?? null)
                           }}
                           onEdit={() => setEditingCard(card)}
                           onDelete={() => {

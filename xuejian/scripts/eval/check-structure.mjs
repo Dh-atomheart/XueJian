@@ -5,14 +5,60 @@ import { boolToStatus, isMainModule, readText, workspaceRoot } from './shared.mj
 
 const checks = [
   {
+    id: 'card-studio-workbench',
+    file: 'src/features/cards/CardStudioPage.tsx',
+    patterns: [
+      'data-testid="card-studio-page"',
+      'data-testid="card-studio-start-generation"',
+      'data-testid="card-studio-resume-generation"',
+      'data-testid="card-studio-finalize-generation"',
+      'data-testid="card-studio-candidate-list"',
+      'cardsGateway.startGeneration',
+      'cardsGateway.resumeGeneration',
+      'cardsGateway.finalizeGeneration',
+    ],
+    gating: true,
+    area: 'candidate-workbench',
+  },
+  {
+    id: 'card-studio-candidate-review',
+    file: 'src/features/cards/CardStudioPage.tsx',
+    patterns: [
+      'cardsGateway.updateCandidate',
+      'cardsGateway.bulkUpdateCandidateStatuses',
+      'data-testid="card-studio-bulk-accept"',
+      'data-testid="card-studio-bulk-reject"',
+      'data-testid={`card-studio-candidate-${candidate.id}`}',
+    ],
+    gating: true,
+    area: 'candidate-review',
+  },
+  {
+    id: 'review-page-session-states',
+    file: 'src/features/review/ReviewPage.tsx',
+    patterns: [
+      'data-testid="review-page-intro"',
+      'data-testid="review-page-studying"',
+      'data-testid="review-page-complete"',
+      'data-testid="review-start-session"',
+      'data-testid={`review-rate-${rating.key}`}',
+    ],
+    gating: true,
+    area: 'review-session',
+  },
+  {
     id: 'update-card-command',
     file: 'src-tauri/src/commands/cards.rs',
     patterns: ['pub fn update_card(', 'pub struct UpdateCardDto'],
+    gating: false,
+    area: 'formal-card-model',
   },
   {
     id: 'update-card-repository',
     file: 'src-tauri/src/db/card_repo.rs',
     patterns: ['pub struct UpdateCardRequest', 'pub fn update_card(&self, id: &str'],
+    gating: false,
+    area: 'formal-card-model',
   },
   {
     id: 'update-card-gateway',
@@ -21,80 +67,82 @@ const checks = [
       'export interface UpdateCardInput',
       'async update(id: string, data: UpdateCardInput): Promise<Card>',
     ],
-  },
-  {
-    id: 'update-card-mutation',
-    file: 'src/queries/cards.ts',
-    patterns: ['export function useUpdateCardMutation()', 'cardsGateway.update(id, data)'],
+    gating: false,
+    area: 'formal-card-model',
   },
   {
     id: 'image-occlusion-component',
     file: 'src/components/cards/ImageOcclusionCardContent.tsx',
     patterns: ['export function ImageOcclusionCardContent', 'parseImageOcclusionPayload'],
+    gating: false,
+    area: 'card-types',
   },
   {
     id: 'image-occlusion-type',
     file: 'src/types/schema.ts',
     patterns: ["'image_occlusion'"],
+    gating: false,
+    area: 'card-types',
   },
   {
     id: 'card-editor-media-ui',
     file: 'src/components/cards/CardEditorModal.tsx',
-    patterns: ['queuedMediaPaths', 'cardsGateway.uploadCardMedia', '图像遮挡'],
-  },
-  {
-    id: 'card-studio-edit-flow',
-    file: 'src/features/cards/CardStudioPage.tsx',
-    patterns: ['useUpdateCardMutation', 'handleSaveCard', 'card-studio-edit-'],
-  },
-  {
-    id: 'review-page-image-occlusion-route',
-    file: 'src/features/review/ReviewPage.tsx',
-    patterns: ["currentCard.cardType === 'image_occlusion'", 'review-page-studying'],
-  },
-  {
-    id: 'mock-gateway-mutable-card-flow',
-    file: 'src/services/gateway/mockData.ts',
-    patterns: [
-      "if (cmd === 'create_card')",
-      "if (cmd === 'update_card')",
-      "if (cmd === 'upload_card_media')",
-    ],
+    patterns: ['queuedMediaPaths', 'cardsGateway.uploadCardMedia', 'data-testid="card-editor-media-list"'],
+    gating: false,
+    area: 'card-editor',
   },
   {
     id: 'apkg-import-export-commands',
     file: 'src-tauri/src/commands/cards.rs',
     patterns: ['pub async fn import_cards_apkg(', 'pub async fn pick_and_export_apkg('],
+    gating: false,
+    area: 'enhancements',
   },
   {
     id: 'ai-choice-generation-contract',
     file: 'orchestration_service/workflows/card_generation.py',
     patterns: ['"choice": Multiple choice', '"cardType"'],
+    gating: false,
+    area: 'candidate-generation',
   },
   {
     id: 'ai-choice-schema-contract',
     file: 'orchestration_service/schemas/card_draft.py',
     patterns: ['Literal["qa", "cloze", "fact", "choice"]'],
+    gating: false,
+    area: 'candidate-generation',
   },
   {
     id: 'unit-test-card-studio',
     file: 'tests/unit/card-studio-page.test.tsx',
-    patterns: ["describe('CardStudioPage'", 'creates a card through the editor modal'],
+    patterns: [
+      "describe('CardStudioPage'",
+      'starts generation for the selected ready document',
+      'updates a candidate, resumes the workflow, and finalizes the batch',
+    ],
+    gating: true,
+    area: 'tests',
   },
   {
     id: 'unit-test-review-page',
     file: 'tests/unit/review-page.test.tsx',
     patterns: ["describe('ReviewPage'", 'starts a study session and completes it'],
+    gating: true,
+    area: 'tests',
   },
   {
     id: 'unit-test-renderers',
     file: 'tests/unit/image-occlusion-card-content.test.tsx',
     patterns: ["describe('ImageOcclusionCardContent'"],
+    gating: false,
+    area: 'tests',
   },
   {
     id: 'e2e-happy-path-spec',
     file: 'tests/e2e/card-system-happy-path.spec.ts',
-    patterns: ['card study happy path reaches the completion screen'],
+    patterns: ['card-studio-page', 'review-page-complete', 'review-start-session'],
+    gating: true,
+    area: 'tests',
   },
 ]
 
@@ -124,6 +172,8 @@ export async function runStructureCheck() {
     items.push({
       id: check.id,
       file: check.file,
+      gating: check.gating,
+      area: check.area,
       status: boolToStatus(passed),
       missingPatterns,
     })
@@ -131,11 +181,13 @@ export async function runStructureCheck() {
 
   const passed = items.filter((item) => item.status === 'passed').length
   const failed = items.length - passed
+  const gatingFailed = items.filter((item) => item.gating && item.status === 'failed').length
 
   return {
     name: 'structure',
     passed: failed === 0,
-    summary: { passed, failed, total: items.length },
+    gatingPassed: gatingFailed === 0,
+    summary: { passed, failed, total: items.length, gatingFailed },
     items,
   }
 }

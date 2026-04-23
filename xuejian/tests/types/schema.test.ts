@@ -1,4 +1,5 @@
 import {
+  appSettingsSchema,
   cardCandidateSchema,
   cardGenerationCandidateSchema,
   documentIRSchema,
@@ -11,6 +12,104 @@ import {
 } from '@/types'
 
 describe('structured schemas', () => {
+  it('backfills detailed settings defaults for legacy payloads', () => {
+    const settings = appSettingsSchema.parse({
+      theme: 'default',
+      language: 'zh-CN',
+      dailyNewCardLimit: 20,
+      reviewTimeLimit: 30,
+      podcastTtsProvider: 'auto',
+      podcastOpenaiModel: 'tts-1',
+      podcastFishAudioEndpoint: null,
+      podcastVoiceOverrides: {},
+      podcastOutputFormat: 'mp3',
+      podcastSkipReview: true,
+      podcastMaxLlmTokens: 100000,
+      podcastMaxTtsCharacters: 50000,
+      podcastMaxEstimatedCostUsd: 1,
+    })
+
+    expect(settings.learningGoal).toBe('knowledge_understanding')
+    expect(settings.dailyStudyMinutes).toBe(30)
+    expect(settings.studyTimePreference).toBe('evening')
+    expect(settings.studyTimePreferences).toEqual(['afternoon', 'evening'])
+    expect(settings.studyContentPreferences).toEqual([
+      'psychology',
+      'cognitive_science',
+      'self_improvement',
+      'education',
+    ])
+    expect(settings.defaultVoice).toBe('gentle_female_xiaoxiao')
+    expect(settings.podcastBackgroundMusic).toBe('soft_piano')
+    expect(settings.podcastAutoPlayNextEpisode).toBe(true)
+  })
+
+  it('sanitizes detailed settings values returned from the host', () => {
+    const settings = appSettingsSchema.parse({
+      theme: 'unknown',
+      language: 'invalid',
+      dailyNewCardLimit: -5,
+      reviewTimeLimit: -30,
+      learningGoal: 'bad_goal',
+      dailyStudyMinutes: -10,
+      studyTimePreference: 'bad_time',
+      studyContentPreferences: ['   ', 'invalid', 'flashcards'],
+      contentDifficultyPreference: 'bad_diff',
+      podcastTtsProvider: 'auto',
+      podcastOpenaiModel: '   ',
+      podcastFishAudioEndpoint: '   ',
+      podcastVoiceOverrides: {},
+      defaultVoice: '   ',
+      speechRate: 9,
+      speechPitch: -9,
+      speechVolume: 5,
+      readingMode: 'bad_mode',
+      defaultPodcastStyle: 'bad_style',
+      podcastEpisodeDurationMinutes: 0,
+      podcastContentStructure: 'bad_structure',
+      podcastBackgroundMusic: 'bad_music',
+      podcastIntroOutroEnabled: true,
+      voiceInputLanguage: 'bad_lang',
+      voiceInterruptEnabled: false,
+      podcastAutoPlayNextEpisode: false,
+      podcastOutputFormat: 'bad_format',
+      podcastSkipReview: true,
+      podcastMaxLlmTokens: -1,
+      podcastMaxTtsCharacters: -1,
+      podcastMaxEstimatedCostUsd: -1,
+    })
+
+    expect(settings.theme).toBe('default')
+    expect(settings.language).toBe('zh-CN')
+    expect(settings.dailyNewCardLimit).toBe(0)
+    expect(settings.reviewTimeLimit).toBe(0)
+    expect(settings.learningGoal).toBe('knowledge_understanding')
+    expect(settings.dailyStudyMinutes).toBe(0)
+    expect(settings.studyTimePreference).toBe('evening')
+    expect(settings.studyTimePreferences).toEqual(['afternoon', 'evening'])
+    expect(settings.studyContentPreferences).toEqual([
+      'psychology',
+      'cognitive_science',
+      'self_improvement',
+      'education',
+    ])
+    expect(settings.contentDifficultyPreference).toBe('intermediate')
+    expect(settings.podcastOpenaiModel).toBe('tts-1')
+    expect(settings.podcastFishAudioEndpoint).toBeNull()
+    expect(settings.defaultVoice).toBe('gentle_female_xiaoxiao')
+    expect(settings.speechRate).toBe(1.5)
+    expect(settings.speechPitch).toBe(-0.5)
+    expect(settings.speechVolume).toBe(1)
+    expect(settings.readingMode).toBe('natural')
+    expect(settings.defaultPodcastStyle).toBe('lecture')
+    expect(settings.podcastEpisodeDurationMinutes).toBe(1)
+    expect(settings.podcastContentStructure).toBe('summary_then_details')
+    expect(settings.podcastBackgroundMusic).toBe('soft_piano')
+    expect(settings.voiceInputLanguage).toBe('zh-CN')
+    expect(settings.voiceInterruptEnabled).toBe(false)
+    expect(settings.podcastAutoPlayNextEpisode).toBe(false)
+  })
+
   it('parses card generation candidates with strict shape', () => {
     const candidate = cardGenerationCandidateSchema.parse({
       front: '什么是 FSRS？',
@@ -48,6 +147,8 @@ describe('structured schemas', () => {
       citations: [
         {
           documentId: '4f4ac6a1-21d0-4d62-bec0-4b7188b84d51',
+          sectionId: null,
+          chunkId: null,
           anchorId: null,
           page: 8,
           quote: 'FSRS estimates the optimal interval...',
@@ -102,7 +203,10 @@ describe('structured schemas', () => {
       id: '11111111-1111-4111-8111-111111111111',
       workflowRunId: '22222222-2222-4222-8222-222222222222',
       documentId: '33333333-3333-4333-8333-333333333333',
+      sectionId: null,
       anchorId: '44444444-4444-4444-8444-444444444444',
+      title: null,
+      cardType: 'qa',
       sourcePage: 3,
       sourceParagraph: 2,
       sourceQuote: 'FSRS is a scheduling algorithm for spaced repetition.',
@@ -112,6 +216,13 @@ describe('structured schemas', () => {
       confidence: 0.82,
       dedupeKey: 'dedupe-1',
       status: 'pending',
+      scoreOverall: null,
+      scoreDetails: null,
+      visibilityBucket: null,
+      generationMode: 'llm',
+      fallbackReason: null,
+      evaluationSummary: null,
+      sourceChunkIds: null,
       createdAt: '2026-04-17T02:00:00.000Z',
     })
 

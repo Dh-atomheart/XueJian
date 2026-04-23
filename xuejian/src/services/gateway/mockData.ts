@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   ApiConfig,
   AudioSegment,
   AppSettings,
@@ -410,10 +410,29 @@ const defaultMockAppSettings: AppSettings = {
   language: 'zh-CN',
   dailyNewCardLimit: 20,
   reviewTimeLimit: 30,
+  learningGoal: 'knowledge_understanding',
+  dailyStudyMinutes: 30,
+  studyTimePreference: 'evening',
+  studyTimePreferences: ['afternoon', 'evening'],
+  studyContentPreferences: ['psychology', 'cognitive_science', 'self_improvement', 'education'],
+  contentDifficultyPreference: 'intermediate',
   podcastTtsProvider: 'auto',
   podcastOpenaiModel: 'tts-1',
   podcastFishAudioEndpoint: null,
   podcastVoiceOverrides: {},
+  defaultVoice: 'gentle_female_xiaoxiao',
+  speechRate: 1,
+  speechPitch: 0,
+  speechVolume: 0.8,
+  readingMode: 'natural',
+  defaultPodcastStyle: 'lecture',
+  podcastEpisodeDurationMinutes: 15,
+  podcastContentStructure: 'summary_then_details',
+  podcastBackgroundMusic: 'soft_piano',
+  podcastIntroOutroEnabled: true,
+  voiceInputLanguage: 'zh-CN',
+  voiceInterruptEnabled: true,
+  podcastAutoPlayNextEpisode: true,
   podcastOutputFormat: 'mp3',
   podcastSkipReview: true,
   podcastMaxLlmTokens: 100000,
@@ -433,7 +452,12 @@ const MOCK_WORKFLOW_TYPES: WorkflowType[] = [
   'knowledge_qa',
   'podcast_generation',
   'knowledge_graph',
+  'card_animation',
 ]
+
+function normalizeMockApiProvider(provider: ApiConfig['provider']): ApiConfig['provider'] {
+  return provider === 'openai_compatible' ? 'custom_openai' : provider
+}
 
 function createMockModelCapabilities(
   overrides: Partial<DiscoveredModel['capabilities']> = {}
@@ -559,12 +583,14 @@ function buildMockBudgetUsage(
 }
 
 function inferMockProtocol(provider: ApiConfig['provider']): ApiConfig['protocol'] {
+  const normalizedProvider = normalizeMockApiProvider(provider)
+
   if (
-    provider === 'openai' ||
-    provider === 'anthropic' ||
-    provider === 'google' ||
-    provider === 'custom_anthropic' ||
-    provider === 'custom_google'
+    normalizedProvider === 'openai' ||
+    normalizedProvider === 'anthropic' ||
+    normalizedProvider === 'google' ||
+    normalizedProvider === 'custom_anthropic' ||
+    normalizedProvider === 'custom_google'
   ) {
     return 'native'
   }
@@ -893,8 +919,13 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       return 0 as T
     }
 
-    const targetIds = Array.isArray(data?.candidateIds)
-      ? new Set(data.candidateIds.filter((value): value is string => typeof value === 'string'))
+    const rawCandidateIds = Array.isArray(data?.ids)
+      ? data.ids
+      : Array.isArray(data?.candidateIds)
+        ? data.candidateIds
+        : null
+    const targetIds = rawCandidateIds
+      ? new Set(rawCandidateIds.filter((value): value is string => typeof value === 'string'))
       : null
 
     let updated = 0
@@ -945,9 +976,20 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
 
     const now = new Date()
     let created = 0
+    let skippedDuplicates = 0
+    let rejectedCount = 0
 
     for (const candidate of mockCardCandidates) {
-      if (candidate.workflowRunId !== run.id || candidate.status !== 'accepted') {
+      if (candidate.workflowRunId !== run.id) {
+        continue
+      }
+
+      if (candidate.status === 'rejected') {
+        rejectedCount += 1
+        continue
+      }
+
+      if (candidate.status !== 'accepted') {
         continue
       }
 
@@ -955,6 +997,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         (card) => card.front === candidate.front && card.back === candidate.back
       )
       if (alreadyExists) {
+        skippedDuplicates += 1
         continue
       }
 
@@ -993,7 +1036,12 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       createdCount: created,
     })
 
-    return serializeWorkflowRun(run) as T
+    return {
+      createdCount: created,
+      skippedDuplicates,
+      rejectedCount,
+      run: serializeWorkflowRun(run),
+    } as T
   }
 
   if (cmd === 'create_card') {
@@ -1350,6 +1398,32 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       ...(typeof data?.reviewTimeLimit === 'number'
         ? { reviewTimeLimit: data.reviewTimeLimit }
         : {}),
+      ...(data?.learningGoal
+        ? { learningGoal: data.learningGoal as AppSettings['learningGoal'] }
+        : {}),
+      ...(typeof data?.dailyStudyMinutes === 'number'
+        ? { dailyStudyMinutes: data.dailyStudyMinutes }
+        : {}),
+      ...(data?.studyTimePreference
+        ? { studyTimePreference: data.studyTimePreference as AppSettings['studyTimePreference'] }
+        : {}),
+      ...(Array.isArray(data?.studyTimePreferences)
+        ? {
+            studyTimePreferences: data.studyTimePreferences as AppSettings['studyTimePreferences'],
+          }
+        : {}),
+      ...(Array.isArray(data?.studyContentPreferences)
+        ? {
+            studyContentPreferences:
+              data.studyContentPreferences as AppSettings['studyContentPreferences'],
+          }
+        : {}),
+      ...(data?.contentDifficultyPreference
+        ? {
+            contentDifficultyPreference:
+              data.contentDifficultyPreference as AppSettings['contentDifficultyPreference'],
+          }
+        : {}),
       ...(data?.podcastTtsProvider
         ? { podcastTtsProvider: data.podcastTtsProvider as AppSettings['podcastTtsProvider'] }
         : {}),
@@ -1361,6 +1435,41 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         : {}),
       ...(data?.podcastVoiceOverrides && typeof data.podcastVoiceOverrides === 'object'
         ? { podcastVoiceOverrides: data.podcastVoiceOverrides as Record<string, string> }
+        : {}),
+      ...(data?.defaultVoice ? { defaultVoice: data.defaultVoice as string } : {}),
+      ...(typeof data?.speechRate === 'number' ? { speechRate: data.speechRate } : {}),
+      ...(typeof data?.speechPitch === 'number' ? { speechPitch: data.speechPitch } : {}),
+      ...(typeof data?.speechVolume === 'number' ? { speechVolume: data.speechVolume } : {}),
+      ...(data?.readingMode ? { readingMode: data.readingMode as AppSettings['readingMode'] } : {}),
+      ...(data?.defaultPodcastStyle
+        ? { defaultPodcastStyle: data.defaultPodcastStyle as AppSettings['defaultPodcastStyle'] }
+        : {}),
+      ...(typeof data?.podcastEpisodeDurationMinutes === 'number'
+        ? { podcastEpisodeDurationMinutes: data.podcastEpisodeDurationMinutes }
+        : {}),
+      ...(data?.podcastContentStructure
+        ? {
+            podcastContentStructure:
+              data.podcastContentStructure as AppSettings['podcastContentStructure'],
+          }
+        : {}),
+      ...(data?.podcastBackgroundMusic
+        ? {
+            podcastBackgroundMusic:
+              data.podcastBackgroundMusic as AppSettings['podcastBackgroundMusic'],
+          }
+        : {}),
+      ...(typeof data?.podcastIntroOutroEnabled === 'boolean'
+        ? { podcastIntroOutroEnabled: data.podcastIntroOutroEnabled }
+        : {}),
+      ...(data?.voiceInputLanguage
+        ? { voiceInputLanguage: data.voiceInputLanguage as AppSettings['voiceInputLanguage'] }
+        : {}),
+      ...(typeof data?.voiceInterruptEnabled === 'boolean'
+        ? { voiceInterruptEnabled: data.voiceInterruptEnabled }
+        : {}),
+      ...(typeof data?.podcastAutoPlayNextEpisode === 'boolean'
+        ? { podcastAutoPlayNextEpisode: data.podcastAutoPlayNextEpisode }
         : {}),
       ...(data?.podcastOutputFormat
         ? { podcastOutputFormat: data.podcastOutputFormat as AppSettings['podcastOutputFormat'] }
@@ -1400,10 +1509,11 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     }
 
     const authMode = isApiAuthMode(data?.authMode) ? data.authMode : 'api_key'
+    const provider = normalizeMockApiProvider(data.provider)
 
     const nextConfig: ApiConfig = {
       id: nextMockApiConfigId(),
-      provider: data.provider,
+      provider,
       authMode,
       name: getString(data.name)!,
       model: getNullableString(data.model),
@@ -1416,7 +1526,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       keyVerifiedAt: null,
       keyStatus: 'none',
       displayName: getNullableString(data.displayName),
-      protocol: inferMockProtocol(data.provider),
+      protocol: inferMockProtocol(provider),
       createdAt: new Date(),
     }
 
@@ -1454,7 +1564,9 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         return config
       }
 
-      const nextProvider = isApiProvider(data.provider) ? data.provider : config.provider
+      const nextProvider = isApiProvider(data.provider)
+        ? normalizeMockApiProvider(data.provider)
+        : config.provider
 
       const nextConfig: ApiConfig = {
         ...config,
@@ -1552,7 +1664,9 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
 
   if (cmd === 'test_api_connection') {
     const data = getRecord(args?.data)
-    const provider = isApiProvider(data?.provider) ? data.provider : 'openai'
+    const provider = isApiProvider(data?.provider)
+      ? normalizeMockApiProvider(data.provider)
+      : 'openai'
     const authMode = isApiAuthMode(data?.authMode) ? data.authMode : 'api_key'
     const apiKey = getString(data?.apiKey)?.trim() ?? ''
     const baseUrl = getNullableString(data?.baseUrl)?.trim().replace(/\/+$/, '') ?? null
@@ -1568,7 +1682,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       return { success: false, message: '缺少 API Key。' } as T
     }
 
-    if (provider === 'openai_compatible' || provider === 'custom_openai') {
+    if (provider === 'custom_openai') {
       if (!baseUrl) {
         return { success: false, message: 'Custom (OpenAI-Compatible) 需要提供 Base URL。' } as T
       }
@@ -1584,7 +1698,9 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
 
   if (cmd === 'fetch_provider_models') {
     const data = getRecord(args?.data)
-    const provider = isApiProvider(data?.provider) ? data.provider : 'openai'
+    const provider = isApiProvider(data?.provider)
+      ? normalizeMockApiProvider(data.provider)
+      : 'openai'
     return getMockProviderModels(provider) as T
   }
 
@@ -2272,8 +2388,7 @@ function getPodcastLanguage(value: unknown): PodcastEpisode['language'] | undefi
   return value === 'zh-CN' ||
     value === 'en-US' ||
     value === 'ja-JP' ||
-    value === 'ko-KR' ||
-    value === 'other'
+    value === 'ko-KR'
     ? value
     : undefined
 }
@@ -2287,9 +2402,7 @@ function getPodcastDurationTier(value: unknown): PodcastEpisode['durationTier'] 
 function getTtsProviderId(value: unknown): PodcastEpisode['ttsProvider'] | undefined {
   return value === 'auto' ||
     value === 'openai' ||
-    value === 'edge_tts' ||
-    value === 'elevenlabs' ||
-    value === 'fish_audio'
+    value === 'edge_tts'
     ? value
     : undefined
 }
@@ -2367,6 +2480,7 @@ function serializeCardCandidate(candidate: CardCandidate) {
 function serializeApiConfig(config: ApiConfig) {
   return {
     ...config,
+    provider: normalizeMockApiProvider(config.provider),
     keyVerifiedAt: config.keyVerifiedAt ? config.keyVerifiedAt.toISOString() : null,
     createdAt: config.createdAt.toISOString(),
   }
@@ -2423,7 +2537,8 @@ function getWorkflowType(value: unknown): WorkflowRun['workflowType'] | undefine
     value === 'document_embedding' ||
     value === 'knowledge_qa' ||
     value === 'knowledge_graph' ||
-    value === 'podcast_generation'
+    value === 'podcast_generation' ||
+    value === 'card_animation'
     ? value
     : undefined
 }

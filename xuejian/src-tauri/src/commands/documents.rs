@@ -13,9 +13,9 @@ use tauri_plugin_dialog::DialogExt;
 use crate::{
     commands::{AppState, CommandError, CommandResult},
     db::{
-        CreateDocumentAnchorRequest, CreateDocumentChunkRequest, CreateDocumentRequest, Document,
-        DocumentAnchor, DocumentChunk, DocumentRepository, DocumentSection,
-        ReplaceDocumentAnalysisRequest, CreateDocumentSectionRequest,
+        CreateDocumentAnchorRequest, CreateDocumentChunkRequest, CreateDocumentRequest,
+        CreateDocumentSectionRequest, Document, DocumentAnchor, DocumentChunk, DocumentRepository,
+        DocumentSection, ReplaceDocumentAnalysisRequest,
     },
 };
 
@@ -520,8 +520,9 @@ fn import_document_from_source(
         .unwrap_or_default()
         .to_ascii_lowercase();
 
-    let metadata = std::fs::metadata(source_path)
-        .map_err(|error| CommandError::Internal(format!("Failed to read file metadata: {error}")))?;
+    let metadata = std::fs::metadata(source_path).map_err(|error| {
+        CommandError::Internal(format!("Failed to read file metadata: {error}"))
+    })?;
     let file_size = metadata.len() as i64;
     let content_hash = compute_file_hash(source_path)?;
     let target_path = prepare_document_target_path(app, source_path, &content_hash, &extension)?;
@@ -603,7 +604,8 @@ async fn run_document_orchestration_workflow(
     {
         let db = state.lock_db()?;
         let repo = DocumentRepository::new(&db);
-        repo.find_by_id(document_id)?.ok_or(CommandError::NotFound)?;
+        repo.find_by_id(document_id)?
+            .ok_or(CommandError::NotFound)?;
     }
 
     let health = state.orchestration.health().await.map_err(|error| {
@@ -634,7 +636,9 @@ async fn run_document_orchestration_workflow(
         }))
         .send()
         .await
-        .map_err(|error| CommandError::Internal(format!("Orchestration request failed: {error}")))?;
+        .map_err(|error| {
+            CommandError::Internal(format!("Orchestration request failed: {error}"))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -658,7 +662,9 @@ async fn run_document_orchestration_workflow(
 
     let db = state.lock_db()?;
     let repo = DocumentRepository::new(&db);
-    let document = repo.find_by_id(document_id)?.ok_or(CommandError::NotFound)?;
+    let document = repo
+        .find_by_id(document_id)?
+        .ok_or(CommandError::NotFound)?;
     let _ = app;
     Ok(document.into())
 }

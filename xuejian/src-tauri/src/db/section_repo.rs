@@ -1,8 +1,6 @@
 use rusqlite::{params, OptionalExtension};
 
-use crate::db::{
-    CreateDocumentSectionRequest, Database, DocumentSection, Result,
-};
+use crate::db::{CreateDocumentSectionRequest, Database, DocumentSection, Result};
 
 pub struct SectionRepository<'a> {
     db: &'a Database,
@@ -88,7 +86,8 @@ impl<'a> SectionRepository<'a> {
         )?;
 
         let rows = stmt.query_map(params![document_id], map_document_section_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn get_section(&self, id: &str) -> Result<Option<DocumentSection>> {

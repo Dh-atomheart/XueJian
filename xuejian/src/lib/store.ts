@@ -55,22 +55,12 @@ export interface StudyRecord {
   duration?: number
 }
 
-type LocalAiProvider = 'openai' | 'anthropic' | 'google' | 'openai_compatible'
-
-export interface LocalAiConfig {
-  provider: LocalAiProvider
-  model: string
-  apiKey?: string
-  baseUrl?: string
-}
-
 interface AppState {
   documents: Document[]
   flashcards: Flashcard[]
   groups: CardGroup[]
   clusters: KnowledgeCluster[]
   studyRecords: StudyRecord[]
-  aiConfig: LocalAiConfig | null
   isLoading: boolean
   currentStudySession: {
     cards: Flashcard[]
@@ -80,8 +70,6 @@ interface AppState {
   } | null
   setDocuments: (docs: Document[]) => void
   setFlashcards: (cards: Flashcard[]) => void
-  setAiConfig: (config: LocalAiConfig | null) => void
-  setAIConfig: (config: LocalAiConfig | null) => void
   startStudySession: () => void
   flipCard: () => void
   rateCard: (cardId: string, rating: string) => void
@@ -96,13 +84,10 @@ export const useAppStore = create<AppState>()(
       groups: [],
       clusters: [],
       studyRecords: [],
-      aiConfig: null,
       isLoading: false,
       currentStudySession: null,
       setDocuments: (documents) => set({ documents }),
       setFlashcards: (flashcards) => set({ flashcards }),
-      setAiConfig: (aiConfig) => set({ aiConfig }),
-      setAIConfig: (aiConfig) => set({ aiConfig }),
       startStudySession: () =>
         set({
           currentStudySession: {

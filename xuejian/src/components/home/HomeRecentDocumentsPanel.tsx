@@ -16,7 +16,11 @@ export function HomeRecentDocumentsPanel({
   onOpenDocument,
 }: HomeRecentDocumentsPanelProps) {
   return (
-    <Panel variant="paperCard" className="space-y-5 p-6 md:p-7">
+    <Panel
+      variant="paperCard"
+      className="space-y-5 p-6 md:p-7"
+      data-testid="home-recent-documents-panel"
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">

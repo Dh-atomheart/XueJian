@@ -19,4 +19,27 @@ describe('app shell layout CSS', () => {
     expect(css).toContain('.app-shell-frame > :not([data-app-overlay-root])')
     expect(css).not.toContain('.app-shell-frame > * {')
   })
+
+  it('keeps the sidebar fixed-height and uses the main area as the page scroll container', () => {
+    const shellPath = path.resolve(__dirname, '../../src/components/shell/AppShell.tsx')
+    const source = readFileSync(shellPath, 'utf8')
+
+    expect(source).toContain('app-shell-frame paper-texture flex h-screen overflow-hidden')
+    expect(source).toContain('app-sidebar-rail hidden h-screen w-[230px] shrink-0 overflow-hidden')
+    expect(source).toContain('app-shell-main min-h-0 flex-1 overflow-y-auto overflow-x-hidden')
+  })
+
+  it('removes page-level vertical scrolling from home-sized workspaces', () => {
+    const podcast = readFileSync(
+      path.resolve(__dirname, '../../src/features/podcast/PodcastPage.tsx'),
+      'utf8'
+    )
+    const knowledge = readFileSync(
+      path.resolve(__dirname, '../../src/features/knowledge/KnowledgeQaPage.tsx'),
+      'utf8'
+    )
+
+    expect(podcast).not.toContain('overflow-y-auto p-6')
+    expect(knowledge).not.toContain('overflow-y-auto p-6')
+  })
 })

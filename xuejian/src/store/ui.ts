@@ -11,6 +11,8 @@ export type NavItemId =
   | 'profile'
   | 'settings'
 
+export type SettingsSectionId = 'ai' | 'learning' | 'podcast' | 'general'
+
 export type AppFeedbackLevel = 'info' | 'warning' | 'error'
 
 export interface AppFeedbackEntry {
@@ -38,12 +40,14 @@ interface ReaderState {
 
 interface AppUiState {
   activeNavItem: NavItemId
+  activeSettingsSection: SettingsSectionId
   isContextRailOpen: boolean
   reader: ReaderState
   feedbackLog: AppFeedbackEntry[]
   activeNotices: AppFeedbackEntry[]
   isFeedbackPanelOpen: boolean
   setActiveNavItem: (item: NavItemId) => void
+  setSettingsSection: (section: SettingsSectionId) => void
   setContextRailOpen: (open: boolean) => void
   openReader: (documentId: string, totalPages?: number) => void
   closeReader: () => void
@@ -105,6 +109,7 @@ function createFeedbackEntry(input: {
 
 export const useAppUiStore = create<AppUiState>((set) => ({
   activeNavItem: 'home',
+  activeSettingsSection: 'ai',
   isContextRailOpen: true,
   reader: initialReaderState,
   feedbackLog: [],
@@ -115,6 +120,7 @@ export const useAppUiStore = create<AppUiState>((set) => ({
       activeNavItem,
       reader: state.reader.documentId ? initialReaderState : state.reader,
     })),
+  setSettingsSection: (activeSettingsSection) => set({ activeSettingsSection }),
   setContextRailOpen: (isContextRailOpen) => set({ isContextRailOpen }),
   openReader: (documentId, totalPages) =>
     set({

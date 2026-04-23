@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { PodcastPlayerModal } from '@/components/podcast/PodcastPlayerModal'
 import { Button, Panel, SketchEmptyState } from '@/components/ui'
 import { reportAppError, reportFeedback } from '@/lib/appFeedback'
@@ -69,8 +69,6 @@ const PROVIDER_OPTIONS: Array<{ value: TTSProviderId; label: string; hint: strin
   { value: 'auto', label: '自动', hint: '优先 OpenAI，不可用时回退。' },
   { value: 'openai', label: 'OpenAI', hint: '适合快速生成。' },
   { value: 'edge_tts', label: 'Edge TTS', hint: '本地可用时稳定兜底。' },
-  { value: 'elevenlabs', label: 'ElevenLabs', hint: '更自然，但需额外凭证。' },
-  { value: 'fish_audio', label: 'Fish Audio', hint: '适合中文语音实验。' },
 ]
 
 const FORMAT_OPTIONS: Array<{ value: AudioFormat; label: string }> = [
@@ -96,8 +94,7 @@ const TTS_ESTIMATE_COST_PER_1K_CHARS: Record<TTSProviderId, number> = {
   auto: 0.015,
   openai: 0.015,
   edge_tts: 0,
-  elevenlabs: 0.03,
-  fish_audio: 0.02,
+
 }
 
 const STATUS_META: Record<PodcastStatus, { label: string; tone: string }> = {
@@ -405,7 +402,7 @@ export function PodcastPage() {
 
   return (
     <>
-      <div className="mx-auto flex h-full w-full max-w-[1380px] flex-col gap-6 overflow-y-auto p-6">
+      <div className="mx-auto flex w-full max-w-[1380px] flex-col gap-6 p-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">
@@ -1329,7 +1326,7 @@ function estimatePodcastGeneration({
   const segmentCount = DURATION_ESTIMATE_SEGMENTS[durationTier]
   const promptWeight = Math.min(1, prompt.trim().length / 240)
   const charsPerMinute =
-    language === 'en-US' ? 780 : language === 'other' ? 520 : 340
+    language === 'en-US' ? 780 : 340
 
   const llmTokens = Math.round(
     1800 +

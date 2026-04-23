@@ -3,7 +3,7 @@ import { runE2EChecks } from './check-e2e.mjs'
 import { runStructureCheck } from './check-structure.mjs'
 import { runTestChecks } from './check-tests.mjs'
 import { runTypeChecks } from './check-types.mjs'
-import { roundScore, writeJson, writeText } from './shared.mjs'
+import { writeJson, writeText } from './shared.mjs'
 
 function getGitSummary() {
   try {
@@ -21,16 +21,18 @@ function getGitSummary() {
   }
 }
 
-function buildPhaseScore({ structurePassed, testPassed, buildPassed, e2ePassed = false }) {
-  const structureScore = structurePassed ? 3 : 1.5
-  const testScore = testPassed ? 3 : 1
-  const buildScore = buildPassed ? 2 : 0.5
-  const e2eScore = e2ePassed ? 2 : 0
-  return roundScore(Math.min(10, 2 + structureScore + testScore + buildScore + e2eScore))
+function extractWarningCount(result) {
+  const text = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
+  return (text.match(/warning:/gi) ?? []).length
 }
 
-function findItem(result, id) {
-  return result.items.find((item) => item.id === id)?.status === 'passed'
+function buildFailure(id, source, summary, extra = {}) {
+  return {
+    id,
+    source,
+    summary,
+    ...extra,
+  }
 }
 
 function buildMarkdownReport(report) {
@@ -39,40 +41,54 @@ function buildMarkdownReport(report) {
   lines.push('')
   lines.push(`- Timestamp: ${report.timestamp}`)
   lines.push(`- Branch: ${report.git.branch}`)
-  lines.push(`- Delivery Gate: ${report.scores.deliveryGatePassed ? 'passed' : 'failed'}`)
-  lines.push(`- Phase 0-5 Average: ${report.scores.phase0to5Average}`)
+  lines.push(`- Baseline Mode: ${report.baselineMode}`)
+  lines.push(`- Delivery Gate: ${report.deliveryGatePassed ? 'passed' : 'failed'}`)
   lines.push('')
-  lines.push('## Checks')
+  lines.push('## Check Summary')
   lines.push('')
   lines.push(
-    `- Structure: ${report.checks.structure.passed ? 'passed' : 'failed'} (${report.checks.structure.summary.passed}/${report.checks.structure.summary.total})`
+    `- Structure: ${report.checks.structure.gatingPassed ? 'passed' : 'failed'} (${report.checks.structure.summary.passed}/${report.checks.structure.summary.total}, gating failed: ${report.checks.structure.summary.gatingFailed})`
   )
   lines.push(`- Frontend Build: ${report.checks.types.frontendBuild.passed ? 'passed' : 'failed'}`)
   lines.push(`- Rust Check: ${report.checks.types.rustCheck.passed ? 'passed' : 'failed'}`)
-  lines.push(`- Vitest: ${report.checks.tests.vitest.passed ? 'passed' : 'failed'}`)
-  lines.push(`- Cargo Test: ${report.checks.tests.cargoTest.passed ? 'passed' : 'failed'}`)
-  lines.push(`- Playwright: ${report.checks.e2e.playwright.passed ? 'passed' : 'failed'}`)
+  lines.push(`- Vitest: ${report.checks.tests.cardSystemGating.vitest.passed ? 'passed' : 'failed'}`)
+  lines.push(`- Cargo Test: ${report.checks.tests.cardSystemGating.cargoTest.passed ? 'passed' : 'failed'}`)
+  lines.push(`- Playwright: ${report.checks.e2e.cardSystemGating.passed ? 'passed' : 'failed'}`)
   lines.push('')
-  lines.push('## Scores')
+
+  lines.push('## Gating Failures')
   lines.push('')
-  lines.push(`- Phase 0: ${report.scores.phase0}`)
-  lines.push(`- Phase 1: ${report.scores.phase1}`)
-  lines.push(`- Phase 2: ${report.scores.phase2}`)
-  lines.push(`- Phase 3: ${report.scores.phase3}`)
-  lines.push(`- Phase 4: ${report.scores.phase4}`)
-  lines.push(`- Phase 5: ${report.scores.phase5}`)
-  lines.push(`- Cross Architecture: ${report.scores.crossArchitecture}`)
-  lines.push(`- Cross IPC: ${report.scores.crossIpc}`)
-  lines.push(`- Cross Engineering: ${report.scores.crossEngineering}`)
-  lines.push('')
-  if (report.defects.length > 0) {
-    lines.push('## Defects')
-    lines.push('')
-    for (const defect of report.defects) {
-      lines.push(`- ${defect.id}: ${defect.file}`)
+  if (report.gatingFailures.length === 0) {
+    lines.push('- None')
+  } else {
+    for (const failure of report.gatingFailures) {
+      lines.push(`- ${failure.id}: ${failure.summary}`)
     }
-    lines.push('')
   }
+  lines.push('')
+
+  lines.push('## Script Drift Findings')
+  lines.push('')
+  if (report.scriptDriftFindings.length === 0) {
+    lines.push('- None')
+  } else {
+    for (const finding of report.scriptDriftFindings) {
+      lines.push(`- ${finding.id}: ${finding.summary}`)
+    }
+  }
+  lines.push('')
+
+  lines.push('## Repo Health Warnings')
+  lines.push('')
+  if (report.repoHealthWarnings.length === 0) {
+    lines.push('- None')
+  } else {
+    for (const warning of report.repoHealthWarnings) {
+      lines.push(`- ${warning.id}: ${warning.summary}`)
+    }
+  }
+  lines.push('')
+
   return `${lines.join('\n')}\n`
 }
 
@@ -81,104 +97,82 @@ const types = await runTypeChecks()
 const tests = await runTestChecks()
 const e2e = await runE2EChecks()
 
-const buildPassed = types.frontendBuild.passed && types.rustCheck.passed
-const unitPassed = tests.vitest.passed
-const rustTestsPassed = tests.cargoTest.passed
-const e2ePassed = e2e.playwright.passed
+const gatingFailures = []
+const scriptDriftFindings = []
+const repoHealthWarnings = []
 
-const phase0 = buildPhaseScore({
-  structurePassed:
-    findItem(structure, 'card-studio-edit-flow') &&
-    findItem(structure, 'update-card-gateway') &&
-    findItem(structure, 'unit-test-card-studio') &&
-    findItem(structure, 'unit-test-review-page'),
-  testPassed: unitPassed,
-  buildPassed,
-  e2ePassed,
-})
+for (const item of structure.items) {
+  if (item.gating && item.status === 'failed') {
+    gatingFailures.push(
+      buildFailure(
+        item.id,
+        'structure',
+        `${item.file} is missing required contract markers`,
+        { file: item.file, missingPatterns: item.missingPatterns }
+      )
+    )
+  }
+}
 
-const phase1 = buildPhaseScore({
-  structurePassed:
-    findItem(structure, 'unit-test-renderers') &&
-    findItem(structure, 'image-occlusion-component') &&
-    findItem(structure, 'image-occlusion-type'),
-  testPassed: unitPassed,
-  buildPassed,
-})
+if (!types.frontendBuild.passed) {
+  gatingFailures.push(
+    buildFailure('frontend-build', 'types', 'TypeScript card-system build failed')
+  )
+}
 
-const phase2 = buildPhaseScore({
-  structurePassed:
-    findItem(structure, 'update-card-command') &&
-    findItem(structure, 'update-card-repository') &&
-    findItem(structure, 'card-editor-media-ui'),
-  testPassed: unitPassed,
-  buildPassed,
-})
+if (!types.rustCheck.passed) {
+  gatingFailures.push(buildFailure('rust-check', 'types', 'Rust card-system check failed'))
+}
 
-const phase3 = buildPhaseScore({
-  structurePassed:
-    findItem(structure, 'ai-choice-generation-contract') &&
-    findItem(structure, 'ai-choice-schema-contract'),
-  testPassed: unitPassed,
-  buildPassed,
-})
+if (!tests.cardSystemGating.vitest.passed) {
+  gatingFailures.push(
+    buildFailure(
+      'vitest-card-system',
+      'tests',
+      `Vitest gating suite failed (${tests.cardSystemGating.vitest.failedCount ?? 0} failed)`,
+      { failedExamples: tests.cardSystemGating.vitest.failedExamples }
+    )
+  )
+}
 
-const phase4 = buildPhaseScore({
-  structurePassed:
-    findItem(structure, 'image-occlusion-component') &&
-    findItem(structure, 'card-editor-media-ui') &&
-    findItem(structure, 'apkg-import-export-commands') &&
-    findItem(structure, 'e2e-happy-path-spec'),
-  testPassed: unitPassed && e2ePassed,
-  buildPassed,
-  e2ePassed,
-})
+if (!tests.cardSystemGating.cargoTest.passed) {
+  gatingFailures.push(
+    buildFailure(
+      'cargo-test-card-system',
+      'tests',
+      `Cargo gating suite failed (${tests.cardSystemGating.cargoTest.failedCount ?? 0} failed)`,
+      { failedExamples: tests.cardSystemGating.cargoTest.failedExamples }
+    )
+  )
+}
 
-const phase5 = buildPhaseScore({
-  structurePassed:
-    findItem(structure, 'ai-choice-generation-contract') &&
-    findItem(structure, 'ai-choice-schema-contract'),
-  testPassed: unitPassed,
-  buildPassed,
-})
+if (!e2e.cardSystemGating.passed) {
+  gatingFailures.push(
+    buildFailure(
+      'playwright-card-system',
+      'e2e',
+      `Playwright card-system gating scenarios failed (${e2e.cardSystemGating.failedCount ?? 0} failed)`,
+      { scenarios: e2e.cardSystemGating.scenarios }
+    )
+  )
+}
 
-const phase0to5Average = roundScore((phase0 + phase1 + phase2 + phase3 + phase4 + phase5) / 6)
+if (getGitSummary().hasUncommittedChanges) {
+  repoHealthWarnings.push(
+    buildFailure('dirty-worktree', 'repo', 'Git working tree contains uncommitted changes')
+  )
+}
 
-const crossArchitecture = roundScore(
-  buildPhaseScore({
-    structurePassed:
-      findItem(structure, 'update-card-command') &&
-      findItem(structure, 'update-card-repository') &&
-      findItem(structure, 'apkg-import-export-commands'),
-    testPassed: rustTestsPassed,
-    buildPassed,
-  })
-)
-
-const crossIpc = roundScore(
-  buildPhaseScore({
-    structurePassed:
-      findItem(structure, 'update-card-gateway') &&
-      findItem(structure, 'mock-gateway-mutable-card-flow'),
-    testPassed: unitPassed,
-    buildPassed,
-  })
-)
-
-const crossEngineering = roundScore(
-  buildPhaseScore({
-    structurePassed:
-      findItem(structure, 'unit-test-card-studio') && findItem(structure, 'unit-test-review-page'),
-    testPassed: unitPassed && rustTestsPassed,
-    buildPassed,
-    e2ePassed,
-  })
-)
-
-const defects = structure.items.filter((item) => item.status === 'failed')
+const rustWarningCount = extractWarningCount(types.rustCheck)
+if (rustWarningCount > 0) {
+  repoHealthWarnings.push(
+    buildFailure('rust-warnings', 'repo', `cargo check emitted ${rustWarningCount} warning(s)`)
+  )
+}
 
 const report = {
   timestamp: new Date().toISOString(),
+  baselineMode: 'repair-driven',
   git: getGitSummary(),
   checks: {
     structure,
@@ -186,30 +180,13 @@ const report = {
     tests,
     e2e,
   },
+  deliveryGatePassed: gatingFailures.length === 0,
+  gatingFailures,
+  scriptDriftFindings,
+  repoHealthWarnings,
   scores: {
-    phase0,
-    phase1,
-    phase2,
-    phase3,
-    phase4,
-    phase5,
-    phase6: null,
-    phase7: null,
-    phase8: null,
-    phase9: null,
-    crossArchitecture,
-    crossIpc,
-    crossEngineering,
-    phase0to5Average,
-    deliveryGatePassed:
-      structure.passed &&
-      buildPassed &&
-      unitPassed &&
-      rustTestsPassed &&
-      e2ePassed &&
-      phase0to5Average >= 8,
+    deliveryGatePassed: gatingFailures.length === 0,
   },
-  defects,
 }
 
 await writeJson('test-results/eval-report.json', report)

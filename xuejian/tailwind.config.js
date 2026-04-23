@@ -73,10 +73,11 @@ export default {
         },
       },
       fontFamily: {
-        display: ['Kose', 'Xiaolai', 'serif'],
-        ui: ['Yozai', 'sans-serif'],
-        body: ['LXGW WenKai', 'serif'],
-        latin: ['Inter', 'sans-serif'],
+        display: ['Geist', 'Geist Fallback', 'Inter', 'system-ui', 'sans-serif'],
+        ui: ['Geist', 'Geist Fallback', 'Inter', 'system-ui', 'sans-serif'],
+        body: ['Geist', 'Geist Fallback', 'Inter', 'system-ui', 'sans-serif'],
+        latin: ['Geist Mono', 'Geist Mono Fallback', 'Consolas', 'monospace'],
+        reading: ['LXGW WenKai', 'Songti SC', 'serif'],
       },
       borderWidth: {
         hairline: '0.5px',

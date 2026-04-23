@@ -29,7 +29,7 @@ interface HeatmapCalendarProps {
  * - paper-soft base for empty cells
  * - highlight-green color ramp for activity
  * - hairline separation via rounded corners + gap
- * - `comic-sketch` theme adds a 0.5px ink outline on filled cells via CSS
+ * - The official paper theme adds a subtle ink outline on filled cells via CSS
  */
 export function HeatmapCalendar({
   entries,

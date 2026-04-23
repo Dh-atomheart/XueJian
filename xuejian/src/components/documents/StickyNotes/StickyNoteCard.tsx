@@ -51,7 +51,12 @@ export function StickyNoteCard({
         className={cn('absolute inset-x-0 top-0 h-2', getAnnotationSwatchClass(color))}
       />
 
-      <button type="button" onClick={onSelect} className="block w-full text-left">
+      <button
+        type="button"
+        onClick={onSelect}
+        className="block w-full text-left"
+        data-testid={`sticky-card-${card.id}`}
+      >
         <div className="flex items-start justify-between gap-3 pt-2">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-paper-base/70 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-ink-soft">

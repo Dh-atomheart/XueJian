@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    net::TcpListener,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, net::TcpListener, sync::Arc};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
@@ -102,10 +98,7 @@ impl HostHttpGateway {
     }
 }
 
-fn handle_connection(
-    mut stream: std::net::TcpStream,
-    state: &HostGatewayState,
-) {
+fn handle_connection(mut stream: std::net::TcpStream, state: &HostGatewayState) {
     use std::io::{BufRead, BufReader, Write};
 
     let reader = BufReader::new(&stream);
@@ -201,17 +194,19 @@ fn route_request(
         }
 
         // ── ModelGateway ──────────────────────────────────
-        ("GET", "/model-gateway/configs") => {
-            match list_api_configs_json(&app_state) {
-                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+        ("GET", "/model-gateway/configs") => match list_api_configs_json(&app_state) {
+            Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+            Err(error) => {
+                GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
             }
-        }
+        },
 
         ("GET", "/model-gateway/workflow-assignments") => {
             match list_workflow_assignments_json(&app_state) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -222,7 +217,9 @@ fn route_request(
             match get_workflow_assignment_json(&app_state, workflow_type) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -231,7 +228,9 @@ fn route_request(
             match get_api_config_json(&app_state, id) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -239,7 +238,9 @@ fn route_request(
             let config_id = path.strip_prefix("/model-gateway/api-key/").unwrap_or("");
             match get_api_key_json(&app_state, config_id) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -250,26 +251,36 @@ fn route_request(
             match get_provider_budget_usage_json(&app_state, config_id) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/model-gateway/workflow-cost") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
 
             match record_workflow_cost_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("GET", "/model-gateway/embedding-profiles") => {
             match list_embedding_profiles_json(&app_state) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -277,109 +288,155 @@ fn route_request(
             match get_active_embedding_profile_json(&app_state) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         // ── ToolGateway ───────────────────────────────────
-        ("GET", "/tool-gateway/settings") => {
-            match get_app_settings_json(&app_state) {
-                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+        ("GET", "/tool-gateway/settings") => match get_app_settings_json(&app_state) {
+            Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+            Err(error) => {
+                GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
             }
-        }
+        },
 
-        ("GET", "/tool-gateway/runtime-paths") => {
-            match get_runtime_paths_json(state) {
-                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+        ("GET", "/tool-gateway/runtime-paths") => match get_runtime_paths_json(state) {
+            Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+            Err(error) => {
+                GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
             }
-        }
+        },
 
         ("GET", path) if path.starts_with("/tool-gateway/documents/") => {
             let document_id = path.strip_prefix("/tool-gateway/documents/").unwrap_or("");
             // Check if this is a sub-route (status update or analysis)
             if document_id.contains("/status") || document_id.contains("/analysis") {
-                GatewayResponse::NotFound(json!({"error": "use POST for status/analysis"}).to_string())
+                GatewayResponse::NotFound(
+                    json!({"error": "use POST for status/analysis"}).to_string(),
+                )
             } else {
                 match get_document_json(&app_state, document_id) {
                     Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
-                    Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                    Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                    Ok(None) => {
+                        GatewayResponse::NotFound(json!({"error": "not_found"}).to_string())
+                    }
+                    Err(error) => GatewayResponse::InternalError(
+                        json!({"error": error.to_string()}).to_string(),
+                    ),
                 }
             }
         }
 
-        ("POST", path) if path.starts_with("/tool-gateway/documents/") && path.ends_with("/status") => {
+        ("POST", path)
+            if path.starts_with("/tool-gateway/documents/") && path.ends_with("/status") =>
+        {
             let document_id = path
                 .strip_prefix("/tool-gateway/documents/")
                 .and_then(|p| p.strip_suffix("/status"))
                 .unwrap_or("");
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match update_document_status_json(&app_state, document_id, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("POST", path) if path.starts_with("/tool-gateway/documents/") && path.ends_with("/analysis") => {
+        ("POST", path)
+            if path.starts_with("/tool-gateway/documents/") && path.ends_with("/analysis") =>
+        {
             let document_id = path
                 .strip_prefix("/tool-gateway/documents/")
                 .and_then(|p| p.strip_suffix("/analysis"))
                 .unwrap_or("");
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match save_document_analysis_json(&app_state, document_id, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("GET", path) if path.starts_with("/tool-gateway/anchors?documentId=") => {
-            let document_id = path.strip_prefix("/tool-gateway/anchors?documentId=").unwrap_or("");
+            let document_id = path
+                .strip_prefix("/tool-gateway/anchors?documentId=")
+                .unwrap_or("");
             match list_anchors_json(&app_state, document_id) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("GET", path) if path.starts_with("/tool-gateway/chunks?documentId=") => {
-            let document_id = path.strip_prefix("/tool-gateway/chunks?documentId=").unwrap_or("");
+            let document_id = path
+                .strip_prefix("/tool-gateway/chunks?documentId=")
+                .unwrap_or("");
             match list_chunks_json(&app_state, document_id) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("GET", path) if path.starts_with("/tool-gateway/sections?documentId=") => {
-            let document_id = path.strip_prefix("/tool-gateway/sections?documentId=").unwrap_or("");
+            let document_id = path
+                .strip_prefix("/tool-gateway/sections?documentId=")
+                .unwrap_or("");
             match list_sections_json(&app_state, document_id) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/tool-gateway/candidates") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match persist_candidates_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("GET", path) if path.starts_with("/tool-gateway/candidates/count?runId=") => {
-            let run_id = path.strip_prefix("/tool-gateway/candidates/count?runId=").unwrap_or("");
+            let run_id = path
+                .strip_prefix("/tool-gateway/candidates/count?runId=")
+                .unwrap_or("");
             match count_candidates_json(&app_state, run_id) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -387,151 +444,222 @@ fn route_request(
         ("POST", "/tool-gateway/search-chunks") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match search_chunks_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/tool-gateway/embeddings/chunks") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match persist_chunk_embeddings_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/tool-gateway/search-hybrid") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match search_hybrid_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         // ── ToolGateway: knowledge graph ───────────────
-        ("GET", "/tool-gateway/graph/nodes") => {
-            match list_knowledge_nodes_json(&app_state) {
-                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+        ("GET", "/tool-gateway/graph/nodes") => match list_knowledge_nodes_json(&app_state) {
+            Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+            Err(error) => {
+                GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
             }
-        }
+        },
 
         ("POST", "/tool-gateway/graph/nodes") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match create_knowledge_node_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/tool-gateway/graph/nodes/find") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match find_knowledge_node_by_label_json(&app_state, request) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("POST", path) if path.starts_with("/tool-gateway/graph/nodes/") && path.ends_with("/update") => {
+        ("POST", path)
+            if path.starts_with("/tool-gateway/graph/nodes/") && path.ends_with("/update") =>
+        {
             let node_id = path
                 .strip_prefix("/tool-gateway/graph/nodes/")
                 .and_then(|p| p.strip_suffix("/update"))
                 .unwrap_or("");
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match update_knowledge_node_json(&app_state, node_id, request) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("GET", "/tool-gateway/graph/edges") => {
-            match list_knowledge_edges_json(&app_state) {
-                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+        ("GET", "/tool-gateway/graph/edges") => match list_knowledge_edges_json(&app_state) {
+            Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+            Err(error) => {
+                GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
             }
-        }
+        },
 
         ("POST", "/tool-gateway/graph/edges") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match create_knowledge_edge_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("POST", path) if path.starts_with("/tool-gateway/graph/edges/") && path.ends_with("/update") => {
+        ("POST", path)
+            if path.starts_with("/tool-gateway/graph/edges/") && path.ends_with("/update") =>
+        {
             let edge_id = path
                 .strip_prefix("/tool-gateway/graph/edges/")
                 .and_then(|p| p.strip_suffix("/update"))
                 .unwrap_or("");
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match update_knowledge_edge_json(&app_state, edge_id, request) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("POST", path) if path.starts_with("/tool-gateway/graph/edges/") && path.ends_with("/delete") => {
+        ("POST", path)
+            if path.starts_with("/tool-gateway/graph/edges/") && path.ends_with("/delete") =>
+        {
             let edge_id = path
                 .strip_prefix("/tool-gateway/graph/edges/")
                 .and_then(|p| p.strip_suffix("/delete"))
                 .unwrap_or("");
             match delete_knowledge_edge_json(&app_state, edge_id) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/tool-gateway/graph/communities") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match create_community_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/tool-gateway/graph/communities/list") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match list_communities_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("GET", path) if path.starts_with("/tool-gateway/graph/communities/") && path.ends_with("/summary") => {
+        ("GET", path)
+            if path.starts_with("/tool-gateway/graph/communities/")
+                && path.ends_with("/summary") =>
+        {
             let community_id = path
                 .strip_prefix("/tool-gateway/graph/communities/")
                 .and_then(|p| p.strip_suffix("/summary"))
@@ -539,18 +667,26 @@ fn route_request(
             match get_community_summary_json(&app_state, community_id) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/tool-gateway/graph/entity-embeddings") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match save_entity_embedding_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -561,63 +697,83 @@ fn route_request(
             match get_entity_embedding_json(&app_state, node_id) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/tool-gateway/graph/entity-search") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match vector_search_entity_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("GET", "/tool-gateway/graph/stats") => {
-            match get_graph_stats_json(&app_state) {
-                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+        ("GET", "/tool-gateway/graph/stats") => match get_graph_stats_json(&app_state) {
+            Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+            Err(error) => {
+                GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
             }
-        }
+        },
 
         // ── ToolGateway: cards (for export) ───────────────
         ("GET", path) if path.starts_with("/tool-gateway/cards") => {
             match list_cards_json(&app_state, path) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         // ── ToolGateway: podcasts ─────────────────────────
-        ("GET", "/tool-gateway/podcasts") => {
-            match list_podcast_episodes_json(&app_state) {
-                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+        ("GET", "/tool-gateway/podcasts") => match list_podcast_episodes_json(&app_state) {
+            Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+            Err(error) => {
+                GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
             }
-        }
+        },
 
         ("POST", "/tool-gateway/podcasts") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match create_podcast_episode_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("GET", path) if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/audio-segments") => {
+        ("GET", path)
+            if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/audio-segments") =>
+        {
             let episode_id = path
                 .strip_prefix("/tool-gateway/podcasts/")
                 .and_then(|p| p.strip_suffix("/audio-segments"))
                 .unwrap_or("");
             match list_podcast_audio_segments_json(&app_state, episode_id) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -637,44 +793,64 @@ fn route_request(
             }
         }
 
-        ("POST", path) if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/update") => {
+        ("POST", path)
+            if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/update") =>
+        {
             let episode_id = path
                 .strip_prefix("/tool-gateway/podcasts/")
                 .and_then(|p| p.strip_suffix("/update"))
                 .unwrap_or("");
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match update_podcast_episode_json(&app_state, episode_id, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("POST", path) if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/review") => {
+        ("POST", path)
+            if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/review") =>
+        {
             let episode_id = path
                 .strip_prefix("/tool-gateway/podcasts/")
                 .and_then(|p| p.strip_suffix("/review"))
                 .unwrap_or("");
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match review_podcast_script_json(&app_state, episode_id, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("POST", path) if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/delete") => {
+        ("POST", path)
+            if path.starts_with("/tool-gateway/podcasts/") && path.ends_with("/delete") =>
+        {
             let episode_id = path
                 .strip_prefix("/tool-gateway/podcasts/")
                 .and_then(|p| p.strip_suffix("/delete"))
                 .unwrap_or("");
             match delete_podcast_episode_json(&app_state, episode_id) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -683,46 +859,68 @@ fn route_request(
             match get_podcast_episode_json(&app_state, episode_id) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         ("POST", "/tool-gateway/podcast-audio-segments") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match save_podcast_audio_segment_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
         // ── ToolGateway: run status & checkpoint ──────────
-        ("GET", path) if path.starts_with("/tool-gateway/runs/") && path.ends_with("/checkpoint") => {
+        ("GET", path)
+            if path.starts_with("/tool-gateway/runs/") && path.ends_with("/checkpoint") =>
+        {
             let run_id = path
                 .strip_prefix("/tool-gateway/runs/")
                 .and_then(|p| p.strip_suffix("/checkpoint"))
                 .unwrap_or("");
             match get_latest_checkpoint_json(&app_state, run_id) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
-                Ok(None) => GatewayResponse::NotFound(json!({"error": "no_checkpoint"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Ok(None) => {
+                    GatewayResponse::NotFound(json!({"error": "no_checkpoint"}).to_string())
+                }
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
-        ("POST", path) if path.starts_with("/tool-gateway/runs/") && path.ends_with("/checkpoint") => {
+        ("POST", path)
+            if path.starts_with("/tool-gateway/runs/") && path.ends_with("/checkpoint") =>
+        {
             let run_id = path
                 .strip_prefix("/tool-gateway/runs/")
                 .and_then(|p| p.strip_suffix("/checkpoint"))
                 .unwrap_or("");
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match save_checkpoint_json(&app_state, run_id, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -733,7 +931,9 @@ fn route_request(
                 .unwrap_or("");
             match cancel_run_json(&app_state, run_id) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -744,11 +944,17 @@ fn route_request(
                 .unwrap_or("");
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
-                Err(error) => return GatewayResponse::BadRequest(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
             };
             match append_workflow_event_json(&app_state, run_id, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -757,7 +963,9 @@ fn route_request(
             match get_run_json(&app_state, run_id) {
                 Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
                 Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
-                Err(error) => GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
             }
         }
 
@@ -771,7 +979,11 @@ fn list_api_configs_json(state: &AppState) -> Result<Value> {
     let db = state.lock_db()?;
     let repo = SettingsRepository::new(&db);
     let configs = repo.list_api_configs()?;
-    Ok(configs.into_iter().map(api_config_to_json).collect::<Vec<_>>().into())
+    Ok(configs
+        .into_iter()
+        .map(api_config_to_json)
+        .collect::<Vec<_>>()
+        .into())
 }
 
 fn get_api_config_json(state: &AppState, id: &str) -> Result<Option<Value>> {
@@ -905,7 +1117,9 @@ fn list_embedding_profiles_json(state: &AppState) -> Result<Value> {
 fn get_active_embedding_profile_json(state: &AppState) -> Result<Option<Value>> {
     let db = state.lock_db()?;
     let repo = VectorRepository::new(&db);
-    Ok(repo.get_active_embedding_profile()?.map(embedding_profile_to_json))
+    Ok(repo
+        .get_active_embedding_profile()?
+        .map(embedding_profile_to_json))
 }
 
 fn embedding_profile_to_json(profile: EmbeddingProfile) -> Value {
@@ -938,7 +1152,11 @@ fn get_document_json(state: &AppState, document_id: &str) -> Result<Option<Value
     }))
 }
 
-fn update_document_status_json(state: &AppState, document_id: &str, request: Value) -> Result<Value> {
+fn update_document_status_json(
+    state: &AppState,
+    document_id: &str,
+    request: Value,
+) -> Result<Value> {
     let status = request["status"].as_str().unwrap_or("unknown");
     let db = state.lock_db()?;
     let repo = crate::db::DocumentRepository::new(&db);
@@ -946,7 +1164,11 @@ fn update_document_status_json(state: &AppState, document_id: &str, request: Val
     Ok(json!({"ok": true, "status": status}))
 }
 
-fn save_document_analysis_json(state: &AppState, document_id: &str, request: Value) -> Result<Value> {
+fn save_document_analysis_json(
+    state: &AppState,
+    document_id: &str,
+    request: Value,
+) -> Result<Value> {
     let page_count = request["pageCount"].as_i64().unwrap_or(0) as i32;
     let anchors: Vec<crate::db::CreateDocumentAnchorRequest> = request["anchors"]
         .as_array()
@@ -969,9 +1191,11 @@ fn save_document_analysis_json(state: &AppState, document_id: &str, request: Val
                 })
                 .collect(),
             hash: a["hash"].as_str().unwrap_or("").to_string(),
-            hierarchy_path: a["hierarchyPath"]
-                .as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()),
+            hierarchy_path: a["hierarchyPath"].as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            }),
             quote_hash: a["quoteHash"]
                 .as_str()
                 .map(String::from)
@@ -986,16 +1210,22 @@ fn save_document_analysis_json(state: &AppState, document_id: &str, request: Val
             id: s["id"].as_str().map(String::from),
             section_index: s["sectionIndex"].as_i64().unwrap_or(0) as i32,
             heading: s["heading"].as_str().map(String::from),
-            hierarchy_path: s["hierarchyPath"]
-                .as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()),
+            hierarchy_path: s["hierarchyPath"].as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            }),
             page_start: s["pageStart"].as_i64().map(|v| v as i32),
             page_end: s["pageEnd"].as_i64().map(|v| v as i32),
             anchor_start_id: s["anchorStartId"].as_str().map(String::from),
             anchor_end_id: s["anchorEndId"].as_str().map(String::from),
             content: s["content"].as_str().unwrap_or("").to_string(),
             token_count: s["tokenCount"].as_i64().map(|v| v as i32),
-            metadata: if s["metadata"].is_null() { None } else { Some(s["metadata"].clone()) },
+            metadata: if s["metadata"].is_null() {
+                None
+            } else {
+                Some(s["metadata"].clone())
+            },
         })
         .collect();
     let chunks: Vec<crate::db::CreateDocumentChunkRequest> = request["chunks"]
@@ -1012,7 +1242,11 @@ fn save_document_analysis_json(state: &AppState, document_id: &str, request: Val
             chunk_kind: c["chunkKind"].as_str().map(String::from),
             content: c["content"].as_str().unwrap_or("").to_string(),
             token_count: c["tokenCount"].as_i64().map(|v| v as i32),
-            metadata: if c["metadata"].is_null() { None } else { Some(c["metadata"].clone()) },
+            metadata: if c["metadata"].is_null() {
+                None
+            } else {
+                Some(c["metadata"].clone())
+            },
         })
         .collect();
 
@@ -1034,58 +1268,70 @@ fn list_anchors_json(state: &AppState, document_id: &str) -> Result<Value> {
     let db = state.lock_db()?;
     let repo = crate::db::DocumentRepository::new(&db);
     let anchors = repo.list_anchors(document_id)?;
-    Ok(anchors.into_iter().map(|anchor| {
-        json!({
-            "id": anchor.id,
-            "documentId": anchor.document_id,
-            "page": anchor.page,
-            "paragraph": anchor.paragraph,
-            "textQuote": anchor.text_quote,
-            "hash": anchor.hash,
+    Ok(anchors
+        .into_iter()
+        .map(|anchor| {
+            json!({
+                "id": anchor.id,
+                "documentId": anchor.document_id,
+                "page": anchor.page,
+                "paragraph": anchor.paragraph,
+                "textQuote": anchor.text_quote,
+                "hash": anchor.hash,
+            })
         })
-    }).collect::<Vec<_>>().into())
+        .collect::<Vec<_>>()
+        .into())
 }
 
 fn list_chunks_json(state: &AppState, document_id: &str) -> Result<Value> {
     let db = state.lock_db()?;
     let repo = crate::db::DocumentRepository::new(&db);
     let chunks = repo.list_chunks(document_id)?;
-    Ok(chunks.into_iter().map(|chunk| {
-        json!({
-            "id": chunk.id,
-            "documentId": chunk.document_id,
-            "sectionId": chunk.section_id,
-            "anchorId": chunk.anchor_id,
-            "chunkIndex": chunk.chunk_index,
-            "pageStart": chunk.page_start,
-            "pageEnd": chunk.page_end,
-            "chunkKind": chunk.chunk_kind,
-            "content": chunk.content,
-            "metadata": chunk.metadata,
+    Ok(chunks
+        .into_iter()
+        .map(|chunk| {
+            json!({
+                "id": chunk.id,
+                "documentId": chunk.document_id,
+                "sectionId": chunk.section_id,
+                "anchorId": chunk.anchor_id,
+                "chunkIndex": chunk.chunk_index,
+                "pageStart": chunk.page_start,
+                "pageEnd": chunk.page_end,
+                "chunkKind": chunk.chunk_kind,
+                "content": chunk.content,
+                "metadata": chunk.metadata,
+            })
         })
-    }).collect::<Vec<_>>().into())
+        .collect::<Vec<_>>()
+        .into())
 }
 
 fn list_sections_json(state: &AppState, document_id: &str) -> Result<Value> {
     let db = state.lock_db()?;
     let repo = crate::db::DocumentRepository::new(&db);
     let sections = repo.list_sections(document_id)?;
-    Ok(sections.into_iter().map(|section| {
-        json!({
-            "id": section.id,
-            "documentId": section.document_id,
-            "sectionIndex": section.section_index,
-            "heading": section.heading,
-            "hierarchyPath": section.hierarchy_path,
-            "pageStart": section.page_start,
-            "pageEnd": section.page_end,
-            "anchorStartId": section.anchor_start_id,
-            "anchorEndId": section.anchor_end_id,
-            "content": section.content,
-            "tokenCount": section.token_count,
-            "metadata": section.metadata,
+    Ok(sections
+        .into_iter()
+        .map(|section| {
+            json!({
+                "id": section.id,
+                "documentId": section.document_id,
+                "sectionIndex": section.section_index,
+                "heading": section.heading,
+                "hierarchyPath": section.hierarchy_path,
+                "pageStart": section.page_start,
+                "pageEnd": section.page_end,
+                "anchorStartId": section.anchor_start_id,
+                "anchorEndId": section.anchor_end_id,
+                "content": section.content,
+                "tokenCount": section.token_count,
+                "metadata": section.metadata,
+            })
         })
-    }).collect::<Vec<_>>().into())
+        .collect::<Vec<_>>()
+        .into())
 }
 
 fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
@@ -1103,7 +1349,11 @@ fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
         let back = candidate["back"].as_str().unwrap_or("").to_string();
         let tags = candidate["tags"]
             .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         let confidence = candidate["confidence"].as_f64().unwrap_or(0.0);
         let dedupe_key = candidate["dedupeKey"].as_str().unwrap_or("").to_string();
@@ -1130,9 +1380,11 @@ fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
             generation_mode: candidate["generationMode"].as_str().map(String::from),
             fallback_reason: candidate["fallbackReason"].as_str().map(String::from),
             evaluation_summary: candidate["evaluationSummary"].as_str().map(String::from),
-            source_chunk_ids: candidate["sourceChunkIds"]
-                .as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()),
+            source_chunk_ids: candidate["sourceChunkIds"].as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            }),
         });
     }
 
@@ -1165,7 +1417,11 @@ fn search_chunks_json(state: &AppState, request: Value) -> Result<Value> {
     let limit = request["limit"].as_i64().unwrap_or(10);
     let document_ids: Vec<String> = request["documentIds"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     let db = state.lock_db()?;
@@ -1177,19 +1433,23 @@ fn search_chunks_json(state: &AppState, request: Value) -> Result<Value> {
         repo.search_chunks_scoped(&query, &document_ids, Some(limit))?
     };
 
-    Ok(results.into_iter().map(|r| {
-        json!({
-            "id": r.id,
-            "documentId": r.document_id,
-            "sectionId": r.section_id,
-            "anchorId": r.anchor_id,
-            "chunkIndex": r.chunk_index,
-            "pageStart": r.page_start,
-            "pageEnd": r.page_end,
-            "content": r.content,
-            "snippet": r.snippet,
+    Ok(results
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.id,
+                "documentId": r.document_id,
+                "sectionId": r.section_id,
+                "anchorId": r.anchor_id,
+                "chunkIndex": r.chunk_index,
+                "pageStart": r.page_start,
+                "pageEnd": r.page_end,
+                "content": r.content,
+                "snippet": r.snippet,
+            })
         })
-    }).collect::<Vec<_>>().into())
+        .collect::<Vec<_>>()
+        .into())
 }
 
 fn persist_chunk_embeddings_json(state: &AppState, request: Value) -> Result<Value> {
@@ -1237,7 +1497,11 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
     let rrf_k = request["rrfK"].as_f64().unwrap_or(60.0);
     let document_ids: Vec<String> = request["documentIds"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     let query_embedding = request["queryEmbedding"]
         .as_array()
@@ -1263,7 +1527,11 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
         vector_repo.search_chunk_embeddings(
             query_embedding,
             limit * 3,
-            if document_ids.is_empty() { None } else { Some(document_ids.as_slice()) },
+            if document_ids.is_empty() {
+                None
+            } else {
+                Some(document_ids.as_slice())
+            },
         )?
     } else {
         Vec::new()
@@ -1409,7 +1677,11 @@ fn create_knowledge_node_json(state: &AppState, request: Value) -> Result<Value>
             .and_then(Value::as_str)
             .unwrap_or("concept")
             .to_string(),
-        label: request.get("label").and_then(Value::as_str).unwrap_or("").to_string(),
+        label: request
+            .get("label")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         aliases_json: serde_json::to_string(&string_array_field(&request, "aliases"))?,
         source_ids_json: serde_json::to_string(&string_array_field(&request, "sourceIds"))?,
         description: request
@@ -1417,8 +1689,15 @@ fn create_knowledge_node_json(state: &AppState, request: Value) -> Result<Value>
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string(),
-        metadata_json: request.get("metadata").cloned().unwrap_or_else(|| json!({})).to_string(),
-        community_id: request.get("communityId").and_then(Value::as_str).map(String::from),
+        metadata_json: request
+            .get("metadata")
+            .cloned()
+            .unwrap_or_else(|| json!({}))
+            .to_string(),
+        community_id: request
+            .get("communityId")
+            .and_then(Value::as_str)
+            .map(String::from),
         parent_community_id: request
             .get("parentCommunityId")
             .and_then(Value::as_str)
@@ -1433,7 +1712,11 @@ fn create_knowledge_node_json(state: &AppState, request: Value) -> Result<Value>
 }
 
 fn find_knowledge_node_by_label_json(state: &AppState, request: Value) -> Result<Option<Value>> {
-    let label = request.get("label").and_then(Value::as_str).unwrap_or("").trim();
+    let label = request
+        .get("label")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
     if label.is_empty() {
         return Ok(None);
     }
@@ -1450,8 +1733,14 @@ fn update_knowledge_node_json(
     let db = state.lock_db()?;
     let repo = KnowledgeGraphRepository::new(&db);
     let updates = UpdateKnowledgeNodeRequest {
-        node_type: request.get("nodeType").and_then(Value::as_str).map(String::from),
-        label: request.get("label").and_then(Value::as_str).map(String::from),
+        node_type: request
+            .get("nodeType")
+            .and_then(Value::as_str)
+            .map(String::from),
+        label: request
+            .get("label")
+            .and_then(Value::as_str)
+            .map(String::from),
         aliases_json: request
             .get("aliases")
             .map(|_| serde_json::to_string(&string_array_field(&request, "aliases")))
@@ -1460,14 +1749,19 @@ fn update_knowledge_node_json(
             .get("sourceIds")
             .map(|_| serde_json::to_string(&string_array_field(&request, "sourceIds")))
             .transpose()?,
-        description: request.get("description").and_then(Value::as_str).map(String::from),
+        description: request
+            .get("description")
+            .and_then(Value::as_str)
+            .map(String::from),
         metadata_json: request.get("metadata").map(Value::to_string),
         community_id: optional_string_patch(&request, "communityId"),
         parent_community_id: optional_string_patch(&request, "parentCommunityId"),
         degree: request.get("degree").and_then(Value::as_i64),
         has_embedding: request.get("hasEmbedding").and_then(Value::as_bool),
     };
-    Ok(repo.update_node(node_id, updates)?.map(knowledge_node_to_json))
+    Ok(repo
+        .update_node(node_id, updates)?
+        .map(knowledge_node_to_json))
 }
 
 fn list_knowledge_edges_json(state: &AppState) -> Result<Value> {
@@ -1501,10 +1795,20 @@ fn create_knowledge_edge_json(state: &AppState, request: Value) -> Result<Value>
             .and_then(Value::as_str)
             .unwrap_or("related_to")
             .to_string(),
-        confidence: request.get("confidence").and_then(Value::as_f64).unwrap_or(0.5),
+        confidence: request
+            .get("confidence")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.5),
         source_ids_json: serde_json::to_string(&string_array_field(&request, "sourceIds"))?,
-        inferred: request.get("inferred").and_then(Value::as_bool).unwrap_or(false),
-        metadata_json: request.get("metadata").cloned().unwrap_or_else(|| json!({})).to_string(),
+        inferred: request
+            .get("inferred")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        metadata_json: request
+            .get("metadata")
+            .cloned()
+            .unwrap_or_else(|| json!({}))
+            .to_string(),
     })?;
     Ok(knowledge_edge_to_json(edge))
 }
@@ -1517,9 +1821,18 @@ fn update_knowledge_edge_json(
     let db = state.lock_db()?;
     let repo = KnowledgeGraphRepository::new(&db);
     let updates = UpdateKnowledgeEdgeRequest {
-        from_node_id: request.get("fromNodeId").and_then(Value::as_str).map(String::from),
-        to_node_id: request.get("toNodeId").and_then(Value::as_str).map(String::from),
-        relation: request.get("relation").and_then(Value::as_str).map(String::from),
+        from_node_id: request
+            .get("fromNodeId")
+            .and_then(Value::as_str)
+            .map(String::from),
+        to_node_id: request
+            .get("toNodeId")
+            .and_then(Value::as_str)
+            .map(String::from),
+        relation: request
+            .get("relation")
+            .and_then(Value::as_str)
+            .map(String::from),
         confidence: request.get("confidence").and_then(Value::as_f64),
         source_ids_json: request
             .get("sourceIds")
@@ -1528,7 +1841,9 @@ fn update_knowledge_edge_json(
         inferred: request.get("inferred").and_then(Value::as_bool),
         metadata_json: request.get("metadata").map(Value::to_string),
     };
-    Ok(repo.update_edge(edge_id, updates)?.map(knowledge_edge_to_json))
+    Ok(repo
+        .update_edge(edge_id, updates)?
+        .map(knowledge_edge_to_json))
 }
 
 fn delete_knowledge_edge_json(state: &AppState, edge_id: &str) -> Result<Value> {
@@ -1544,22 +1859,41 @@ fn create_community_json(state: &AppState, request: Value) -> Result<Value> {
     let community = repo.create_community(crate::db::NewCommunity {
         id: request.get("id").and_then(Value::as_str).map(String::from),
         level: request.get("level").and_then(Value::as_i64).unwrap_or(1) as i32,
-        title: request.get("title").and_then(Value::as_str).unwrap_or("").to_string(),
-        member_node_ids_json: serde_json::to_string(&string_array_field(&request, "memberNodeIds"))?,
+        title: request
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        member_node_ids_json: serde_json::to_string(&string_array_field(
+            &request,
+            "memberNodeIds",
+        ))?,
         parent_community_id: request
             .get("parentCommunityId")
             .and_then(Value::as_str)
             .map(String::from),
         summary_json: request.get("summary").map(Value::to_string),
-        node_count: request.get("nodeCount").and_then(Value::as_i64).unwrap_or(0),
-        edge_count: request.get("edgeCount").and_then(Value::as_i64).unwrap_or(0),
-        collapsed: request.get("collapsed").and_then(Value::as_bool).unwrap_or(false),
+        node_count: request
+            .get("nodeCount")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        edge_count: request
+            .get("edgeCount")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        collapsed: request
+            .get("collapsed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })?;
     Ok(community_to_json(community))
 }
 
 fn list_communities_json(state: &AppState, request: Value) -> Result<Value> {
-    let level = request.get("level").and_then(Value::as_i64).map(|value| value as i32);
+    let level = request
+        .get("level")
+        .and_then(Value::as_i64)
+        .map(|value| value as i32);
     let db = state.lock_db()?;
     let repo = CommunityRepository::new(&db);
     Ok(repo
@@ -1656,7 +1990,12 @@ fn string_array_field(request: &Value, key: &str) -> Vec<String> {
     request
         .get(key)
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(|item| item.as_str().map(String::from)).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -1675,7 +2014,9 @@ fn float_array_field(request: &Value, key: &str) -> Vec<f32> {
 }
 
 fn optional_string_patch(request: &Value, key: &str) -> Option<Option<String>> {
-    request.get(key).map(|value| value.as_str().map(String::from))
+    request
+        .get(key)
+        .map(|value| value.as_str().map(String::from))
 }
 
 /// Parse simple key=value query string (no URL decoding needed for our use).
@@ -1683,7 +2024,11 @@ fn qs_param<'a>(qs: &'a str, key: &str) -> Option<&'a str> {
     qs.split('&').find_map(|pair| {
         let mut parts = pair.splitn(2, '=');
         let k = parts.next()?;
-        if k == key { parts.next() } else { None }
+        if k == key {
+            parts.next()
+        } else {
+            None
+        }
     })
 }
 
@@ -1703,22 +2048,26 @@ fn list_cards_json(state: &AppState, path_with_qs: &str) -> Result<Value> {
         limit: Some(limit),
     };
     let cards = repo.list_cards(filters)?;
-    Ok(cards.into_iter().map(|c| {
-        json!({
-            "id": c.id,
-            "groupId": c.group_id,
-            "title": c.title,
-            "cardType": c.card_type,
-            "clusterId": c.cluster_id,
-            "exportGuid": c.export_guid,
-            "front": c.front,
-            "back": c.back,
-            "documentId": c.document_id,
-            "anchorId": c.anchor_id,
-            "sourcePage": c.source_page,
-            "tags": c.tags,
+    Ok(cards
+        .into_iter()
+        .map(|c| {
+            json!({
+                "id": c.id,
+                "groupId": c.group_id,
+                "title": c.title,
+                "cardType": c.card_type,
+                "clusterId": c.cluster_id,
+                "exportGuid": c.export_guid,
+                "front": c.front,
+                "back": c.back,
+                "documentId": c.document_id,
+                "anchorId": c.anchor_id,
+                "sourcePage": c.source_page,
+                "tags": c.tags,
+            })
         })
-    }).collect::<Vec<_>>().into())
+        .collect::<Vec<_>>()
+        .into())
 }
 
 fn get_app_settings_json(state: &AppState) -> Result<Value> {
@@ -1744,11 +2093,10 @@ fn get_app_settings_json(state: &AppState) -> Result<Value> {
 }
 
 fn get_runtime_paths_json(state: &HostGatewayState) -> Result<Value> {
-    let app_data_dir = state
-        .app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|_| HostGatewayError::App("Failed to resolve app data directory".to_string()))?;
+    let app_data_dir =
+        state.app_handle.path().app_data_dir().map_err(|_| {
+            HostGatewayError::App("Failed to resolve app data directory".to_string())
+        })?;
     let podcasts_dir = app_data_dir.join("podcasts");
 
     Ok(json!({
@@ -1801,7 +2149,12 @@ fn create_podcast_episode_json(state: &AppState, request: Value) -> Result<Value
     let document_ids = request
         .get("documentIds")
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(|value| value.as_str().map(String::from)).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|value| value.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     let db = state.lock_db()?;
@@ -1813,15 +2166,30 @@ fn create_podcast_episode_json(state: &AppState, request: Value) -> Result<Value
             .map(String::from)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         document_ids,
-        run_id: request.get("runId").and_then(Value::as_str).map(String::from),
-        title: request.get("title").and_then(Value::as_str).unwrap_or("AI 学习播客").to_string(),
+        run_id: request
+            .get("runId")
+            .and_then(Value::as_str)
+            .map(String::from),
+        title: request
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("AI 学习播客")
+            .to_string(),
         scope_description: request
             .get("scopeDescription")
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string(),
-        style: request.get("style").and_then(Value::as_str).unwrap_or("interview").to_string(),
-        language: request.get("language").and_then(Value::as_str).unwrap_or("zh-CN").to_string(),
+        style: request
+            .get("style")
+            .and_then(Value::as_str)
+            .unwrap_or("interview")
+            .to_string(),
+        language: request
+            .get("language")
+            .and_then(Value::as_str)
+            .unwrap_or("zh-CN")
+            .to_string(),
         duration_tier: request
             .get("durationTier")
             .and_then(Value::as_str)
@@ -1858,14 +2226,23 @@ fn list_podcast_episodes_json(state: &AppState) -> Result<Value> {
         .into())
 }
 
-fn update_podcast_episode_json(state: &AppState, episode_id: &str, request: Value) -> Result<Value> {
+fn update_podcast_episode_json(
+    state: &AppState,
+    episode_id: &str,
+    request: Value,
+) -> Result<Value> {
     let mut updates = crate::db::PodcastEpisodeUpdates::default();
 
     if let Some(value) = request.get("documentIds") {
         updates.document_ids = Some(
             value
                 .as_array()
-                .map(|items| items.iter().filter_map(|item| item.as_str().map(String::from)).collect())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default(),
         );
     }
@@ -1946,21 +2323,40 @@ fn save_podcast_audio_segment_json(state: &AppState, request: Value) -> Result<V
             .and_then(Value::as_str)
             .map(String::from)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-        episode_id: request.get("episodeId").and_then(Value::as_str).unwrap_or("").to_string(),
+        episode_id: request
+            .get("episodeId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         dialogue_segment_id: request
             .get("dialogueSegmentId")
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string(),
-        speaker: request.get("speaker").and_then(Value::as_str).unwrap_or("").to_string(),
-        file_path: request.get("filePath").and_then(Value::as_str).unwrap_or("").to_string(),
-        duration_ms: request.get("durationMs").and_then(Value::as_i64).unwrap_or(0),
+        speaker: request
+            .get("speaker")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        file_path: request
+            .get("filePath")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        duration_ms: request
+            .get("durationMs")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
         tts_provider: request
             .get("ttsProvider")
             .and_then(Value::as_str)
             .unwrap_or("auto")
             .to_string(),
-        voice_id: request.get("voiceId").and_then(Value::as_str).unwrap_or("default").to_string(),
+        voice_id: request
+            .get("voiceId")
+            .and_then(Value::as_str)
+            .unwrap_or("default")
+            .to_string(),
     })?;
     Ok(podcast_audio_segment_to_json(segment))
 }
@@ -1984,7 +2380,10 @@ fn delete_podcast_audio_segments_json(state: &AppState, episode_id: &str) -> Res
 }
 
 fn review_podcast_script_json(state: &AppState, episode_id: &str, request: Value) -> Result<Value> {
-    let action = request.get("action").and_then(Value::as_str).unwrap_or("accept");
+    let action = request
+        .get("action")
+        .and_then(Value::as_str)
+        .unwrap_or("accept");
     let db = state.lock_db()?;
     let repo = crate::db::PodcastRepository::new(&db);
     let updates = match action {
@@ -1994,7 +2393,10 @@ fn review_podcast_script_json(state: &AppState, episode_id: &str, request: Value
             ..crate::db::PodcastEpisodeUpdates::default()
         },
         "edit" => crate::db::PodcastEpisodeUpdates {
-            script_json: request.get("editedScriptJson").and_then(Value::as_str).map(String::from),
+            script_json: request
+                .get("editedScriptJson")
+                .and_then(Value::as_str)
+                .map(String::from),
             status: Some("ready".to_string()),
             error_message: Some(None),
             ..crate::db::PodcastEpisodeUpdates::default()
@@ -2113,7 +2515,10 @@ fn append_workflow_event_json(state: &AppState, run_id: &str, request: Value) ->
             .and_then(Value::as_str)
             .unwrap_or("progress")
             .to_string(),
-        message: request.get("message").and_then(Value::as_str).map(String::from),
+        message: request
+            .get("message")
+            .and_then(Value::as_str)
+            .map(String::from),
         progress: request.get("progress").and_then(Value::as_f64),
         payload: request.get("payload").cloned(),
     })?;

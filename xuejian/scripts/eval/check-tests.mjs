@@ -20,6 +20,21 @@ const vitestTargets = [
   'tests/types/card-system-schema.test.ts',
 ]
 
+function collectFailedExamples(text, patterns) {
+  const examples = []
+
+  for (const pattern of patterns) {
+    const matches = text.match(pattern) ?? []
+    for (const match of matches) {
+      if (!examples.includes(match)) {
+        examples.push(match)
+      }
+    }
+  }
+
+  return examples
+}
+
 export async function runTestChecks() {
   const vitest = await runCommand({
     command: commandName('npx'),
@@ -31,18 +46,35 @@ export async function runTestChecks() {
     args: ['test', '--manifest-path', 'src-tauri/Cargo.toml'],
   })
 
-  return {
-    name: 'tests',
+  const vitestText = `${vitest.stdout}\n${vitest.stderr}`
+  const cargoText = `${cargoTest.stdout}\n${cargoTest.stderr}`
+
+  const cardSystemGating = {
     passed: vitest.passed && cargoTest.passed,
     vitest: {
       ...vitest,
-      passedCount: countPassedFromText(`${vitest.stdout}\n${vitest.stderr}`),
-      failedCount: countFailedFromText(`${vitest.stdout}\n${vitest.stderr}`),
+      scope: 'card-system-gating',
+      passedCount: countPassedFromText(vitestText),
+      failedCount: countFailedFromText(vitestText),
+      failedExamples: collectFailedExamples(vitestText, [/FAIL\s+([^\r\n]+)/g]),
     },
     cargoTest: {
       ...cargoTest,
-      passedCount: countPassedFromText(`${cargoTest.stdout}\n${cargoTest.stderr}`),
-      failedCount: countFailedFromText(`${cargoTest.stdout}\n${cargoTest.stderr}`),
+      scope: 'card-system-gating',
+      passedCount: countPassedFromText(cargoText),
+      failedCount: countFailedFromText(cargoText),
+      failedExamples: collectFailedExamples(cargoText, [/test\s+([^\s]+)\s+\.\.\.\s+FAILED/g]),
+    },
+  }
+
+  return {
+    name: 'tests',
+    passed: cardSystemGating.passed,
+    cardSystemGating,
+    repoHealth: {
+      executed: false,
+      passed: true,
+      warnings: [],
     },
   }
 }

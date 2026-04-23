@@ -166,8 +166,12 @@ impl<'a> KnowledgeGraphRepository<'a> {
     }
 
     pub fn clear_graph(&self) -> Result<()> {
-        self.db.connection().execute("DELETE FROM knowledge_edges", [])?;
-        self.db.connection().execute("DELETE FROM knowledge_nodes", [])?;
+        self.db
+            .connection()
+            .execute("DELETE FROM knowledge_edges", [])?;
+        self.db
+            .connection()
+            .execute("DELETE FROM knowledge_nodes", [])?;
         Ok(())
     }
 
@@ -192,7 +196,8 @@ impl<'a> KnowledgeGraphRepository<'a> {
                 i64::from(req.has_embedding),
             ],
         )?;
-        self.get_node_by_id(&id).map(|item| item.expect("node inserted"))
+        self.get_node_by_id(&id)
+            .map(|item| item.expect("node inserted"))
     }
 
     pub fn update_node(
@@ -256,14 +261,18 @@ impl<'a> KnowledgeGraphRepository<'a> {
             return Ok(None);
         }
 
-        let direct = self.db.connection().query_row(
-            "SELECT id, node_type, label, aliases_json, source_ids_json, description,
+        let direct = self
+            .db
+            .connection()
+            .query_row(
+                "SELECT id, node_type, label, aliases_json, source_ids_json, description,
                     metadata_json, community_id, parent_community_id, degree,
                     has_embedding, created_at, updated_at
              FROM knowledge_nodes WHERE lower(label) = ?1 LIMIT 1",
-            params![normalized],
-            map_node_row,
-        ).optional()?;
+                params![normalized],
+                map_node_row,
+            )
+            .optional()?;
 
         if direct.is_some() {
             return Ok(direct);
@@ -271,7 +280,10 @@ impl<'a> KnowledgeGraphRepository<'a> {
 
         for node in self.list_nodes()? {
             let aliases: Vec<String> = serde_json::from_str(&node.aliases_json).unwrap_or_default();
-            if aliases.iter().any(|alias| alias.trim().eq_ignore_ascii_case(label.trim())) {
+            if aliases
+                .iter()
+                .any(|alias| alias.trim().eq_ignore_ascii_case(label.trim()))
+            {
                 return Ok(Some(node));
             }
         }
@@ -287,7 +299,8 @@ impl<'a> KnowledgeGraphRepository<'a> {
              FROM knowledge_nodes ORDER BY degree DESC, created_at DESC",
         )?;
         let rows = stmt.query_map([], map_node_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn merge_node(&self, target_id: &str, source_id: &str) -> Result<()> {
@@ -298,15 +311,19 @@ impl<'a> KnowledgeGraphRepository<'a> {
             return Ok(());
         };
 
-        let mut aliases: Vec<String> = serde_json::from_str(&target.aliases_json).unwrap_or_default();
+        let mut aliases: Vec<String> =
+            serde_json::from_str(&target.aliases_json).unwrap_or_default();
         aliases.push(source.label.clone());
-        aliases.extend(serde_json::from_str::<Vec<String>>(&source.aliases_json).unwrap_or_default());
+        aliases
+            .extend(serde_json::from_str::<Vec<String>>(&source.aliases_json).unwrap_or_default());
         aliases.sort();
         aliases.dedup();
 
         let mut source_ids: Vec<String> =
             serde_json::from_str(&target.source_ids_json).unwrap_or_default();
-        source_ids.extend(serde_json::from_str::<Vec<String>>(&source.source_ids_json).unwrap_or_default());
+        source_ids.extend(
+            serde_json::from_str::<Vec<String>>(&source.source_ids_json).unwrap_or_default(),
+        );
         source_ids.sort();
         source_ids.dedup();
 
@@ -360,15 +377,16 @@ impl<'a> KnowledgeGraphRepository<'a> {
     }
 
     pub fn delete_node(&self, id: &str) -> Result<()> {
-        self.db.connection().execute(
-            "DELETE FROM knowledge_nodes WHERE id = ?1",
-            params![id],
-        )?;
+        self.db
+            .connection()
+            .execute("DELETE FROM knowledge_nodes WHERE id = ?1", params![id])?;
         self.recompute_node_degrees()
     }
 
     pub fn insert_edge(&self, req: InsertKnowledgeEdgeRequest) -> Result<KnowledgeEdge> {
-        if let Some(existing) = self.find_edge_by_signature(&req.from_node_id, &req.to_node_id, &req.relation)? {
+        if let Some(existing) =
+            self.find_edge_by_signature(&req.from_node_id, &req.to_node_id, &req.relation)?
+        {
             return Ok(existing);
         }
 
@@ -390,7 +408,8 @@ impl<'a> KnowledgeGraphRepository<'a> {
             ],
         )?;
         self.recompute_node_degrees()?;
-        self.get_edge_by_id(&id).map(|item| item.expect("edge inserted"))
+        self.get_edge_by_id(&id)
+            .map(|item| item.expect("edge inserted"))
     }
 
     pub fn update_edge(
@@ -420,7 +439,10 @@ impl<'a> KnowledgeGraphRepository<'a> {
                 &from_node_id,
                 &to_node_id,
                 normalize_relation(updates.relation.as_deref().unwrap_or(&current.relation)),
-                updates.confidence.unwrap_or(current.confidence).clamp(0.0, 1.0),
+                updates
+                    .confidence
+                    .unwrap_or(current.confidence)
+                    .clamp(0.0, 1.0),
                 updates.source_ids_json.unwrap_or(current.source_ids_json),
                 i64::from(updates.inferred.unwrap_or(current.inferred)),
                 updates.metadata_json.unwrap_or(current.metadata_json),
@@ -469,7 +491,8 @@ impl<'a> KnowledgeGraphRepository<'a> {
              FROM knowledge_edges ORDER BY confidence DESC, created_at DESC",
         )?;
         let rows = stmt.query_map([], map_edge_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn list_edges_for_node(&self, node_id: &str) -> Result<Vec<KnowledgeEdge>> {
@@ -481,14 +504,14 @@ impl<'a> KnowledgeGraphRepository<'a> {
              ORDER BY confidence DESC, created_at DESC",
         )?;
         let rows = stmt.query_map(params![node_id], map_edge_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn delete_edge(&self, id: &str) -> Result<()> {
-        self.db.connection().execute(
-            "DELETE FROM knowledge_edges WHERE id = ?1",
-            params![id],
-        )?;
+        self.db
+            .connection()
+            .execute("DELETE FROM knowledge_edges WHERE id = ?1", params![id])?;
         self.recompute_node_degrees()
     }
 
@@ -530,7 +553,8 @@ impl<'a> KnowledgeGraphRepository<'a> {
              FROM graph_build_runs ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], map_build_run_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn set_build_running(&self, id: &str) -> Result<()> {
@@ -571,7 +595,13 @@ impl<'a> KnowledgeGraphRepository<'a> {
                  current_stage = 5,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?1",
-            params![id, nodes_created, edges_created, nodes_merged, communities_detected],
+            params![
+                id,
+                nodes_created,
+                edges_created,
+                nodes_merged,
+                communities_detected
+            ],
         )?;
         Ok(())
     }
@@ -597,18 +627,19 @@ impl<'a> KnowledgeGraphRepository<'a> {
     }
 
     pub fn get_graph_stats(&self) -> Result<GraphStats> {
-        let total_nodes = self
-            .db
-            .connection()
-            .query_row("SELECT COUNT(*) FROM knowledge_nodes", [], |row| row.get(0))?;
-        let total_edges = self
-            .db
-            .connection()
-            .query_row("SELECT COUNT(*) FROM knowledge_edges", [], |row| row.get(0))?;
-        let total_communities = self
-            .db
-            .connection()
-            .query_row("SELECT COUNT(*) FROM knowledge_communities", [], |row| row.get(0))?;
+        let total_nodes =
+            self.db
+                .connection()
+                .query_row("SELECT COUNT(*) FROM knowledge_nodes", [], |row| row.get(0))?;
+        let total_edges =
+            self.db
+                .connection()
+                .query_row("SELECT COUNT(*) FROM knowledge_edges", [], |row| row.get(0))?;
+        let total_communities = self.db.connection().query_row(
+            "SELECT COUNT(*) FROM knowledge_communities",
+            [],
+            |row| row.get(0),
+        )?;
 
         let mut distribution = serde_json::Map::new();
         for node_type in ["concept", "person", "event", "formula", "term"] {
@@ -790,25 +821,44 @@ fn normalize_relation(value: &str) -> String {
     if VALID_RELATIONS.contains(&normalized.as_str()) {
         return normalized;
     }
-    if normalized.contains("type") || normalized.contains("kind") || normalized.contains("subclass") {
+    if normalized.contains("type") || normalized.contains("kind") || normalized.contains("subclass")
+    {
         return "is_a".to_string();
     }
-    if normalized.contains("component") || normalized.contains("contain") || normalized.contains("part") {
+    if normalized.contains("component")
+        || normalized.contains("contain")
+        || normalized.contains("part")
+    {
         return "part_of".to_string();
     }
-    if normalized.contains("require") || normalized.contains("need") || normalized.contains("prerequisite") {
+    if normalized.contains("require")
+        || normalized.contains("need")
+        || normalized.contains("prerequisite")
+    {
         return "depends_on".to_string();
     }
-    if normalized.contains("cause") || normalized.contains("lead") || normalized.contains("result") || normalized.contains("enable") {
+    if normalized.contains("cause")
+        || normalized.contains("lead")
+        || normalized.contains("result")
+        || normalized.contains("enable")
+    {
         return "causes".to_string();
     }
-    if normalized.contains("use") || normalized.contains("apply") || normalized.contains("utilize") {
+    if normalized.contains("use") || normalized.contains("apply") || normalized.contains("utilize")
+    {
         return "uses".to_string();
     }
-    if normalized.contains("produce") || normalized.contains("generate") || normalized.contains("create") || normalized.contains("output") {
+    if normalized.contains("produce")
+        || normalized.contains("generate")
+        || normalized.contains("create")
+        || normalized.contains("output")
+    {
         return "produces".to_string();
     }
-    if normalized.contains("similar") || normalized.contains("analogous") || normalized.contains("equivalent") {
+    if normalized.contains("similar")
+        || normalized.contains("analogous")
+        || normalized.contains("equivalent")
+    {
         return "similar_to".to_string();
     }
     "related_to".to_string()

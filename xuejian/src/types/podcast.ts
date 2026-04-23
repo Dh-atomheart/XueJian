@@ -4,8 +4,8 @@ import { z } from 'zod'
 
 export type PodcastStyle = 'deep_dive' | 'lecture' | 'interview' | 'casual' | 'exam_prep'
 export type PodcastDurationTier = 'short' | 'medium' | 'long' | 'ultra_long'
-export type PodcastLanguage = 'zh-CN' | 'en-US' | 'ja-JP' | 'ko-KR' | 'other'
-export type TTSProviderId = 'auto' | 'openai' | 'edge_tts' | 'elevenlabs' | 'fish_audio'
+export type PodcastLanguage = 'zh-CN' | 'en-US' | 'ja-JP' | 'ko-KR'
+export type TTSProviderId = 'auto' | 'openai' | 'edge_tts'
 export type PodcastStatus =
   | 'queued'
   | 'retrieving'
@@ -120,14 +120,8 @@ export const PodcastStyleSchema = z.enum([
 ])
 
 export const PodcastDurationTierSchema = z.enum(['short', 'medium', 'long', 'ultra_long'])
-export const PodcastLanguageSchema = z.enum(['zh-CN', 'en-US', 'ja-JP', 'ko-KR', 'other'])
-export const TTSProviderIdSchema = z.enum([
-  'auto',
-  'openai',
-  'edge_tts',
-  'elevenlabs',
-  'fish_audio',
-])
+export const PodcastLanguageSchema = z.enum(['zh-CN', 'en-US', 'ja-JP', 'ko-KR'])
+export const TTSProviderIdSchema = z.enum(['auto', 'openai', 'edge_tts'])
 
 export const PodcastStatusSchema = z.enum([
   'queued',

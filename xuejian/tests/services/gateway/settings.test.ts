@@ -22,9 +22,8 @@ beforeEach(async () => {
   })
 })
 
-// @acceptance:m1-a2
 describe('gateway mocks', () => {
-  it('returns default settings outside Tauri', async () => {
+  it('returns redesigned default settings outside Tauri', async () => {
     const settings = await settingsGateway.get()
 
     expect(settings.theme).toBe('default')
@@ -34,40 +33,62 @@ describe('gateway mocks', () => {
     expect(settings.podcastOutputFormat).toBe('mp3')
     expect(settings.podcastSkipReview).toBe(true)
     expect(settings.podcastMaxLlmTokens).toBe(100000)
+    expect(settings.learningGoal).toBe('knowledge_understanding')
+    expect(settings.dailyStudyMinutes).toBe(30)
+    expect(settings.studyTimePreference).toBe('evening')
+    expect(settings.studyTimePreferences).toEqual(['afternoon', 'evening'])
+    expect(settings.studyContentPreferences).toEqual([
+      'psychology',
+      'cognitive_science',
+      'self_improvement',
+      'education',
+    ])
+    expect(settings.defaultVoice).toBe('gentle_female_xiaoxiao')
+    expect(settings.speechRate).toBe(1)
+    expect(settings.defaultPodcastStyle).toBe('lecture')
+    expect(settings.podcastBackgroundMusic).toBe('soft_piano')
+    expect(settings.voiceInputLanguage).toBe('zh-CN')
   })
 
-  // @acceptance:v4-2-a1
   it('updates and re-reads app settings outside Tauri', async () => {
     const updated = await settingsGateway.update({
-      theme: 'comic-sketch',
+      theme: 'default',
+      learningGoal: 'exam_preparation',
+      studyTimePreferences: ['morning', 'evening'],
       podcastTtsProvider: 'edge_tts',
       podcastOutputFormat: 'wav',
       podcastSkipReview: false,
       podcastMaxLlmTokens: 25000,
       podcastMaxTtsCharacters: 12000,
       podcastMaxEstimatedCostUsd: 0.35,
+      defaultPodcastStyle: 'deep_dive',
     })
-    expect(updated.theme).toBe('comic-sketch')
+
+    expect(updated.theme).toBe('default')
+    expect(updated.learningGoal).toBe('exam_preparation')
+    expect(updated.studyTimePreferences).toEqual(['morning', 'evening'])
     expect(updated.podcastTtsProvider).toBe('edge_tts')
     expect(updated.podcastOutputFormat).toBe('wav')
     expect(updated.podcastSkipReview).toBe(false)
     expect(updated.podcastMaxEstimatedCostUsd).toBe(0.35)
+    expect(updated.defaultPodcastStyle).toBe('deep_dive')
 
     const persisted = await settingsGateway.get()
-    expect(persisted.theme).toBe('comic-sketch')
+    expect(persisted.theme).toBe('default')
+    expect(persisted.learningGoal).toBe('exam_preparation')
+    expect(persisted.studyTimePreferences).toEqual(['morning', 'evening'])
     expect(persisted.podcastTtsProvider).toBe('edge_tts')
     expect(persisted.podcastOutputFormat).toBe('wav')
     expect(persisted.podcastSkipReview).toBe(false)
     expect(persisted.podcastMaxTtsCharacters).toBe(12000)
+    expect(persisted.defaultPodcastStyle).toBe('deep_dive')
   })
 
   it('returns an empty API config list outside Tauri', async () => {
     const configs = await apiConfigGateway.list()
-
     expect(configs).toEqual([])
   })
 
-  // @acceptance:v4-5-a1
   it('persists an openai-compatible API config across mock create, store key, and list calls', async () => {
     const created = await apiConfigGateway.create({
       provider: 'openai_compatible',
@@ -80,7 +101,7 @@ describe('gateway mocks', () => {
       isEnabled: true,
     })
 
-    expect(created.provider).toBe('openai_compatible')
+    expect(created.provider).toBe('custom_openai')
     expect(created.protocol).toBe('openai-compatible')
     expect(created.authMode).toBe('api_key')
     expect(created.baseUrl).toBe('http://localhost:11434/v1')
@@ -94,7 +115,7 @@ describe('gateway mocks', () => {
     expect(configs).toHaveLength(1)
     expect(configs[0]).toMatchObject({
       id: created.id,
-      provider: 'openai_compatible',
+      provider: 'custom_openai',
       protocol: 'openai-compatible',
       authMode: 'api_key',
       name: 'Local OpenAI Compatible',
@@ -120,7 +141,23 @@ describe('gateway mocks', () => {
       protocol: null,
     })
 
-    expect(created.provider).toBe('openai_compatible')
+    expect(created.provider).toBe('custom_openai')
+    expect(created.protocol).toBe('openai-compatible')
+  })
+
+  it('still accepts legacy openai_compatible input while normalizing output', async () => {
+    const created = await apiConfigGateway.create({
+      provider: 'openai_compatible',
+      authMode: 'api_key',
+      name: 'Legacy Compatible Input',
+      model: 'qwen2.5-14b-instruct',
+      baseUrl: 'http://localhost:11434/v1',
+      budgetLimit: null,
+      isDefault: false,
+      isEnabled: true,
+    })
+
+    expect(created.provider).toBe('custom_openai')
     expect(created.protocol).toBe('openai-compatible')
   })
 

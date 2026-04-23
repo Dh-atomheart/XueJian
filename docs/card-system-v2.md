@@ -1,982 +1,495 @@
-# 新版卡片系统设计文档 v2.0
+# 卡片系统开发规范 v2
 
-> **文档版本**：2.1.0　**最后更新**：2026-04-21　**状态**：P0–P5 全部完成，APKG 导入导出已实现
-
----
-
-## 目录
-
-1. [背景与目标](#1-背景与目标)
-2. [技术选型](#2-技术选型)
-3. [系统架构总览](#3-系统架构总览)
-4. [数据库 Schema](#4-数据库-schema)
-5. [卡片类型规格](#5-卡片类型规格)
-6. [核心数据流（端到端）](#6-核心数据流端到端)
-7. [Rust ↔ TypeScript IPC 契约](#7-rust--typescript-ipc-契约)
-8. [前端组件架构](#8-前端组件架构)
-9. [FSRS 调度算法集成](#9-fsrs-调度算法集成)
-10. [各 Phase 设计与完成情况](#10-各-phase-设计与完成情况)
-11. [扩展指南：添加新卡片类型](#11-扩展指南添加新卡片类型)
-12. [已知限制与后续规划](#12-已知限制与后续规划)
+> 文档版本：3.0.0  
+> 最后更新：2026-04-23  
+> 文档定位：卡片系统唯一开发规范  
+> 当前状态：有效，但当前门禁未通过；以 `xuejian/test-results/eval-report.json` 为最新基线
 
 ---
 
-## 1. 背景与目标
+## 1. 文档定位与适用范围
 
-学笺（XueJian）是一款基于 Tauri 2 的桌面端 AI 学习助手。v1 版本的卡片系统存在以下问题：
+本文档是 XueJian 卡片系统的唯一开发规范，用于定义卡片系统的边界、主线、状态机、页面职责、内容规格、存储契约、完成定义和扩展规则。
 
-| 问题               | 现象                                                                       |
-| ------------------ | -------------------------------------------------------------------------- |
-| 前端使用 mock 数据 | `CardStudioPage` 和 `ReviewPage` 完全脱离真实 SQLite 数据，UI 展示虚假内容 |
-| 卡片内容无富文本   | front/back 均为 `<pre>` 纯文本，数学公式和 Markdown 无法渲染               |
-| 只有 `qa` 一种类型 | 完形填空、单选、知识点等学习场景无法覆盖                                   |
-| Rust DTO 字段缺失  | `CardDto` 少 4 个字段，Zod 校验必然失败，导致 Tauri 运行时 GatewayError    |
-| 无创建入口         | 用户只能依赖 AI 生成候选卡片，无法手动新建                                 |
+本文档覆盖的卡片系统主线为：
 
-**v2 目标**：
+`文档就绪 -> 候选生成 -> 候选评估与人工审核 -> 正式卡片落库 -> 复习调度`
 
-- 接通真实 SQLite 数据，完整走通「创建 → 复习 → 调度」链路
-- 支持 Markdown + LaTeX 数学渲染
-- 支持 4 种卡片类型：`qa` / `cloze` / `fact` / `choice`
-- 提供所见即所得 Markdown 编辑器创建卡片
-- 所有 Tauri IPC 交换通过 Zod schema 强校验
+本文档约束的实现范围包括：
 
----
+- 候选卡片生成与审核工作台
+- 正式卡片的数据模型、编辑能力和复习能力
+- 卡片内容渲染、类型契约和 FSRS 调度
+- 媒体附件、APKG 导入导出等卡片增强能力
+- 相关的 Tauri IPC、Rust Repository、TypeScript schema 和前端交互契约
 
-## 2. 技术选型
+本文档不负责定义通用编排系统、通用 LangGraph 基础设施、知识图谱、播客、动画等旁支系统。
 
-### 2.1 前端渲染
+`docs/agent-driven-document-to-card-workflow.md` 仅作为上游专题补充文档，解释候选生成链路的编排背景和专题设计；凡涉及卡片系统页面职责、状态定义、落库边界、完成态或验收口径，均以本文档为准。
 
-| 包                     | 版本  | 作用                          | 选型理由                                      |
-| ---------------------- | ----- | ----------------------------- | --------------------------------------------- |
-| `react-markdown`       | ^9    | Markdown → React 节点树       | 插件化 remark/rehype 管道，零侵入集成         |
-| `remark-math`          | ^6    | 解析 `$...$` 和 `$$...$$`     | 标准 remark 生态，与 react-markdown 原生兼容  |
-| `rehype-katex`         | ^7    | 将 math 节点渲染为 KaTeX HTML | 服务端/客户端通用，无 MathJax 的字体依赖      |
-| `katex`                | ^0.16 | KaTeX 核心 + CSS              | 渲染速度远快于 MathJax，支持全部常用 TeX 命令 |
-| `@uiw/react-md-editor` | ^3    | 分屏 Markdown 编辑器          | 内置预览、工具栏、KaTeX 支持，开箱即用        |
+### 1.1 冲突处理规则
 
-### 2.2 后端/调度
-
-| 包/库                      | 作用                    | 选型理由                                                     |
-| -------------------------- | ----------------------- | ------------------------------------------------------------ |
-| `ts-fsrs`                  | TypeScript FSRS-5 调度  | 前端本地计算，无服务端 roundtrip；算法与 Anki 同源           |
-| `rusqlite` + `refinery`    | SQLite ORM + 版本化迁移 | Tauri 2 标准选型，refinery 支持嵌入式 SQL 文件迁移           |
-| `Zod v3`                   | IPC 运行时校验          | 在 TypeScript 边界强制校验 Rust 返回的 JSON，防止字段漂移    |
-| `@tanstack/react-query v5` | 异步状态管理            | 自动缓存失效、乐观更新、竞态保护                             |
-| `zustand v5`               | 复习会话状态            | 轻量，适合 `queue/currentIndex/isFlipped` 这类短生命周期状态 |
+- 若卡片行为定义冲突，以本文档为准。
+- 若 `docs/card-system-evaluation-framework.md` 的评估项与本文档冲突，先修订评估框架以对齐本文档。
+- 若 `docs/agent-driven-document-to-card-workflow.md` 与本文档冲突，以本文档为准。
+- 若旧实现与本文档冲突，默认视为实现待整改，除非本文档被显式修订。
 
 ---
 
-## 3. 系统架构总览
+## 2. 系统目标与非目标
 
-```
-┌─────────────────────────── Tauri 2 窗口 ───────────────────────────┐
-│                                                                      │
-│  React 19 前端                                                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
-│  │CardStudioPage│  │  ReviewPage  │  │    CardEditorModal        │  │
-│  └──────┬───────┘  └──────┬───────┘  └───────────┬──────────────┘  │
-│         │                 │                       │                  │
-│  ┌──────▼─────────────────▼───────────────────────▼──────────────┐  │
-│  │              React Query (queries/cards.ts + learning.ts)      │  │
-│  └──────────────────────────┬─────────────────────────────────── ┘  │
-│                             │                                        │
-│  ┌──────────────────────────▼──────────────────────────────────┐    │
-│  │              cardsGateway  (services/gateway/cards.ts)       │    │
-│  │   invokeWithSchema(command, ZodSchema, payload)              │    │
-│  └──────────────────────────┬────────────────────────────────── ┘   │
-│                             │ Tauri IPC (JSON)                       │
-│  ┌──────────────────────────▼──────────────────────────────────┐    │
-│  │         Rust Commands  (src-tauri/src/commands/cards.rs)     │    │
-│  │   CardDto ←──→ Card  (From<Card> impl)                       │    │
-│  └──────────────────────────┬────────────────────────────────── ┘   │
-│                             │                                        │
-│  ┌──────────────────────────▼──────────────────────────────────┐    │
-│  │       CardRepository  (src-tauri/src/db/card_repo.rs)        │    │
-│  │   rusqlite + refinery migrations V1–V11                      │    │
-│  └──────────────────────────┬────────────────────────────────── ┘   │
-│                             │                                        │
-│                       SQLite (app.db)                                │
-└─────────────────────────────────────────────────────────────────────┘
-```
+### 2.1 系统目标
+
+卡片系统当前的设计目标仅限于以下能力：
+
+1. 以文档为输入，生成带来源信息的候选卡片。
+2. 支持人工审核、编辑、接受和拒绝候选卡片。
+3. 将被接受的候选卡片稳定物化为正式卡片。
+4. 支持正式卡片的多类型内容渲染与复习调度。
+5. 在 TypeScript 与 Rust 之间维持可验证的 IPC 契约。
+6. 为媒体、APKG、导出等卡片增强能力提供稳定接口。
+
+### 2.2 非目标
+
+以下内容不属于本文档的目标范围：
+
+- 通用 LangGraph 架构设计
+- 知识图谱系统设计
+- 播客生成系统设计
+- 动画生成系统设计
+- Android 迁移规划
+- 云同步、多人协作、账号系统
+- 与卡片行为无关的视觉主题抛光
 
 ---
 
-## 4. 数据库 Schema
+## 3. 卡片系统主线总览
 
-### 4.1 cards 表（核心）
+卡片系统的唯一主线如下：
 
-通过 V1 + V10 迁移建立，最终结构：
+1. 文档进入可生成状态。
+2. 用户在 `CardStudioPage` 启动候选卡片生成。
+3. 编排链路生成候选卡片并写入 `card_candidates`。
+4. 用户在 `CardStudioPage` 中审核、编辑、接受或拒绝候选卡片。
+5. 系统将被接受的候选卡片物化为正式 `cards`。
+6. 用户在 `ReviewPage` 中学习正式卡片。
+7. 系统依据 FSRS 更新正式卡片的调度字段与复习日志。
 
-```sql
-CREATE TABLE cards (
-    id                  TEXT PRIMARY KEY,       -- UUID v4
-    group_id            TEXT REFERENCES card_groups(id),
-    title               TEXT,                   -- V10 新增，可选标题
-    card_type           TEXT NOT NULL DEFAULT 'qa',  -- V10 新增，无 CHECK 约束
-    cluster_id          TEXT,                   -- V10 新增，聚类标识
-    export_guid         TEXT UNIQUE,            -- V10 新增，Anki 导出 GUID
-    front               TEXT NOT NULL,
-    back                TEXT NOT NULL,
-    document_id         TEXT REFERENCES documents(id),
-    anchor_id           TEXT REFERENCES document_anchors(id),
-    source_page         INTEGER,
-    source_paragraph    INTEGER,
-    source_coordinates  JSON,                   -- {x,y,width,height}
-    tags                JSON,                   -- ["tag1","tag2"]
-    difficulty          REAL NOT NULL DEFAULT 0.3,
-    stability           REAL NOT NULL DEFAULT 1.0,
-    retrievability      REAL,
-    state               TEXT NOT NULL DEFAULT 'new',  -- new|learning|review|relearning
-    next_review         TEXT,                   -- ISO 8601 字符串
-    dedupe_key          TEXT,
-    created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL
-);
+这一定义替代旧版“创建 -> 复习 -> 调度”单线叙事。手动创建与手动编辑仍然是系统能力，但不再被定义为卡片系统唯一入口。
+
+### 3.1 架构摘要
+
+```text
+React UI
+  -> React Query / Zustand
+    -> cardsGateway / learning gateway
+      -> Tauri IPC
+        -> Rust commands
+          -> repositories + migrations
+            -> SQLite (app.db)
+              -> cards / card_candidates / review_logs / card_media / workflow_*
 ```
 
-**关键设计决策**：`card_type` 为普通 TEXT，无 CHECK 约束。这意味着新增类型（如 `choice`）**完全不需要迁移**，只需在前端类型定义追加即可。
+### 3.2 主模块分工
 
-### 4.2 review_logs 表
-
-```sql
-CREATE TABLE review_logs (
-    id              TEXT PRIMARY KEY,
-    card_id         TEXT NOT NULL REFERENCES cards(id),
-    rating          TEXT NOT NULL,   -- again|hard|good|easy
-    reviewed_at     TEXT NOT NULL,
-    state           TEXT NOT NULL,
-    difficulty      REAL NOT NULL,
-    stability       REAL NOT NULL,
-    retrievability  REAL,
-    next_review     TEXT,
-    interval_days   INTEGER
-);
-```
-
-### 4.3 迁移历史
-
-| 版本    | 文件                                  | 主要内容                                                                               |
-| ------- | ------------------------------------- | -------------------------------------------------------------------------------------- |
-| V1      | `V1__initial_schema.sql`              | cards / card_candidates / documents / document_chunks / document_anchors / card_groups |
-| V2      | `V2__workflow_and_fts_foundation.sql` | workflow_runs / FTS5 索引                                                              |
-| V3      | `V3__card_generation_workflow.sql`    | card_generation workflow 状态机                                                        |
-| V4      | `V4__points_ledger.sql`               | 积分账本                                                                               |
-| V5      | `V5__card_animations.sql`             | 卡片动画参数                                                                           |
-| V6      | `V6__podcast_episodes.sql`            | 播客模块                                                                               |
-| V7      | `V7__knowledge_graph.sql`             | 知识图谱                                                                               |
-| V8      | `V8__points_daily_bonus_rule.sql`     | 每日奖励规则                                                                           |
-| V9      | `V9__api_config_auth_mode.sql`        | API 鉴权模式                                                                           |
-| **V10** | `V10__card_schema_extension.sql`      | **cards: title/card_type/cluster_id/export_guid；card_candidates: title/card_type**    |
-| V11     | `V11__anchor_provenance.sql`          | 锚点溯源字段                                                                           |
+- `CardStudioPage`：候选生成与审核工作台，不再定义为传统卡片列表页。
+- `CardEditorModal`：候选卡片或正式卡片的编辑能力承载体，不再定义为系统唯一入口。
+- `ReviewPage`：正式卡片复习会话页面。
+- `cardsGateway`：卡片相关 IPC 封装与 schema 边界。
+- `CardRepository`：正式卡片、候选卡片、复习记录、媒体等持久化入口。
 
 ---
 
-## 5. 卡片类型规格
+## 4. 核心对象与状态机
 
-### 5.1 类型总览
+本文档将状态机分为四组，禁止混用。
 
-| 类型     | `cardType` 值     | 状态                   | front 语法                              |
-| -------- | ----------------- | ---------------------- | --------------------------------------- |
-| 问答卡   | `qa`              | ✅ 已完成              | 任意 Markdown                           |
-| 完形填空 | `cloze`           | ✅ 已完成              | 含 `{{cN::答案::提示}}` 的 Markdown     |
-| 知识点   | `fact`            | ✅ 已完成（渲染同 qa） | 任意 Markdown 陈述句                    |
-| 单选题   | `choice`          | ✅ 已完成              | `?> 题目\n- 选项\n- [x] 正确选项`       |
-| 图像遮挡 | `image_occlusion` | 📋 P4 规划             | JSON `{"image": "...", "zones": [...]}` |
+### 4.1 Document Readiness
 
-### 5.2 cloze 语法规范
+文档就绪状态用于描述候选生成前置条件，不代表正式卡片状态。
 
-```
-原始 front 文本：
-  牛顿第二定律：$F = {{c1::ma::质量×加速度}}$，其中 $m$ 单位是 {{c2::kg}}
+| 状态 | 含义 |
+| --- | --- |
+| `uploading` | 文档刚导入，尚未完成基础处理 |
+| `parsed` | 结构化解析完成 |
+| `embedding` | 向量化处理中 |
+| `ready` | 满足候选生成前置条件 |
+| `embedding_failed` | 向量化失败，标准生成链路不可用 |
+| `embedding_stale` | embedding profile 已变化，需要重建索引 |
+| `error` | 文档处理失败 |
 
-解析规则：
-  正则：/\{\{c(\d+)::([^}]*?)(?:::([^}]*?))?\}\}/g
-  捕获组：(编号, 答案, 提示?)
+### 4.2 Candidate Lifecycle
 
-遮挡渲染（c1 未揭示）：
-  牛顿第二定律：$F = [█ 质量×加速度█]$，其中 $m$ 单位是 **kg**
+候选卡片状态仅用于 `card_candidates`，不等同于正式卡片状态。
 
-揭示后（c1 已揭示）：
-  牛顿第二定律：$F = **ma**$，其中 $m$ 单位是 **kg**
-```
+| 状态 | 含义 |
+| --- | --- |
+| `pending` | 待审核 |
+| `accepted` | 已接受，待或已物化为正式卡片 |
+| `rejected` | 已拒绝 |
 
-**多编号独立控制**：每个 `cN` 编号有独立的 toggle 按钮，揭示互不影响。
+候选卡片必须附带以下上下文能力：
 
-### 5.3 choice 语法规范
+- 来源信息
+- 生成模式信息
+- 质量评估信息
+- 可编辑内容
 
-```
-原始 front 文本：
-  ?> 以下哪个不是 FSRS 算法的记忆状态？
-  - New（新学）
-  - [x] Archived（归档）
-  - Learning（学习中）
-  - Review（复习）
+### 4.3 Card Lifecycle
 
-解析规则：
-  - `?>` 前缀行：题目文本（支持 Markdown）
-  - `- [x]` 行：正确选项
-  - `- ` 行：干扰项
-  - 支持 2-6 个选项
+正式卡片状态仅用于 `cards.state`，不等同于候选状态。
 
-交互行为：
-  选中前：显示 A/B/C/D 圆形标识，hover 高亮
-  选中后：正确选项绿色，错误选项红色，未选中变淡
-  revealed=true 时（复习答案面）：直接展示正确答案高亮
-```
+| 状态 | 含义 |
+| --- | --- |
+| `new` | 新卡片 |
+| `learning` | 学习中 |
+| `review` | 进入常规复习 |
+| `relearning` | 遗忘后重新学习 |
+
+当前规范不把 `suspended` 定义为主流程中的稳定状态，但实现中若存在过滤逻辑，需单独在代码和评估中说明。
+
+### 4.4 Review Session Lifecycle
+
+复习会话页面状态与卡片状态分离。
+
+| 状态 | 含义 |
+| --- | --- |
+| `intro` | 会话准备页 |
+| `studying` | 正在学习 |
+| `complete` | 会话完成 |
 
 ---
 
-## 6. 核心数据流（端到端）
+## 5. 页面与模块职责
 
-### 6.1 卡片创建流程
+### 5.1 CardStudioPage
 
+`CardStudioPage` 的当前定义是候选卡片生成与审核工作台。
+
+它负责：
+
+- 选择就绪文档
+- 启动候选卡片生成
+- 查看候选批次、检查点和事件流
+- 接受、拒绝、批量处理候选卡片
+- 编辑候选卡片内容
+- 触发最终入库
+
+它不再被定义为“正式卡片列表页”或“正式卡片 CRUD 中心”。
+
+### 5.2 CardEditorModal
+
+`CardEditorModal` 是编辑能力载体，而不是系统唯一入口。
+
+它可用于：
+
+- 编辑候选卡片
+- 编辑正式卡片
+- 处理 front/back/tags/cardType/media 等字段
+
+当前实现支持的编辑场景以实际接入点为准；是否从某个页面打开，不改变其组件职责定义。
+
+### 5.3 ReviewPage
+
+`ReviewPage` 负责正式卡片学习会话。
+
+它负责：
+
+- 读取到期卡片
+- 按卡片类型路由渲染
+- 翻面与评分交互
+- 写回调度结果
+- 写入复习日志
+
+### 5.4 相关支撑模块
+
+- `src/components/cards/CardContentRenderer.tsx`：Markdown + KaTeX 基础渲染层
+- `src/components/cards/ClozeCardContent.tsx`：cloze 渲染与揭示
+- `src/components/cards/ChoiceCardContent.tsx`：choice 渲染与反馈
+- `src/components/cards/ImageOcclusionCardContent.tsx`：image occlusion 渲染
+- `src/services/learning/index.ts`：FSRS 调度逻辑
+- `src/store/learning.ts`：复习会话局部状态
+
+### 5.5 当前 UI 契约提示
+
+E2E 与页面识别依赖稳定的 `data-testid`。当前评估脚本与 UI 契约存在漂移，因此页面级 `data-testid` 需要被视为开发规范的一部分，后续变更必须同步更新评估脚本和评估框架。
+
+---
+
+## 6. 端到端数据流
+
+### 6.1 候选生成与审核链路
+
+```text
+ready document
+  -> CardStudioPage 发起生成
+    -> workflow_run / checkpoints / events
+      -> card_candidates 落库
+        -> 用户审核、编辑、接受、拒绝
+          -> finalize
+            -> accepted candidates 物化为 cards
 ```
-用户在 CardEditorModal 点击"创建卡片"
-         │
-         ▼
-onSave({ front, back, tags, cardType })
-         │
-         ▼
-useCreateCardMutation.mutate(data)
-  → cardsGateway.create(data)
-  → invokeWithSchema('create_card', cardSchema, { data })
-         │ Tauri IPC JSON序列化
-         ▼
-Rust: create_card(state, CreateCardDto)
-  → CreateCardRequest { front, back, card_type: Some("choice"), ... }
-  → CardRepository::create(req)
-         │
-         ▼
-SQL INSERT INTO cards (id, card_type, export_guid, front, back, ..., state='new', ...)
-         │ 返回 Card struct
-         ▼
-From<Card> for CardDto  →  JSON序列化
-         │ Tauri IPC 返回
-         ▼
-invokeWithSchema 用 cardSchema (Zod) 校验
-         │ 通过校验
-         ▼
-React Query 使 cardsQueryKeys.all 失效
-         │
-         ▼
-CardStudioPage 自动重新请求，新卡片出现在列表
+
+### 6.2 正式卡片复习链路
+
+```text
+ReviewPage
+  -> list due cards
+    -> load queue
+      -> render by cardType
+        -> flip
+          -> rate again/hard/good/easy
+            -> scheduleCard()
+              -> update cards state / next_review / difficulty / stability
+              -> create review_logs
 ```
 
-### 6.2 FSRS 复习流程
+### 6.3 手动编辑链路
 
-```
-用户进入 ReviewPage → 点击"开始学习"
-         │
-         ▼
-useDueCardsQuery()
-  → cardsGateway.listDueCards()
-  → 'find_due_cards' Tauri 命令
-  → SQL: WHERE state != 'suspended' AND (next_review IS NULL OR next_review <= TODAY)
-         │
-         ▼
-loadQueue(dueCards)  →  useLearningSessionStore
-  { queue: Card[], currentIndex: 0, isFlipped: false }
-         │
-         ▼
-展示 currentCard（按 cardType 路由到不同渲染组件）
-         │
-         ▼
-用户按空格/点击 → flipCard()  →  isFlipped=true
-  - qa/fact：翻面显示 back
-  - cloze：revealed=true，所有填空揭示
-  - choice：revealed=true，正确答案高亮
-         │
-         ▼
-用户点击 Again/Hard/Good/Easy（或按 1/2/3/4）
-         │
-         ▼
-useSubmitReviewMutation.mutate({ card: currentCard, rating })
-  1. scheduleCard(card, rating)          ← ts-fsrs 本地计算
-     fsrsCard.difficulty = card.difficulty
-     fsrsCard.stability = card.stability
-     → scheduler.repeat(fsrsCard, now)[grade]
-     → SchedulingResult { difficulty, stability, retrievability, state, nextReview, intervalDays }
+手动编辑是一个横切能力，而不是主线入口。
 
-  2. cardsGateway.updateCardReview(id, result)
-     → 'update_card_review' Tauri 命令
-     → SQL: UPDATE cards SET difficulty=?, stability=?, state=?, next_review=? WHERE id=?
-
-  3. cardsGateway.createReviewLog({ cardId, rating, state, ... })
-     → SQL INSERT INTO review_logs
-
-  4. recordPoints({ reviewLogId, cardId, rating, cardState })
-     → 积分系统（fire-and-forget）
-         │
-         ▼
-advanceCard()  →  currentIndex++
-         │
-         ▼
-currentIndex >= queue.length → resetSession() → phase='complete'
+```text
+candidate or card
+  -> CardEditorModal
+    -> validate front/back/type/tags/media
+      -> gateway
+        -> command
+          -> repository
+            -> SQLite persistence
 ```
 
 ---
 
-## 7. Rust ↔ TypeScript IPC 契约
+## 7. 类型与内容规格
 
-### 7.1 CardDto（Rust 序列化结构）
+当前规范保留以下卡片类型：
 
-```rust
-// src-tauri/src/commands/cards.rs
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CardDto {
-    pub id: String,
-    pub group_id: Option<String>,
-    pub title: Option<String>,           // V10 新增
-    pub card_type: String,               // V10 新增，camelCase→cardType
-    pub cluster_id: Option<String>,      // V10 新增
-    pub export_guid: Option<String>,     // V10 新增
-    pub front: String,
-    pub back: String,
-    pub document_id: Option<String>,
-    pub anchor_id: Option<String>,
-    pub source_page: Option<i32>,
-    pub source_paragraph: Option<i32>,
-    pub source_coordinates: Option<serde_json::Value>,
-    pub retrievability: Option<f64>,
-    pub tags: Vec<String>,               // 从 JSON blob 解码
-    pub difficulty: f64,
-    pub stability: f64,
-    pub state: String,
-    pub next_review: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-```
+- `qa`
+- `cloze`
+- `fact`
+- `choice`
+- `image_occlusion`
 
-> **历史 Bug（已修复）**：v1 版本的 `CardDto` 缺少 `title`、`card_type`、`cluster_id`、`export_guid` 这 4 个字段，导致 Zod `cardSchema` 校验失败，`invokeWithSchema` 抛出 GatewayError，列表页无法展示任何卡片。
+### 7.1 `qa`
 
-### 7.2 cardSchema（Zod 校验，TypeScript 侧）
+- 存储格式：`front` 与 `back` 为 Markdown 文本
+- 渲染要求：正反面都通过 `CardContentRenderer`
+- 复习行为：翻面后显示 `back`
+- 降级策略：若内容异常，仍按普通 Markdown 文本展示
 
-```typescript
-// src/types/schema.ts
-export const cardSchema = z.object({
-  id: z.string().uuid(),
-  groupId: z.string().uuid().nullable(),
-  title: z.string().nullable(),
-  cardType: z.enum(["qa", "cloze", "fact", "choice"]), // choice 已加入
-  clusterId: z.string().nullable(),
-  exportGuid: z.string().nullable(),
-  documentId: z.string().uuid().nullable(),
-  anchorId: z.string().uuid().nullable(),
-  front: z.string().min(1),
-  back: z.string().min(1),
-  sourcePage: z.number().int().positive().nullable(),
-  sourceParagraph: z.number().int().positive().nullable(),
-  sourceCoordinates: cardSourceCoordinatesSchema.nullable(),
-  tags: z.array(z.string()),
-  difficulty: z.number(),
-  stability: z.number(),
-  retrievability: z.number().nullable(),
-  state: z.enum(["new", "learning", "review", "relearning"]),
-  nextReview: nullableDateValueSchema, // string → Date 自动转换
-  createdAt: dateValueSchema,
-  updatedAt: dateValueSchema,
-}) as z.ZodType<Card>;
-```
+### 7.2 `cloze`
 
-**`serde(rename_all = "camelCase")` 保证 Rust snake_case 字段名自动转换为 TypeScript camelCase。**
+- 存储格式：`front` 含 `{{cN::answer::hint}}` 语法；`back` 可为空解释或补充说明
+- 渲染要求：支持按编号揭示与 review reveal-all
+- 复习行为：翻面后所有 cloze 一次性揭示
+- 降级策略：解析失败时按普通 Markdown 文本展示
 
-### 7.3 CreateCardDto（Rust 反序列化）
+### 7.3 `fact`
 
-```rust
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateCardDto {
-    pub front: String,
-    pub back: String,
-    pub card_type: Option<String>,   // 新增，None → 默认 'qa'
-    pub document_id: Option<String>,
-    pub anchor_id: Option<String>,
-    pub source_page: Option<i32>,
-    pub source_paragraph: Option<i32>,
-    pub source_coordinates: Option<DocumentAnchorRect>,
-    pub tags: Option<Vec<String>>,
-}
-```
+- 存储格式：陈述式 Markdown 内容
+- 渲染要求：渲染层与 `qa` 相同
+- 复习行为：与 `qa` 一致
+- 降级策略：按普通 Markdown 文本展示
+
+### 7.4 `choice`
+
+- 存储格式：`front` 使用 `?>` + `- [x]` 语法；`back` 可作为解析说明
+- 渲染要求：支持题目、选项、正确项高亮和即时反馈
+- 复习行为：翻面后直接显示正确选项；若 `back` 非空，作为解析展示
+- 降级策略：语法不合法时降级为普通 Markdown 渲染
+
+### 7.5 `image_occlusion`
+
+- 存储格式：`front` 为 JSON 载荷，至少包含图像和遮挡区域；`back` 可为解释说明
+- 渲染要求：支持图像、遮挡区域与揭示态
+- 复习行为：翻面后显示遮挡答案与补充说明
+- 降级策略：JSON 非法或图像不可用时，回退为原始文本显示并暴露错误上下文
+
+### 7.6 扩展要求
+
+新增卡片类型时，必须同步修改：
+
+- TypeScript 业务类型
+- Zod schema
+- 专用渲染组件或明确复用策略
+- ReviewPage 路由分支
+- 编辑器可选项
+- AI 生成契约
+- 评估矩阵对应条目
 
 ---
 
-## 8. 前端组件架构
+## 8. 存储与 IPC 契约
 
-### 8.1 组件树
+### 8.1 核心表
 
-```
-src/
-├── features/
-│   ├── cards/
-│   │   └── CardStudioPage.tsx          # 牌库页
-│   └── review/
-│       └── ReviewPage.tsx              # 复习页
-│
-├── components/cards/
-│   ├── CardContentRenderer.tsx         # ← 渲染基础层（所有类型共享）
-│   ├── ClozeCardContent.tsx            # ← cloze 专用
-│   ├── ChoiceCardContent.tsx           # ← choice 专用
-│   ├── CardEditorModal.tsx             # ← 创建/编辑 Modal
-│   ├── CardClusterView.tsx             # 分组视图
-│   └── CardCandidatePanel.tsx          # AI 候选审核
-│
-├── queries/
-│   ├── cards.ts                        # useCardsQuery / useCreateCardMutation
-│   └── learning.ts                     # useDueCardsQuery / useSubmitReviewMutation
-│
-├── services/
-│   ├── gateway/cards.ts                # Tauri IPC 封装层（invokeWithSchema）
-│   └── learning/index.ts               # scheduleCard() FSRS 调度
-│
-├── store/
-│   └── learning.ts                     # useLearningSessionStore（zustand）
-│
-└── types/
-    ├── document.ts                     # Card / CardCandidate 接口定义
-    └── schema.ts                       # Zod schemas（IPC 校验）
-```
+本文档关注以下卡片系统相关表：
 
-### 8.2 CardContentRenderer
+- `cards`
+- `card_candidates`
+- `review_logs`
+- `card_media`
+- `workflow_runs`
+- `workflow_checkpoints`
+- `workflow_events`
 
-**文件**：`src/components/cards/CardContentRenderer.tsx`
+### 8.2 `cards` 契约
 
-**职责**：所有类型卡片内容的 Markdown + KaTeX 渲染基础层。
+`cards` 是正式卡片表。当前关键字段包括：
 
-```typescript
-interface CardContentRendererProps {
-  content: string;
-  className?: string;
-  compact?: boolean; // true: text-sm + line-clamp-4（用于网格卡片缩略）
-}
-```
+- `id`
+- `title`
+- `card_type`
+- `front`
+- `back`
+- `tags`
+- `difficulty`
+- `stability`
+- `retrievability`
+- `state`
+- `next_review`
+- `export_guid`
+- `created_at`
+- `updated_at`
 
-**渲染管道**：
+`card_type` 当前为普通 `TEXT`，不使用数据库层 `CHECK` 约束。这一设计用于降低新增卡片类型的迁移成本，但并不意味着前端、Zod、Rust DTO 或评估可以跳过同步更新。
 
-```
-content string
-  → ReactMarkdown
-    → remarkPlugins: [remarkMath]       // $...$ 解析为 math 节点
-    → rehypePlugins: [rehypeKatex]      // math 节点 → KaTeX HTML
-  → Tailwind Typography prose 样式
-```
+### 8.3 IPC 原则
 
-### 8.3 ClozeCardContent
+- Rust 与 TypeScript 之间的边界必须经过 schema 校验。
+- Rust DTO 与 Zod schema 必须显式对齐。
+- 新增字段、枚举值、可空性变化时，必须同步更新：
+  - Rust DTO
+  - gateway
+  - Zod schema
+  - 评估脚本与评估矩阵
 
-**文件**：`src/components/cards/ClozeCardContent.tsx`
+### 8.4 FSRS 原则
 
-**职责**：解析 `{{cN::answer::hint}}` 语法，提供逐编号揭示交互。
+FSRS 调度以正式卡片为对象，至少更新以下字段：
 
-**核心逻辑**：
+- `difficulty`
+- `stability`
+- `retrievability`
+- `state`
+- `next_review`
 
-```typescript
-// 解析正则
-const CLOZE_RE = /\{\{c(\d+)::([^}]*?)(?:::([^}]*?))?\}\}/g;
-
-// 遮挡渲染：未揭示 → [█ hint█]，已揭示 → **answer**
-function renderClozeMarkdown(text, revealedIndices): string;
-
-// 状态：每个编号独立 toggle
-const [revealedSet, setRevealedSet] = useState<Set<number>>(new Set());
-```
-
-**Props**：
-
-```typescript
-interface ClozeCardContentProps {
-  content: string;
-  revealed?: boolean; // ReviewPage 翻面后传 true，一次性揭示全部
-  className?: string;
-}
-```
-
-### 8.4 ChoiceCardContent
-
-**文件**：`src/components/cards/ChoiceCardContent.tsx`
-
-**职责**：解析 `?> 题目\n- [x] 正确\n- 选项` 语法，提供点击即时反馈。
-
-**解析规则**：
-
-```typescript
-function parseChoiceFormat(text): ParsedChoice | null;
-// 返回 { question: string, options: { text: string, correct: boolean }[] }
-// options < 2 时返回 null，降级到 CardContentRenderer
-```
-
-**状态机**：
-
-```
-未选中 → 选中某项 → 立即显示结果（正确绿/错误红）
-revealed=true（来自 ReviewPage 翻面）→ 跳过选中，直接高亮正确答案
-```
-
-### 8.5 CardEditorModal
-
-**文件**：`src/components/cards/CardEditorModal.tsx`
-
-**职责**：新建/编辑卡片的全屏 Modal，集成类型选择器和双面分屏编辑器。
-
-**State**：
-
-```typescript
-const [front, setFront] = useState("");
-const [back, setBack] = useState("");
-const [tagsInput, setTagsInput] = useState("");
-const [cardType, setCardType] = useState<Card["cardType"]>("qa");
-const [activeField, setActiveField] = useState<"front" | "back">("front");
-```
-
-**类型选择器**：`<select>` 下拉，选项：问答 / 完形填空 / 知识点 / 单选题
-
-**编辑器**：`@uiw/react-md-editor` 分屏模式，`preview="live"`，支持 KaTeX。
-
-**onSave 签名**：
-
-```typescript
-onSave: (data: {
-  front: string
-  back: string
-  tags: string[]
-  cardType: Card['cardType']
-}) => void
-```
-
-### 8.6 ReviewPage 类型路由
-
-**文件**：`src/features/review/ReviewPage.tsx`
-
-按 `currentCard.cardType` 路由到专用渲染组件：
-
-```tsx
-{
-  currentCard.cardType === "cloze" ? (
-    <ClozeCardContent content={currentCard.front} revealed={isFlipped} />
-  ) : currentCard.cardType === "choice" ? (
-    <ChoiceCardContent content={currentCard.front} revealed={isFlipped} />
-  ) : (
-    // qa / fact
-    <CardContentRenderer
-      content={isFlipped ? currentCard.back : currentCard.front}
-    />
-  );
-}
-```
+并写入 `review_logs`。
 
 ---
 
-## 9. FSRS 调度算法集成
+## 9. 已实现能力
 
-### 9.1 算法概览
+本章将能力分为“已实现但未自动验证”和“已实现且已验证”。只有当前有脚本、测试或检查证据支撑的能力，才允许写入“已验证”。
 
-FSRS（Free Spaced Repetition Scheduler）v5 是 SuperMemo SM-2 的现代替代品，基于记忆的双组件模型（Two-Component Model of Memory）。
+### 9.1 已实现且已验证
 
-核心参数：
+依据 2026-04-23 当前 `eval-report.json`，以下能力已有自动化证据支持：
 
-- **Stability（S）**：记忆稳定度，记忆衰减的时间常数（单位：天）
-- **Difficulty（D）**：卡片本征难度，0–10 范围
-- **Retrievability（R）**：当前可提取性，`R = e^(-t/S)`
+- TypeScript 卡片系统检查通过
+- Rust `cargo check` 通过
+- `CardEditorModal` 的基础编辑行为有单元测试
+- `CardContentRenderer`、`ClozeCardContent`、`ChoiceCardContent`、`ImageOcclusionCardContent` 有针对性单元测试
+- `ReviewPage` 的基础会话行为有单元测试
+- `choice` 类型已进入 TypeScript/Zod/AI 生成契约
+- `image_occlusion` 类型已进入前端类型和组件层
+- 媒体相关 gateway 与命令在结构检查中存在
 
-### 9.2 代码实现
+### 9.2 已实现但当前未通过完整自动验收
 
-```typescript
-// src/services/learning/index.ts
-const params = generatorParameters(); // FSRS-5 默认参数
-const scheduler = fsrs(params);
+以下能力在代码中已有实现痕迹，但当前自动化门禁未通过或未形成稳定验收闭环：
 
-export function scheduleCard(
-  card: Card,
-  rating: ReviewRating,
-): SchedulingResult {
-  const fsrsCard = createEmptyCard();
-  fsrsCard.difficulty = card.difficulty; // 从 SQLite 恢复状态
-  fsrsCard.stability = card.stability;
-  fsrsCard.due = card.nextReview ? new Date(card.nextReview) : new Date();
-  fsrsCard.state = stateIndexOf(card.state); // new=0/learning=1/review=2/relearning=3
-
-  const result = scheduler.repeat(fsrsCard, new Date());
-  const scheduled = result[RATING_MAP[rating]];
-
-  return {
-    difficulty: scheduled.card.difficulty,
-    stability: scheduled.card.stability,
-    retrievability: card.retrievability ?? 0,
-    state: STATE_MAP[scheduled.card.state],
-    nextReview: scheduled.card.due.toISOString(),
-    intervalDays: scheduled.card.scheduled_days,
-  };
-}
-```
-
-### 9.3 评分 → 间隔映射（示意）
-
-| 评分       | 含义     | 新卡片间隔 | 已复习卡片（S=10d） |
-| ---------- | -------- | ---------- | ------------------- |
-| Again（1） | 完全忘了 | 1 分钟     | 重新学习，1 天      |
-| Hard（2）  | 勉强记得 | 5 分钟     | ~8 天               |
-| Good（3）  | 正常记得 | 10 分钟    | ~13 天              |
-| Easy（4）  | 太简单了 | 4 天       | ~20 天              |
+- `CardStudioPage` 候选工作台的完整 E2E 契约
+- 卡片系统总评估门禁
+- Playwright 卡片系统 happy-path
+- Rust 全量测试中的卡片相关稳定性
+- 结构检查与当前页面职责的一致性
 
 ---
 
-## 10. 各 Phase 设计与完成情况
+## 10. 未完成项与风险
 
-### Phase 0：真实 API 接入 ✅ 已完成
+以下为当前真实缺口，集中记录，不允许与“已实现能力”章节冲突。
 
-**目标**：将 `CardStudioPage` 和 `ReviewPage` 从 mock 数据切换到真实 SQLite 数据。
+### 10.1 当前基线问题
 
-#### 10.0.1 CardStudioPage 改造
+1. `CardStudioPage` 当前实现与旧文档叙事不一致，旧文档曾将其描述为正式卡片列表页。
+2. `check-structure.mjs` 仍按旧编辑流检查 `CardStudioPage`，与当前候选工作台职责不一致。
+3. `check-structure.mjs` 对 `tests/unit/card-studio-page.test.tsx` 仍依赖旧用例标题字符串，造成误报。
+4. `cargo test` 当前失败：
+   - 用例：`db::card_repo::tests::highlight_crud_roundtrip`
+   - 原因：`highlights` 表缺少 `note` 列
+5. Playwright 当前 4 条卡片系统场景全部失败，主要原因是测试契约与现有 UI 不匹配。
+6. 当前评估框架中的部分历史“通过/全清”表述已经不再代表当前真相。
 
-**改造前**：直接调用 `useAppStore(state => state.mockCards)`，数据固定不变。
+### 10.2 当前门禁结论
 
-**改造后**：
+以 2026-04-23 的最新评估报告为准：
 
-```typescript
-// 使用 React Query 拉取真实数据
-const { data: cards = [], isLoading } = useCardsQuery({}, { enabled: true });
-const createCard = useCreateCardMutation();
-```
+- `phase0to5Average = 9.4`
+- `deliveryGatePassed = false`
 
-**关键变更细节**：
+当前阻塞门禁的核心因素包括：
 
-- `FilterStatus` 类型从 `'mastered'` 改为 `'relearning'`（对齐 FSRS 状态机）
-- `STATE_LABELS` Map 覆盖 `new / learning / review / relearning` 4 种状态
-- 加入 loading 态：`isLoading` 时显示 `"加载卡片中..."` 占位
-- 搜索过滤：`card.front + card.back` 大小写不敏感匹配
-- 状态过滤：按 `card.state` 字段过滤（而非旧的 `card.status`）
-- 卡片组派生：从 `card.groupId` client-side 聚合，不额外请求
-- 翻转逻辑：`flippedCards: Set<string>` 维护每张卡片的翻转状态
+- 结构检查失败
+- `cargo test` 失败
+- Playwright E2E 失败
 
-#### 10.0.2 ReviewPage 改造
+### 10.3 观察项
 
-**改造前**：硬编码 mock 卡片数组，评分按钮无实际效果。
+以下问题当前不必等同于门禁失败，但需要持续观察：
 
-**改造后**：
-
-```typescript
-const { data: dueCards = [], isLoading: isLoadingDue } = useDueCardsQuery();
-const { data: dailyStats } = useDailyStatsQuery();
-const submitReview = useSubmitReviewMutation();
-
-const {
-  queue,
-  currentIndex,
-  isFlipped,
-  loadQueue,
-  flipCard,
-  advanceCard,
-  resetSession,
-} = useLearningSessionStore();
-```
-
-**关键变更细节**：
-
-- 三阶段流程：`intro → studying → complete`
-- `handleRating` 调用 `submitReview.mutate`，`onSuccess` 后 `advanceCard()`
-- 按钮在 `submitReview.isPending` 期间 `disabled + opacity-50`，防止重复提交
-- 键盘快捷键：`Space` 翻面，`1/2/3/4` 评分（`isPending` 时禁用）
-- 完成检测：`useEffect` 监听 `isSessionDone = currentIndex >= queue.length`
-- 完成页：展示 4 种评分各自的计数（again/hard/good/easy）
+- `cargo check` 中的 pre-existing warnings
+- KaTeX 对 cloze 遮挡符号的警告输出
+- 页面 testid 约定不稳定引起的测试脆弱性
 
 ---
 
-### Phase 1：Markdown + KaTeX 渲染 ✅ 已完成
+## 11. Phase 模型与扩展变更规则
 
-**目标**：所有卡片内容支持 Markdown 格式和 LaTeX 数学公式渲染；完形填空遮挡/揭示交互。
+P0-P5 仅作为开发切片，不再作为历史成就清单。
 
-#### 10.1.1 安装依赖
+### 11.1 Phase 定义
 
-```bash
-npm install react-markdown remark-math rehype-katex katex @types/katex
-```
+| Phase | 标题 | 目标 |
+| --- | --- | --- |
+| P0 | 输入就绪与候选生成前置条件 | 文档达到可生成候选的状态 |
+| P1 | 候选生成与工作流恢复 | 生成候选、记录事件、支持恢复 |
+| P2 | 候选审核与人工确认 | 审核、编辑、接受、拒绝、最终确认 |
+| P3 | 正式卡片模型、落库与编辑 | 正式卡片结构、落库、编辑契约 |
+| P4 | 复习渲染与 FSRS 调度 | ReviewPage、内容渲染、调度写回 |
+| P5 | 媒体、导入导出与增强能力 | card media、APKG、导出等增强功能 |
 
-#### 10.1.2 CardContentRenderer（新建）
+每个 phase 的后续细化必须包含：
 
-**文件**：`src/components/cards/CardContentRenderer.tsx`
+- 目标
+- 入口条件
+- 出口条件
+- 涉及模块
+- 当前状态
+- 验收证据
 
-- Tailwind Typography `prose` 类控制排版
-- `compact` prop：网格卡片缩略模式（`text-sm line-clamp-4`）
-- KaTeX CSS 通过 `import 'katex/dist/katex.min.css'` 全局注入
+P6-P9 不再作为卡片系统核心 phase，若需保留，只能在路线图或相关扩展章节中出现。
 
-**集成位置**：
+### 11.2 变更同步规则
 
-1. `CardStudioPage.tsx`：网格卡片和列表卡片的 front/back 渲染均改用 `CardContentRenderer`
-2. `ReviewPage.tsx`：复习卡面内容渲染
-3. `CardClusterView.tsx`：卡片聚类视图
+出现以下变化时，必须同步修订本文档和评估框架：
 
-#### 10.1.3 ClozeCardContent（新建）
+- 新增或删除卡片类型
+- 页面职责变化
+- 页面重命名或 testid 变化
+- 候选状态或正式卡片状态变化
+- 数据库 schema 变化
+- Rust DTO / Zod schema 变化
+- 评估脚本门禁策略变化
 
-**文件**：`src/components/cards/ClozeCardContent.tsx`
+### 11.3 开发驱动规则
 
-完整实现：
+后续开发若无法从本文档直接回答以下问题，则视为规范不完整，需要先修订文档再继续开发：
 
-- `parseClozes(text)`：正则提取所有 `{{cN::answer::hint}}` 编号集合
-- `renderClozeMarkdown(text, revealedSet)`：按 revealedSet 替换为 `**answer**` 或 `[█ hint█]`
-- `useMemo` 缓存解析结果和渲染结果，避免重复计算
-- 底部编号按钮：已揭示 → `bg-ink/10` 深色背景；未揭示 → 虚线边框
-- `revealed=true`（ReviewPage 翻面时）→ `effectiveRevealed = new Set(all indices)` 一次性揭示
+- 这个改动属于哪条主线或哪个 phase
+- 影响的是候选链路还是正式卡片链路
+- 需要改哪些契约
+- 需要更新哪些评估项
+- 什么证据才算完成
 
----
-
-### Phase 2：卡片编辑器 ✅ 已完成
-
-**目标**：提供完整的卡片手动创建入口，支持 Markdown 分屏编辑和类型选择。
-
-#### 10.2.1 CardEditorModal（新建）
-
-**文件**：`src/components/cards/CardEditorModal.tsx`
-
-- `@uiw/react-md-editor`：`preview="live"` 分屏，左侧输入右侧预览
-- front/back 双面 Tab 切换，`hidden` class 保留 DOM 节点（避免编辑器重建丢失光标）
-- 类型选择下拉：`qa / cloze / fact / choice`（直接影响 Tauri 存储的 `card_type`）
-- 标签：逗号分隔输入，`split(',').map(t => t.trim()).filter(Boolean)` 解析
-- 保存校验：`front.trim().length > 0 && back.trim().length > 0`
-- 背景蒙层：`backdrop-blur-sm` 毛玻璃效果，点击外部关闭
-
-#### 10.2.2 useCreateCardMutation（新增）
-
-**文件**：`src/queries/cards.ts`
-
-```typescript
-export function useCreateCardMutation() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (data: CreateCardInput) => cardsGateway.create(data),
-    onSuccess: () => {
-      // 失效所有卡片缓存，列表自动刷新
-      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all });
-    },
-  });
-}
-```
-
-#### 10.2.3 cardsGateway.create 签名（更新）
-
-```typescript
-interface CreateCardInput {
-  front: string;
-  back: string;
-  cardType?: Card["cardType"]; // 新增，传递到 Rust CreateCardDto
-  documentId?: string | null;
-  anchorId?: string | null;
-  // ...
-}
-```
-
-#### 10.2.4 CardStudioPage 新建按钮
-
-```tsx
-<SketchButton onClick={() => setIsEditorOpen(true)}>+ 新建卡片</SketchButton>;
-
-{
-  isEditorOpen && (
-    <CardEditorModal
-      onClose={() => setIsEditorOpen(false)}
-      onSave={(data) => {
-        createCard.mutate(
-          {
-            front: data.front,
-            back: data.back,
-            tags: data.tags,
-            cardType: data.cardType,
-          },
-          { onSuccess: () => setIsEditorOpen(false) },
-        );
-      }}
-    />
-  );
-}
-```
-
----
-
-### Phase 3：单选题（Choice）卡片类型 ✅ 已完成
-
-**目标**：完整实现 `choice` 卡片类型，覆盖类型扩展、渲染组件、ReviewPage 集成、编辑器支持。
-
-#### 10.3.1 Rust DTO Bug 修复
-
-**根本原因**：v1 的 `CardDto` struct 缺少 4 个字段，`From<Card> for CardDto` 也未映射这些字段：
-
-```
-缺失字段：title / card_type / cluster_id / export_guid
-```
-
-Zod `cardSchema` 要求这 4 个字段必须存在，`invokeWithSchema` 对每个返回的卡片执行校验，导致整个列表请求失败。
-
-**修复**：
-
-1. `CardDto` struct 补全所有 4 个字段
-2. `From<Card> for CardDto` 补全映射
-3. `CreateCardDto` 新增 `card_type: Option<String>`
-4. `CreateCardRequest` 新增 `card_type: Option<String>`
-5. `CardRepository::create()` 中 `card_type = req.card_type.unwrap_or_else(|| "qa".to_string())`，不再硬编码
-
-#### 10.3.2 类型定义扩展
-
-```typescript
-// src/types/document.ts
-interface Card {
-  cardType: "qa" | "cloze" | "fact" | "choice"; // 新增 'choice'
-}
-
-// src/types/schema.ts
-cardType: z.enum(["qa", "cloze", "fact", "choice"]); // 新增 'choice'
-```
-
-#### 10.3.3 ChoiceCardContent（新建）
-
-**文件**：`src/components/cards/ChoiceCardContent.tsx`
-
-- `parseChoiceFormat`：逐行解析，支持 `?>` 题目前缀，`- [x]` 正确标记，`- ` 普通选项
-- 降级处理：`options.length < 2` 时 fallback 到 `CardContentRenderer`
-- 圆形字母标识：A/B/C/D，选中后动态变色
-- `onSelect?: (index, isCorrect)` 回调：为未来积分/统计预留接口
-
-#### 10.3.4 ReviewPage 类型路由
-
-在 card 展示区按 `cardType` 条件渲染：
-
-```tsx
-cloze  → <ClozeCardContent content={front} revealed={isFlipped} />
-choice → <ChoiceCardContent content={front} revealed={isFlipped} />
-qa/fact → <CardContentRenderer content={isFlipped ? back : front} />
-```
-
-#### 10.3.5 CardEditorModal 类型选择器
-
-Header 区域增加 `<select>` 下拉：
-
-```
-问答（qa）/ 完形填空（cloze）/ 知识点（fact）/ 单选题（choice）
-```
-
-选项值直接写入 `cardType` state，随 `onSave` 传出。
-
----
-
-### Phase 4：媒体支持 ✅ 已完成
-
-**目标**：支持在卡片中嵌入图片，并为 APKG 导入导出提供底层媒体存储能力。
-
-#### 已实现内容
-
-**1. 数据库迁移（V12）**
-
-```sql
--- V12__card_media.sql
-CREATE TABLE card_media (
-    id           TEXT PRIMARY KEY,
-    card_id      TEXT NOT NULL REFERENCES cards(id),
-    file_name    TEXT NOT NULL,
-    mime_type    TEXT NOT NULL,
-    file_size    INTEGER,
-    storage_key  TEXT NOT NULL,
-    created_at   TEXT NOT NULL
-);
-CREATE INDEX idx_card_media_card_id ON card_media(card_id);
-```
-
-**2. Rust 命令**
-
-- `upload_card_media(card_id, source_path)` → 复制文件到 `$APPLOCALDATA/card-media/{uuid}/{file_name}`，记录 DB
-- `list_card_media(card_id)` → 返回 `CardMediaDto[]`
-- `delete_card_media(media_id)` → 删除 DB 记录和磁盘文件
-- `import_cards_apkg()` → 弹框选择 .apkg 文件，调用 Python importer，批量插入卡片
-- `pick_and_export_apkg(card_ids)` → 弹框选择保存路径，调用 Python exporter
-
-**3. Tauri assetProtocol 配置**
-
-```json
-// tauri.conf.json
-"assetProtocol": {
-  "enable": true,
-  "scope": [
-    "$APPDATA/documents/**",
-    "$APPLOCALDATA/card-media/**"
-  ]
-}
-```
-
-**4. Python APKG Importer（新建）**
-
-- 文件：`orchestration_service/exports/apkg_importer.py`
-- 提取 .apkg（ZIP）中 `collection.anki2/21` SQLite 数据库，解析 notes 表
-- 自动检测卡片类型：cloze（含 `{{c`）或 qa
-- 路由：`POST /imports/apkg`
-
-**5. 前端集成（CardStudioPage）**
-
-- 「导入 APKG」「导出 APKG」「导出 CSV」按钮
-- 状态反馈条显示导入导出结果（成功/失败/条数）
-- 「编辑」按钮在每张卡片上暴露，打开 CardEditorModal 进行编辑
-
----
-
-### Phase 5：AI 生成增强 ✅ 已完成
-
-**目标**：让 AI 卡片生成 workflow 支持 cloze 和 choice 类型。
-
-#### 已实现内容
-
-**1. Python orchestration 提示词更新**
-
-文件：`orchestration_service/workflows/card_generation.py`
-
-系统提示词已更新为描述所有 4 种卡片类型（qa/cloze/fact/choice）并指引 AI 根据内容智能选择类型：
-
-- `qa`：问答题
-- `cloze`：完形填空（`{{c1::答案}}` 语法）
-- `fact`：简单知识点陈述
-- `choice`：单选题（`?> 题目` + `- [x] 正确` 格式）
-
-**2. card_draft.py CardType 扩展**
-
-```python
-CardType = Literal["qa", "cloze", "fact", "choice"]  # 新增 "choice"
-```
-
-`from_llm_json()` 方法已更新以接受 `choice` 类型的验证逻辑。
-
-**3. card_candidates 表 card_type 已就绪**（V10 已添加字段，无需迁移）
-
----
-
-## 11. 扩展指南：添加新卡片类型
-
-以添加 `matching`（连线题）为例，需要修改 **6 处**：
-
-| 步骤               | 文件                                                 | 具体操作                                     |
-| ------------------ | ---------------------------------------------------- | -------------------------------------------- |
-| 1. 类型定义        | `src/types/document.ts`                              | `Card.cardType` 联合类型追加 `\| 'matching'` |
-| 2. Zod 校验        | `src/types/schema.ts`                                | `cardSchema.cardType` 枚举追加 `'matching'`  |
-| 3. 渲染组件        | `src/components/cards/MatchingCardContent.tsx`       | 新建，解析匹配题语法                         |
-| 4. ReviewPage 路由 | `src/features/review/ReviewPage.tsx`                 | 条件渲染分支增加 `cardType === 'matching'`   |
-| 5. 编辑器          | `src/components/cards/CardEditorModal.tsx`           | `<option value="matching">连线题</option>`   |
-| 6. AI 生成         | `orchestration_service/workflows/card_generation.py` | 新增 matching 提示词                         |
-
-**无需修改**：SQLite Schema（card_type 无 CHECK 约束）、Rust 代码（CardDto/CreateCardDto 通用）
-
----
-
-## 12. 已知限制与后续规划
-
-### 12.1 当前限制
-
-| 编号 | 类别    | 问题                                            | 影响范围                                 | 规划     |
-| ---- | ------- | ----------------------------------------------- | ---------------------------------------- | -------- |
-| L1   | Phase 4 | `image_occlusion` 类型的前端 SVG 遮罩组件未实现 | 需手动编写图像遮挡卡片                   | 低优先级 |
-| L2   | 性能    | `useCardsQuery` limit 默认 300                  | 大量卡片时全量加载，无分页               | 待优化   |
-| L3   | 功能    | CardEditorModal 无图片上传 Dropzone             | 无法通过 UI 上传媒体文件（API 层已就绪） | 下一迭代 |
-
-### 12.2 构建状态
-
-| 检查项             | 状态                                                                       |
-| ------------------ | -------------------------------------------------------------------------- |
-| `npx tsc --noEmit` | ✅ 0 错误                                                                  |
-| `cargo check`      | ✅ 0 错误（4 个 pre-existing dead_code 警告）                              |
-| `cargo test`       | ✅ 12 passed, 0 failed                                                     |
-| `npx vitest run`   | ✅ 19 passed（7 pre-existing failures 为主题色硬编码测试，与卡片系统无关） |
-| `npx vite build`   | ✅ 通过（chunk 大小警告为 pre-existing）                                   |

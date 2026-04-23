@@ -21,10 +21,10 @@ export const themeTokens = {
     },
   },
   typography: {
-    fontDisplay: 'Kose, Xiaolai, serif',
-    fontUi: 'Yozai, sans-serif',
-    fontBody: 'LXGW WenKai, serif',
-    fontLatinMeta: 'Inter, sans-serif',
+    fontDisplay: 'Geist, Geist Fallback, Inter, system-ui, sans-serif',
+    fontUi: 'Geist, Geist Fallback, Inter, system-ui, sans-serif',
+    fontBody: 'Geist, Geist Fallback, Inter, system-ui, sans-serif',
+    fontLatinMeta: 'Geist Mono, Geist Mono Fallback, Consolas, monospace',
   },
   spacing: {
     xs: '4px',

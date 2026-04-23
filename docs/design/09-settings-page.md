@@ -20,7 +20,7 @@
 
 | 场景 | 用户行为 | 页面响应 |
 |------|----------|----------|
-| 首次配置 | 启动应用 → 强制跳转设置 | AI 模型子页高亮，引导配置 API Key |
+| 首次配置 | 启动应用后从提醒入口进入设置 | AI 模型子页高亮，引导配置 API Key，但不劫持导航 |
 | 添加供应商 | 点击"添加配置" | 配置表单 → 连接测试 → 保存 |
 | 切换模型 | 修改工作流分配 | 下拉选择 → 保存 |
 | 调整学习量 | 修改每日新卡限制 | 选择 → 保存 |
@@ -404,5 +404,5 @@ interface AboutSectionProps {
 2. **拆分现有 SettingsPage 内容**：提取为 4 个 Section 组件
 3. **新增 SettingsGeneralSection**：主题选择器 + 数据管理 + 关于
 4. **AI 模型子页对接 BYOK 系统**：详见 `byok-system.md`
-5. **保留 onboarding 强制跳转逻辑**：无 API 配置时仍锁定在 AI 模型子页
+5. **调整 onboarding 为软引导**：无 API 配置时高亮 AI 模型子页并显示提醒，但不锁定在该子页
 6. **删除旧 `useAppStore` 的 `aiConfig` 引用**：迁移到 `useApiConfigsQuery`

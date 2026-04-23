@@ -125,8 +125,8 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
         capabilities: caps(true, true, 200000, true),
       },
     ]),
-    modelsEndpoint: null,
-    testStrategy: 'full',
+    modelsEndpoint: '/models',
+    testStrategy: 'tiered',
   },
   {
     id: 'google',
@@ -210,8 +210,8 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
     keyPattern: null,
     description: '兼容 Anthropic Messages 协议的私有或代理端点。',
     presetModels: [],
-    modelsEndpoint: null,
-    testStrategy: 'full',
+    modelsEndpoint: '/models',
+    testStrategy: 'tiered',
   },
   {
     id: 'custom_google',
@@ -254,6 +254,12 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     description: '大纲、脚本和音频生成。',
   },
   { type: 'knowledge_graph', name: '知识图谱', icon: '🕸️', description: '抽取实体并构建图谱。' },
+  {
+    type: 'card_animation',
+    name: 'Card Animation',
+    icon: 'motion',
+    description: 'Generates animation scripts for review cards.',
+  },
 ]
 
 export function getProviderDefinition(provider: ApiProvider) {
@@ -380,6 +386,29 @@ export function readLegacyAiConfig(): LegacyAiConfig | null {
     }
   } catch {
     return null
+  }
+}
+
+export function clearLegacyAiConfig() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const raw = window.localStorage.getItem('xuejian-app-store')
+  if (!raw) {
+    return
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { state?: Record<string, unknown> }
+    if (!parsed.state || typeof parsed.state !== 'object' || !('aiConfig' in parsed.state)) {
+      return
+    }
+
+    parsed.state.aiConfig = null
+    window.localStorage.setItem('xuejian-app-store', JSON.stringify(parsed))
+  } catch {
+    // Ignore malformed legacy payloads; they should not block startup.
   }
 }
 
