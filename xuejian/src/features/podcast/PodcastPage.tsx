@@ -1,6 +1,7 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { PodcastPageLayout, type PodcastPageMode } from '@/components/pages/podcast-page'
 import { PodcastPlayerModal } from '@/components/podcast/PodcastPlayerModal'
-import { Button, Panel, SketchEmptyState } from '@/components/ui'
+import { Badge, Button, Card, CardContent, EmptyState } from '@/components/ui'
 import { reportAppError, reportFeedback } from '@/lib/appFeedback'
 import { cn } from '@/lib/utils'
 import {
@@ -44,11 +45,11 @@ const LIVE_STATUSES = new Set<PodcastStatus>([
 ])
 
 const STYLE_OPTIONS: Array<{ value: PodcastStyle; label: string; hint: string }> = [
-  { value: 'interview', label: '访谈', hint: '主持人提问，嘉宾解释。' },
-  { value: 'deep_dive', label: '深挖', hint: '追机制、讲因果、拉长线。' },
-  { value: 'lecture', label: '讲授', hint: '单人系统梳理，适合复盘。' },
-  { value: 'casual', label: '闲聊', hint: '更口语、更轻松的节奏。' },
-  { value: 'exam_prep', label: '冲刺', hint: '高密度考点压缩版。' },
+  { value: 'interview', label: '访谈', hint: '主持人追问，嘉宾解释，适合串联复杂概念。' },
+  { value: 'deep_dive', label: '深挖', hint: '强调因果链、机制与主题延展。' },
+  { value: 'lecture', label: '讲授', hint: '单人系统化梳理，适合复盘与速记。' },
+  { value: 'casual', label: '闲聊', hint: '更轻松、更口语化，适合日常收听。' },
+  { value: 'exam_prep', label: '冲刺', hint: '高密度考点压缩版，适合考前回顾。' },
 ]
 
 const DURATION_OPTIONS: Array<{ value: PodcastDurationTier; label: string; hint: string }> = [
@@ -66,9 +67,9 @@ const LANGUAGE_OPTIONS: Array<{ value: PodcastLanguage; label: string }> = [
 ]
 
 const PROVIDER_OPTIONS: Array<{ value: TTSProviderId; label: string; hint: string }> = [
-  { value: 'auto', label: '自动', hint: '优先 OpenAI，不可用时回退。' },
-  { value: 'openai', label: 'OpenAI', hint: '适合快速生成。' },
-  { value: 'edge_tts', label: 'Edge TTS', hint: '本地可用时稳定兜底。' },
+  { value: 'auto', label: '自动', hint: '优先 OpenAI，失败时回退。' },
+  { value: 'openai', label: 'OpenAI', hint: '适合更快生成。' },
+  { value: 'edge_tts', label: 'Edge TTS', hint: '本地可用时更稳。' },
 ]
 
 const FORMAT_OPTIONS: Array<{ value: AudioFormat; label: string }> = [
@@ -94,24 +95,23 @@ const TTS_ESTIMATE_COST_PER_1K_CHARS: Record<TTSProviderId, number> = {
   auto: 0.015,
   openai: 0.015,
   edge_tts: 0,
-
 }
 
-const STATUS_META: Record<PodcastStatus, { label: string; tone: string }> = {
-  queued: { label: '已排队', tone: 'border-stone-300 bg-stone-100 text-stone-700' },
-  retrieving: { label: '检索资料', tone: 'border-sky-200 bg-sky-50 text-sky-700' },
-  generating_outline: { label: '构建大纲', tone: 'border-cyan-200 bg-cyan-50 text-cyan-700' },
-  generating_script: { label: '撰写脚本', tone: 'border-indigo-200 bg-indigo-50 text-indigo-700' },
-  evaluating: { label: '评估脚本', tone: 'border-violet-200 bg-violet-50 text-violet-700' },
-  awaiting_review: { label: '等待审阅', tone: 'border-amber-200 bg-amber-50 text-amber-800' },
-  generating_audio: {
-    label: '生成语音',
-    tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  },
-  stitching: { label: '拼接音频', tone: 'border-teal-200 bg-teal-50 text-teal-700' },
-  ready: { label: '已完成', tone: 'border-green-200 bg-green-50 text-green-700' },
-  failed: { label: '失败', tone: 'border-rose-200 bg-rose-50 text-rose-700' },
-  cancelled: { label: '已取消', tone: 'border-zinc-200 bg-zinc-100 text-zinc-700' },
+const STATUS_META: Record<
+  PodcastStatus,
+  { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }
+> = {
+  queued: { label: '已排队', tone: 'neutral' },
+  retrieving: { label: '检索资料', tone: 'info' },
+  generating_outline: { label: '构建大纲', tone: 'info' },
+  generating_script: { label: '撰写脚本', tone: 'info' },
+  evaluating: { label: '评估脚本', tone: 'info' },
+  awaiting_review: { label: '等待审阅', tone: 'warning' },
+  generating_audio: { label: '生成语音', tone: 'success' },
+  stitching: { label: '拼接音频', tone: 'success' },
+  ready: { label: '已完成', tone: 'success' },
+  failed: { label: '失败', tone: 'danger' },
+  cancelled: { label: '已取消', tone: 'neutral' },
 }
 
 export function PodcastPage() {
@@ -141,6 +141,7 @@ export function PodcastPage() {
   const [audioFormat, setAudioFormat] = useState<AudioFormat>('mp3')
   const [reviewDraft, setReviewDraft] = useState('')
   const [isPlayerOpen, setIsPlayerOpen] = useState(false)
+  const [pageMode, setPageMode] = useState<PodcastPageMode>('create')
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -150,9 +151,7 @@ export function PodcastPage() {
   }, [readyDocuments, selectedDocumentIds.length])
 
   useEffect(() => {
-    if (!appSettings) {
-      return
-    }
+    if (!appSettings) return
 
     setTtsProvider((current) => (current === 'auto' ? appSettings.podcastTtsProvider : current))
     setAudioFormat((current) => (current === 'mp3' ? appSettings.podcastOutputFormat : current))
@@ -237,7 +236,7 @@ export function PodcastPage() {
       reportFeedback({
         scope: '播客工坊',
         title: '先选择至少一份文档',
-        detail: '播客脚本需要基于已解析的文档内容生成。',
+        detail: '播客脚本需要基于已解析文档内容生成。',
         level: 'warning',
         showToast: true,
       })
@@ -255,11 +254,12 @@ export function PodcastPage() {
         audioFormat,
       })
       setSelectedEpisodeId(episode.id)
+      setPageMode('library')
       setIsPlayerOpen(false)
       reportFeedback({
         scope: '播客工坊',
-        title: '已开始生成播客',
-        detail: '你可以在右侧跟踪阶段进度、脚本和音频状态。',
+        title: '已启动播客生成',
+        detail: '可以在工作台中继续跟踪大纲、脚本、审阅和音频状态。',
         level: 'info',
         showToast: true,
       })
@@ -304,6 +304,7 @@ export function PodcastPage() {
     try {
       const episode = await retryMutation.mutateAsync(selectedEpisode.id)
       setSelectedEpisodeId(episode.id)
+      setPageMode('library')
     } catch (error) {
       reportAppError('播客工坊', error, {
         title: '重试播客失败',
@@ -338,6 +339,8 @@ export function PodcastPage() {
   }
 
   const liveEpisodeCount = episodes.filter((episode) => LIVE_STATUSES.has(episode.status)).length
+  const readyEpisodeCount = episodes.filter((episode) => episode.status === 'ready').length
+
   const generationEstimate = useMemo(
     () =>
       estimatePodcastGeneration({
@@ -349,10 +352,9 @@ export function PodcastPage() {
       }),
     [durationTier, language, prompt, selectedDocumentIds.length, ttsProvider]
   )
+
   const estimateWarnings = useMemo(() => {
-    if (!appSettings) {
-      return []
-    }
+    if (!appSettings) return []
 
     const warnings: string[] = []
     if (
@@ -381,6 +383,7 @@ export function PodcastPage() {
     }
     return warnings
   }, [appSettings, generationEstimate])
+
   const reviewTimeoutSecondsRemaining = useMemo(() => {
     if (
       !appSettings ||
@@ -392,68 +395,72 @@ export function PodcastPage() {
     }
 
     const updatedAt = Date.parse(selectedEpisode.updatedAt)
-    if (!Number.isFinite(updatedAt)) {
-      return null
-    }
+    if (!Number.isFinite(updatedAt)) return null
 
     const deadline = updatedAt + appSettings.reviewTimeLimit * 60_000
     return Math.max(0, Math.ceil((deadline - now) / 1000))
   }, [appSettings, now, selectedEpisode])
 
+  const selectedDocumentTitles = readyDocuments
+    .filter((document) => selectedEpisode?.documentIds.includes(document.id))
+    .map((document) => document.title)
+
   return (
     <>
-      <div className="mx-auto flex w-full max-w-[1380px] flex-col gap-6 p-6">
-        <header className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">
-              Podcast Workflow Studio
-            </p>
-            <h1 className="mt-2 font-display text-3xl text-ink">播客工坊</h1>
-            <p className="mt-2 max-w-2xl font-body text-sm leading-6 text-ink-muted">
-              把一组文档压缩成可听的学习节目。左侧配置生成策略，右侧跟踪 episode
-              的检索、大纲、脚本、评估和音频状态。
-            </p>
-          </div>
-
-          <div className="grid min-w-[260px] grid-cols-3 gap-3">
-            <MetricTile label="已就绪文档" value={readyDocuments.length} hint="可作为播客来源" />
-            <MetricTile label="进行中" value={liveEpisodeCount} hint="后台持续刷新" />
-            <MetricTile
-              label="音频成品"
-              value={episodes.filter((episode) => episode.status === 'ready').length}
-              hint="可直接播放"
-            />
-          </div>
-        </header>
-
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]">
-          <div className="space-y-6">
-            <Panel variant="paperCard" className="rounded-[28px] border border-line-soft/80 p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    Generation Brief
-                  </p>
-                  <h2 className="mt-2 font-display text-2xl text-ink">新建一条学习播客</h2>
-                </div>
-                <div className="rounded-full border border-ink/10 bg-paper-muted/70 px-3 py-1 font-latin text-[11px] tracking-wide text-ink-soft">
-                  {selectedDocumentIds.length} Docs Selected
-                </div>
-              </div>
-
-              <div className="mt-6 space-y-6">
+      <PodcastPageLayout
+        actions={
+          <>
+            <Button onClick={() => void handleGenerate()} disabled={isBusy || readyDocuments.length === 0}>
+              生成播客
+            </Button>
+            <Button variant="outline" onClick={() => setActiveNavItem('settings')}>
+              检查设置
+            </Button>
+          </>
+        }
+        toolbarChips={[
+          { label: `${readyDocuments.length} 份就绪文档` },
+          { label: `${liveEpisodeCount} 条进行中`, tone: 'info' },
+          { label: `${readyEpisodeCount} 条已完成`, tone: 'success' },
+        ]}
+        toolbarHint={
+          <>
+            当前默认输出 {audioFormat.toUpperCase()}，预计 {generationEstimate.durationMinutes}{' '}
+            分钟。
+          </>
+        }
+        metrics={[
+          { label: '文档来源', value: readyDocuments.length, hint: '仅统计已完成解析的资料' },
+          { label: '排队与生成中', value: liveEpisodeCount, hint: '后台会持续轮询最新状态' },
+          { label: '已完成节目', value: readyEpisodeCount, hint: '可直接进入播放器' },
+          {
+            label: '估算成本',
+            value: formatUsd(generationEstimate.estimatedCostUsd),
+            hint: `${formatCompactNumber(generationEstimate.ttsCharacters)} TTS 字符`,
+          },
+        ]}
+        mode={pageMode}
+        onModeChange={setPageMode}
+        createWorkbench={
+          <>
+            <SurfaceSection
+              eyebrow="GENERATION BRIEF"
+              title="创建播客"
+              description="真实 provider、语言、格式和预算限制都在这里生效。"
+            >
+              <div className="space-y-5">
                 <section className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-ink">文档范围</p>
-                      <p className="text-xs leading-5 text-ink-muted">
-                        仅展示已完成解析的文档。多选会让大纲更像一档专题串讲节目。
+                      <p className="text-sm font-medium text-foreground">文档范围</p>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        仅展示已完成解析的文档。多选会让节目更像专题串讲。
                       </p>
                     </div>
                     {selectedDocumentIds.length > 0 ? (
                       <button
                         type="button"
-                        className="font-ui text-xs tracking-wide text-ink-soft hover:text-ink"
+                        className="text-xs text-muted-foreground transition-colors hover:text-foreground"
                         onClick={() => setSelectedDocumentIds([])}
                       >
                         清空
@@ -462,9 +469,8 @@ export function PodcastPage() {
                   </div>
 
                   {readyDocuments.length === 0 ? (
-                    <SketchEmptyState
-                      illustration="podcast"
-                      size="sm"
+                    <WorkspaceEmptyState
+                      className="min-h-[180px]"
                       title="还没有可用的播客来源"
                       description="先去文档库导入并解析至少一份文档，再回来生成播客。"
                       action={
@@ -474,7 +480,7 @@ export function PodcastPage() {
                       }
                     />
                   ) : (
-                    <div className="grid gap-2">
+                    <div className="space-y-2">
                       {readyDocuments.map((document) => {
                         const active = selectedDocumentIds.includes(document.id)
                         return (
@@ -483,30 +489,16 @@ export function PodcastPage() {
                             type="button"
                             onClick={() => toggleDocument(document.id)}
                             className={cn(
-                              'group flex items-start justify-between rounded-[20px] border px-4 py-3 text-left transition-all',
+                              'w-full rounded-[18px] border px-4 py-3 text-left transition-colors',
                               active
-                                ? 'border-ink/20 bg-paper-muted/70 shadow-paper'
-                                : 'border-line-soft/70 bg-paper-base hover:border-ink/15 hover:bg-paper-muted/45'
+                                ? 'border-foreground/20 bg-card shadow-sm'
+                                : 'border-border/50 bg-card/70 hover:border-foreground/20 hover:bg-card'
                             )}
                           >
-                            <div>
-                              <p className="font-body text-sm text-ink">{document.title}</p>
-                              <p className="mt-1 text-xs leading-5 text-ink-muted">
-                                {document.pageCount ?? 0} 页 · 状态 {document.status}
-                              </p>
-                            </div>
-                            <div
-                              className={cn(
-                                'mt-0.5 h-5 w-5 rounded-full border transition-colors',
-                                active ? 'border-ink bg-ink' : 'border-line-soft bg-paper-base'
-                              )}
-                            >
-                              {active ? (
-                                <span className="block text-center text-[11px] text-paper-base">
-                                  ✓
-                                </span>
-                              ) : null}
-                            </div>
+                            <p className="text-sm font-medium text-foreground">{document.title}</p>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              {document.pageCount ?? 0} 页 · {document.status}
+                            </p>
                           </button>
                         )
                       })}
@@ -516,322 +508,220 @@ export function PodcastPage() {
 
                 <section className="space-y-3">
                   <div>
-                    <p className="text-sm font-medium text-ink">节目提示词</p>
-                    <p className="text-xs leading-5 text-ink-muted">
-                      可选。用来指定听众视角、重点章节、是否要偏实战或偏考试。
+                    <p className="text-sm font-medium text-foreground">节目提示词</p>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      可选。指定听众、重点章节，或者让脚本更偏考试/实战。
                     </p>
                   </div>
                   <textarea
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
                     rows={5}
-                    placeholder="例如：请重点解释第 2、4 节之间的逻辑关系，并用更适合考前复习的方式讲述。"
-                    className="min-h-[128px] w-full rounded-[22px] border border-line-soft bg-paper-card px-4 py-3 font-body text-sm leading-6 text-ink shadow-paper outline-none transition-colors placeholder:text-ink-soft focus:border-ink/30"
+                    className="min-h-[132px] w-full rounded-[18px] border border-border/50 bg-background/50 px-4 py-3 text-sm leading-6 text-foreground outline-none transition-colors focus:border-foreground/25"
+                    placeholder="例如：面向备考用户，先讲核心定义，再给一个生活化例子。"
                   />
                 </section>
 
                 <OptionGrid
-                  title="播客风格"
-                  description="决定脚本的叙事方式和说话节奏。"
+                  title="节目风格"
+                  description="风格影响脚本语气、组织方式和节目氛围。"
                   options={STYLE_OPTIONS}
                   value={style}
                   onChange={(value) => setStyle(value as PodcastStyle)}
                 />
 
                 <OptionGrid
-                  title="时长档位"
-                  description="更长的节目会触发更多检索片段和更细的大纲。"
+                  title="时长"
+                  description="时长会直接影响估算 token、脚本长度和音频段数。"
                   options={DURATION_OPTIONS}
                   value={durationTier}
                   onChange={(value) => setDurationTier(value as PodcastDurationTier)}
                 />
 
-                <SimpleToggleGroup
-                  title="语言"
-                  options={LANGUAGE_OPTIONS}
-                  value={language}
-                  onChange={(value) => setLanguage(value as PodcastLanguage)}
-                />
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <SelectField
+                    label="语言"
+                    value={language}
+                    options={LANGUAGE_OPTIONS}
+                    onChange={(value) => setLanguage(value as PodcastLanguage)}
+                  />
+                  <SelectField
+                    label="TTS"
+                    value={ttsProvider}
+                    options={PROVIDER_OPTIONS}
+                    onChange={(value) => setTtsProvider(value as TTSProviderId)}
+                  />
+                  <SelectField
+                    label="格式"
+                    value={audioFormat}
+                    options={FORMAT_OPTIONS}
+                    onChange={(value) => setAudioFormat(value as AudioFormat)}
+                  />
+                </div>
 
-                <OptionGrid
-                  title="TTS 提供商"
-                  description="当前 UI 暴露 provider 选择，具体可用性取决于本地配置与环境。"
-                  options={PROVIDER_OPTIONS}
-                  value={ttsProvider}
-                  onChange={(value) => setTtsProvider(value as TTSProviderId)}
-                />
-
-                <SimpleToggleGroup
-                  title="输出格式"
-                  options={FORMAT_OPTIONS}
-                  value={audioFormat}
-                  onChange={(value) => setAudioFormat(value as AudioFormat)}
-                />
-
-                <div className="rounded-[22px] border border-dashed border-line-soft bg-paper-muted/50 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-display text-lg text-ink">准备好后直接开工</p>
-                      <p className="mt-1 text-sm leading-6 text-ink-muted">
-                        生成后会自动出现在右侧库中，并持续刷新脚本与音频阶段进度。
-                      </p>
-                    </div>
-                    <Button
-                      size="lg"
-                      disabled={
-                        selectedDocumentIds.length === 0 || readyDocuments.length === 0 || isBusy
-                      }
-                      onClick={() => {
-                        void handleGenerate()
-                      }}
-                    >
-                      {startMutation.isPending ? '正在启动播客...' : '生成播客'}
-                    </Button>
-                  </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[18px] border border-border/50 bg-muted/25 p-4">
+                  <p className="text-sm font-medium text-foreground">本次估算</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <EstimateStat
-                      label="预计时长"
-                      value={`${generationEstimate.durationMinutes} min`}
-                      hint={`${generationEstimate.segmentCount} 个脚本段落`}
+                      label="节目时长"
+                      value={`${generationEstimate.durationMinutes} 分钟`}
+                      hint={`${generationEstimate.segmentCount} 个片段`}
                     />
                     <EstimateStat
                       label="LLM Tokens"
                       value={formatCompactNumber(generationEstimate.llmTokens)}
-                      hint="含检索、大纲、脚本与评估"
+                      hint="按当前文档与提示词估算"
                     />
                     <EstimateStat
                       label="TTS 字符"
                       value={formatCompactNumber(generationEstimate.ttsCharacters)}
-                      hint={`${ttsProvider === 'auto' ? '自动路由' : ttsProvider} 估算`}
+                      hint="语言和时长都会影响"
                     />
                     <EstimateStat
-                      label="预估成本"
+                      label="成本"
                       value={formatUsd(generationEstimate.estimatedCostUsd)}
-                      hint={
-                        appSettings?.podcastSkipReview
-                          ? '当前配置会跳过人工审阅'
-                          : `无操作 ${appSettings?.reviewTimeLimit ?? 30} 分钟后自动通过`
-                      }
+                      hint="仅作前端估算提醒"
                     />
                   </div>
-
-                  {estimateWarnings.length > 0 ? (
-                    <div className="mt-4 rounded-[18px] border border-amber-200 bg-amber-50/80 px-4 py-3">
-                      <p className="font-ui text-[11px] uppercase tracking-[0.2em] text-amber-800">
-                        Budget Guard
-                      </p>
-                      <div className="mt-2 space-y-1.5 text-sm leading-6 text-amber-900">
-                        {estimateWarnings.map((warning) => (
-                          <p key={warning}>{warning}</p>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
-              </div>
-            </Panel>
 
-            <Panel variant="paperCard" className="rounded-[28px] border border-line-soft/80 p-6">
-              <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                Workflow Notes
-              </p>
-              <div className="mt-4 space-y-3 text-sm leading-6 text-ink-muted">
-                <p>1. 检索阶段会优先走 hybrid RRF，如果嵌入不可用会回退到 FTS5。</p>
-                <p>2. 大纲、脚本和评估会持续写回 episode，右侧可直接看到中间产物。</p>
-                <p>3. 音频阶段会逐条保存 audio segment 元数据，完成后再拼成最终文件。</p>
-              </div>
-            </Panel>
-          </div>
-
-          <div className="space-y-6">
-            <Panel variant="paperCard" className="rounded-[28px] border border-line-soft/80 p-6">
-              <div className="flex flex-wrap items-end justify-between gap-4">
-                <div>
-                  <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                    Episode Library
-                  </p>
-                  <h2 className="mt-2 font-display text-2xl text-ink">播客库</h2>
-                </div>
-                <span className="rounded-full border border-ink/10 bg-paper-muted/70 px-3 py-1 font-latin text-[11px] tracking-wide text-ink-soft">
-                  {episodes.length} Episodes
-                </span>
-              </div>
-
-              <div className="mt-5 space-y-3">
-                {episodes.length === 0 ? (
-                  <SketchEmptyState
-                    illustration="podcast"
-                    title="还没有任何播客 episode"
-                    description="左侧启动第一条播客后，这里会成为你的节目库与过程追踪面板。"
-                    size="sm"
-                  />
-                ) : (
-                  episodes.map((episode) => {
-                    const progress = getEpisodeProgress(episode)
-                    return (
-                      <button
-                        key={episode.id}
-                        type="button"
-                        onClick={() => setSelectedEpisodeId(episode.id)}
-                        className={cn(
-                          'w-full rounded-[22px] border px-4 py-4 text-left transition-all',
-                          selectedEpisodeId === episode.id
-                            ? 'border-ink/20 bg-paper-muted/70 shadow-paper'
-                            : 'border-line-soft/70 bg-paper-base hover:border-ink/15 hover:bg-paper-muted/45'
-                        )}
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-body text-sm text-ink">{episode.title}</p>
-                              <StatusBadge status={episode.status} />
-                            </div>
-                            <p className="mt-1 text-xs leading-5 text-ink-muted">
-                              {episode.documentIds.length} 份文档 ·{' '}
-                              {formatDateTime(episode.updatedAt)}
-                            </p>
-                          </div>
-                          <p className="font-latin text-xs tracking-wide text-ink-soft">
-                            {episode.durationMs > 0
-                              ? formatDuration(episode.durationMs)
-                              : `Stage ${episode.currentStage}/6`}
-                          </p>
-                        </div>
-
-                        <div className="mt-3">
-                          <progress
-                            className="h-2 w-full overflow-hidden rounded-full [appearance:none] [&::-moz-progress-bar]:bg-ink/80 [&::-webkit-progress-bar]:bg-paper-muted [&::-webkit-progress-value]:bg-ink/80"
-                            max={100}
-                            value={progress}
-                          />
-                        </div>
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-            </Panel>
-
-            <Panel variant="paperCard" className="rounded-[28px] border border-line-soft/80 p-6">
-              {selectedEpisode ? (
-                <div className="space-y-6">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                        Episode Inspector
+                {estimateWarnings.length > 0 ? (
+                  <div className="space-y-2 rounded-[18px] border border-amber-200 bg-amber-50/80 p-4">
+                    <p className="text-sm font-medium text-amber-900">预算与上限提醒</p>
+                    {estimateWarnings.map((warning) => (
+                      <p key={warning} className="text-xs leading-5 text-amber-800">
+                        {warning}
                       </p>
-                      <h2 className="mt-2 font-display text-2xl text-ink">
-                        {selectedEpisode.title}
-                      </h2>
-                      <p className="mt-2 text-sm leading-6 text-ink-muted">
-                        {parsedScript?.description ?? '系统会在这里逐步展示脚本、评分和音频产物。'}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <StatusBadge status={selectedEpisode.status} />
-                      {selectedEpisode.status === 'ready' ? (
-                        <Button variant="outline" size="sm" onClick={() => setIsPlayerOpen(true)}>
-                          打开播放器
-                        </Button>
-                      ) : null}
-                      {LIVE_STATUSES.has(selectedEpisode.status) ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleCancelEpisode()}
-                        >
-                          取消
-                        </Button>
-                      ) : null}
-                      {selectedEpisode.status === 'failed' ||
-                      selectedEpisode.status === 'cancelled' ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleRetryEpisode()}
-                        >
-                          重试
-                        </Button>
-                      ) : null}
-                      {!LIVE_STATUSES.has(selectedEpisode.status) ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void handleDeleteEpisode()}
-                        >
-                          删除
-                        </Button>
-                      ) : null}
-                    </div>
+                    ))}
                   </div>
+                ) : null}
 
-                  <div className="rounded-[22px] border border-line-soft/70 bg-paper-muted/55 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-ink">阶段进度</p>
-                        <p className="mt-1 text-xs leading-5 text-ink-muted">
-                          当前位于第 {selectedEpisode.currentStage}/6 阶段，共{' '}
-                          {selectedEpisode.totalSegments} 个细分单元。
-                        </p>
-                      </div>
-                      <p className="font-latin text-sm tracking-wide text-ink-soft">
-                        {Math.round(getEpisodeProgress(selectedEpisode))}%
-                      </p>
-                    </div>
-                    <progress
-                      className="mt-3 h-2 w-full overflow-hidden rounded-full [appearance:none] [&::-moz-progress-bar]:bg-ink/80 [&::-webkit-progress-bar]:bg-paper-base [&::-webkit-progress-value]:bg-ink/80"
-                      max={100}
-                      value={getEpisodeProgress(selectedEpisode)}
+                <Button
+                  className="w-full"
+                  onClick={() => void handleGenerate()}
+                  disabled={isBusy || readyDocuments.length === 0}
+                >
+                  {startMutation.isPending ? '正在创建 episode…' : '开始生成播客'}
+                </Button>
+              </div>
+            </SurfaceSection>
+          </>
+        }
+        mainStage={
+          <div className="space-y-5">
+            <SurfaceSection
+              eyebrow="EPISODE LIBRARY"
+              title="节目队列"
+              description="所有 episode 统一走这里的主列表，保持参考编码的主舞台结构。"
+            >
+              {episodes.length === 0 ? (
+                <WorkspaceEmptyState
+                  className="min-h-[220px]"
+                  title="还没有任何 episode"
+                  description="左侧填写 brief 并启动生成后，这里会自动出现新的播客任务。"
+                />
+              ) : (
+                <div className="space-y-2">
+                  {episodes.map((episode) => (
+                    <EpisodeListItem
+                      key={episode.id}
+                      episode={episode}
+                      active={episode.id === selectedEpisode?.id}
+                      onSelect={() => {
+                        setSelectedEpisodeId(episode.id)
+                        setPageMode('library')
+                      }}
                     />
+                  ))}
+                </div>
+              )}
+            </SurfaceSection>
 
-                    {selectedEpisode.errorMessage ? (
-                      <p className="mt-3 text-sm leading-6 text-rose-700">
-                        {selectedEpisode.errorMessage}
-                      </p>
+            <SurfaceSection
+              eyebrow="EPISODE STAGE"
+              title={selectedEpisode ? selectedEpisode.title : '主舞台'}
+              description={
+                selectedEpisode
+                  ? selectedEpisode.scopeDescription || '在这里查看脚本、评估、审阅和音频输出。'
+                  : '选择一条 episode 后，这里会展开真实的运行信息。'
+              }
+              data-testid="podcast-stage"
+              headerSlot={
+                selectedEpisode ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={selectedEpisode.status} />
+                    <span className="text-xs text-muted-foreground">
+                      更新于 {formatDateTime(selectedEpisode.updatedAt)}
+                    </span>
+                  </div>
+                ) : null
+              }
+            >
+              {!selectedEpisode ? (
+                <WorkspaceEmptyState
+                  className="min-h-[300px]"
+                  title="先选择一条 episode"
+                  description="生成启动后，可以在这里集中查看大纲、脚本、评估、审阅与音频段。"
+                />
+              ) : (
+                <div className="space-y-5">
+                  <div className="flex flex-wrap gap-2">
+                    {selectedEpisode.status === 'ready' ? (
+                      <Button onClick={() => setIsPlayerOpen(true)}>打开播放器</Button>
                     ) : null}
+                    {LIVE_STATUSES.has(selectedEpisode.status) ? (
+                      <Button variant="outline" onClick={() => void handleCancelEpisode()}>
+                        取消任务
+                      </Button>
+                    ) : null}
+                    {selectedEpisode.status === 'failed' || selectedEpisode.status === 'cancelled' ? (
+                      <Button variant="outline" onClick={() => void handleRetryEpisode()}>
+                        重试
+                      </Button>
+                    ) : null}
+                    <Button variant="ghost" onClick={() => void handleDeleteEpisode()}>
+                      删除
+                    </Button>
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-4">
-                    <MetricTile
-                      label="来源文档"
-                      value={selectedEpisode.documentIds.length}
-                      hint="当前 episode 绑定"
+                    <EstimateStat
+                      label="进度"
+                      value={`${Math.round(getEpisodeProgress(selectedEpisode))}%`}
+                      hint="根据真实 workflow 状态映射"
                     />
-                    <MetricTile
-                      label="时长档位"
-                      value={selectedEpisode.durationTier}
-                      hint="影响检索和段落数"
+                    <EstimateStat
+                      label="段落"
+                      value={`${selectedEpisode.completedSegments}/${selectedEpisode.totalSegments}`}
+                      hint="脚本与音频片段进度"
                     />
-                    <MetricTile
+                    <EstimateStat
                       label="语言"
                       value={selectedEpisode.language}
-                      hint="脚本与语音语言"
+                      hint={selectedEpisode.style}
                     />
-                    <MetricTile
-                      label="TTS"
-                      value={selectedEpisode.ttsProvider}
-                      hint={selectedEpisode.audioFormat.toUpperCase()}
+                    <EstimateStat
+                      label="输出"
+                      value={selectedEpisode.audioFormat.toUpperCase()}
+                      hint={selectedEpisode.durationTier}
                     />
                   </div>
 
+                  {selectedEpisode.errorMessage ? (
+                    <div className="rounded-[18px] border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                      {selectedEpisode.errorMessage}
+                    </div>
+                  ) : null}
+
                   {parsedEvaluation ? (
                     <section className="space-y-3">
-                      <div>
-                        <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                          Evaluation
-                        </p>
-                        <h3 className="mt-2 font-display text-xl text-ink">脚本评估</h3>
+                      <SectionHeading eyebrow="EVALUATION" title="脚本评估" />
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <ScoreTile label="准确性" value={parsedEvaluation.accuracy} strong />
+                        <ScoreTile label="连贯性" value={parsedEvaluation.coherence} />
+                        <ScoreTile label="整体分数" value={parsedEvaluation.overallScore} />
                       </div>
-                      <div className="grid gap-3 md:grid-cols-5">
-                        <ScoreTile label="Coherence" value={parsedEvaluation.coherence} />
-                        <ScoreTile label="Accuracy" value={parsedEvaluation.accuracy} />
-                        <ScoreTile label="Style" value={parsedEvaluation.styleConsistency} />
-                        <ScoreTile label="Natural" value={parsedEvaluation.naturalness} />
-                        <ScoreTile label="Overall" value={parsedEvaluation.overallScore} strong />
-                      </div>
-                      {parsedEvaluation.issues.length > 0 ||
-                      parsedEvaluation.suggestions.length > 0 ? (
+                      {parsedEvaluation.issues.length > 0 || parsedEvaluation.suggestions.length > 0 ? (
                         <div className="grid gap-3 md:grid-cols-2">
                           <BulletPanel
                             title="Issues"
@@ -850,34 +740,23 @@ export function PodcastPage() {
 
                   {parsedOutline ? (
                     <section className="space-y-3">
-                      <div className="flex items-end justify-between gap-3">
-                        <div>
-                          <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                            Outline
-                          </p>
-                          <h3 className="mt-2 font-display text-xl text-ink">节目大纲</h3>
-                        </div>
-                        <p className="font-latin text-xs tracking-wide text-ink-soft">
-                          {formatDuration(parsedOutline.totalTargetDurationMs)} Target
-                        </p>
-                      </div>
-
+                      <SectionHeading eyebrow="OUTLINE" title="节目大纲" />
                       <div className="grid gap-3">
                         {parsedOutline.segments.map((segment) => (
                           <div
                             key={`${segment.segmentIndex}-${segment.topic}`}
-                            className="rounded-[22px] border border-line-soft/70 bg-paper-base px-4 py-4"
+                            className="rounded-[18px] border border-border/50 bg-card/80 px-4 py-4"
                           >
-                            <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
-                                <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+                                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                                   Segment {segment.segmentIndex + 1}
                                 </p>
-                                <h4 className="mt-1 text-sm font-medium text-ink">
+                                <h4 className="mt-1 text-sm font-medium text-foreground">
                                   {segment.topic}
                                 </h4>
                               </div>
-                              <span className="rounded-full border border-ink/10 bg-paper-muted/70 px-3 py-1 font-latin text-[11px] tracking-wide text-ink-soft">
+                              <span className="text-xs text-muted-foreground">
                                 {formatDuration(segment.targetDurationMs)}
                               </span>
                             </div>
@@ -885,7 +764,7 @@ export function PodcastPage() {
                               {segment.keyPoints.map((point) => (
                                 <span
                                   key={point}
-                                  className="rounded-full border border-line-soft bg-paper-muted/60 px-3 py-1 text-xs text-ink-muted"
+                                  className="rounded-full border border-border/50 bg-muted/25 px-3 py-1 text-xs text-muted-foreground"
                                 >
                                   {point}
                                 </span>
@@ -899,17 +778,8 @@ export function PodcastPage() {
 
                   {selectedEpisode.status === 'awaiting_review' ? (
                     <section className="space-y-3">
-                      <div>
-                        <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                          Review Gate
-                        </p>
-                        <h3 className="mt-2 font-display text-xl text-ink">脚本审阅</h3>
-                        <p className="mt-1 text-sm leading-6 text-ink-muted">
-                          如果你想微调内容，现在可以直接编辑脚本 JSON 并继续生成音频。
-                        </p>
-                      </div>
-
-                      <div className="rounded-[18px] border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-900">
+                      <SectionHeading eyebrow="REVIEW GATE" title="脚本审阅" />
+                      <div className="rounded-[18px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm leading-6 text-amber-900">
                         <p>
                           {reviewTimeoutSecondsRemaining === null
                             ? '当前脚本处于人工审阅阶段。'
@@ -918,7 +788,6 @@ export function PodcastPage() {
                               : '审阅超时已到，系统会自动继续推进音频生成。'}
                         </p>
                       </div>
-
                       <textarea
                         value={reviewDraft}
                         onChange={(event) => setReviewDraft(event.target.value)}
@@ -926,9 +795,8 @@ export function PodcastPage() {
                         aria-label="脚本审阅草稿 JSON"
                         title="脚本审阅草稿 JSON"
                         placeholder="在这里编辑脚本 JSON，然后保存修改并继续。"
-                        className="min-h-[280px] w-full rounded-[22px] border border-line-soft bg-paper-card px-4 py-3 font-mono text-xs leading-6 text-ink shadow-paper outline-none transition-colors focus:border-ink/30"
+                        className="min-h-[280px] w-full rounded-[18px] border border-border/50 bg-background/50 px-4 py-3 font-mono text-xs leading-6 text-foreground outline-none transition-colors focus:border-foreground/25"
                       />
-
                       <div className="flex flex-wrap gap-2">
                         <Button variant="outline" onClick={() => void handleReview('accept')}>
                           直接通过
@@ -943,36 +811,29 @@ export function PodcastPage() {
 
                   {parsedScript ? (
                     <section className="space-y-3">
-                      <div className="flex items-end justify-between gap-3">
-                        <div>
-                          <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                            Transcript
-                          </p>
-                          <h3 className="mt-2 font-display text-xl text-ink">脚本与对白</h3>
-                        </div>
-                        <p className="font-latin text-xs tracking-wide text-ink-soft">
-                          {parsedScript.segments.length} Segments
-                        </p>
-                      </div>
-
+                      <SectionHeading eyebrow="TRANSCRIPT" title="脚本与对白" />
                       <div className="grid gap-3">
                         {parsedScript.segments.map((segment, index) => (
                           <div
                             key={segment.id}
-                            className="rounded-[22px] border border-line-soft/70 bg-paper-base px-4 py-4"
+                            className="rounded-[18px] border border-border/50 bg-card/80 px-4 py-4"
                           >
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div className="flex items-center gap-3">
-                                <span className="font-latin text-[11px] tracking-wide text-ink-soft">
+                                <span className="text-xs text-muted-foreground">
                                   {String(index + 1).padStart(2, '0')}
                                 </span>
-                                <p className="text-sm font-medium text-ink">{segment.speaker}</p>
+                                <p className="text-sm font-medium text-foreground">
+                                  {segment.speaker}
+                                </p>
                               </div>
-                              <span className="rounded-full border border-line-soft bg-paper-muted/60 px-3 py-1 font-latin text-[11px] tracking-wide text-ink-soft">
+                              <span className="text-xs text-muted-foreground">
                                 {formatDuration(segment.durationMs)}
                               </span>
                             </div>
-                            <p className="mt-3 text-sm leading-7 text-ink-muted">{segment.text}</p>
+                            <p className="mt-3 text-sm leading-7 text-muted-foreground">
+                              {segment.text}
+                            </p>
                           </div>
                         ))}
                       </div>
@@ -980,40 +841,33 @@ export function PodcastPage() {
                   ) : null}
 
                   <section className="space-y-3">
-                    <div className="flex items-end justify-between gap-3">
-                      <div>
-                        <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                          Audio Output
-                        </p>
-                        <h3 className="mt-2 font-display text-xl text-ink">音频片段</h3>
-                      </div>
-                      {selectedEpisode.audioPath ? (
-                        <Button variant="outline" size="sm" onClick={() => setIsPlayerOpen(true)}>
-                          播放最终音频
-                        </Button>
-                      ) : null}
-                    </div>
-
+                    <SectionHeading eyebrow="AUDIO OUTPUT" title="音频片段" />
                     {audioSegments.length === 0 ? (
-                      <div className="rounded-[22px] border border-dashed border-line-soft bg-paper-muted/40 px-4 py-5 text-sm leading-6 text-ink-muted">
-                        {selectedEpisode.status === 'ready'
-                          ? '当前 episode 已完成，但还没有读到音频 segment 元数据。你仍然可以尝试打开最终播放器。'
-                          : '音频阶段尚未产生可展示的 segment。'}
-                      </div>
+                      <WorkspaceEmptyState
+                        className="min-h-[180px]"
+                        title="音频片段尚未就绪"
+                        description={
+                          selectedEpisode.status === 'ready'
+                            ? '当前 episode 已完成，但还没有读到音频 segment 元数据。仍然可以尝试打开最终播放器。'
+                            : '音频阶段尚未产出可展示的 segment。'
+                        }
+                      />
                     ) : (
                       <div className="grid gap-3 md:grid-cols-2">
                         {audioSegments.map((segment) => (
                           <div
                             key={segment.id}
-                            className="rounded-[20px] border border-line-soft/70 bg-paper-base px-4 py-4"
+                            className="rounded-[18px] border border-border/50 bg-card/80 px-4 py-4"
                           >
                             <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm font-medium text-ink">{segment.speaker}</p>
-                              <span className="font-latin text-[11px] tracking-wide text-ink-soft">
+                              <p className="text-sm font-medium text-foreground">
+                                {segment.speaker}
+                              </p>
+                              <span className="text-xs text-muted-foreground">
                                 {formatDuration(segment.durationMs)}
                               </span>
                             </div>
-                            <p className="mt-2 text-xs leading-5 text-ink-muted">
+                            <p className="mt-2 text-xs leading-5 text-muted-foreground">
                               {segment.ttsProvider} · {segment.voiceId}
                             </p>
                           </div>
@@ -1022,17 +876,61 @@ export function PodcastPage() {
                     )}
                   </section>
                 </div>
-              ) : (
-                <SketchEmptyState
-                  illustration="note"
-                  title="还没有选中 episode"
-                  description="在上方播客库里选择一条 episode，这里会展开它的大纲、脚本、评估和音频信息。"
-                />
               )}
-            </Panel>
+            </SurfaceSection>
           </div>
-        </div>
-      </div>
+        }
+        detailRail={
+          <>
+            <SidebarCard title="当前 episode" eyebrow="DETAIL">
+              {selectedEpisode ? (
+                <div className="space-y-3 text-sm">
+                  <SidebarRow label="状态" value={STATUS_META[selectedEpisode.status].label} />
+                  <SidebarRow label="语言" value={selectedEpisode.language} />
+                  <SidebarRow label="风格" value={selectedEpisode.style} />
+                  <SidebarRow label="时长档位" value={selectedEpisode.durationTier} />
+                  <SidebarRow label="语音引擎" value={selectedEpisode.ttsProvider} />
+                  <SidebarRow label="输出格式" value={selectedEpisode.audioFormat.toUpperCase()} />
+                </div>
+              ) : (
+                <p className="text-sm leading-6 text-muted-foreground">
+                  选择一条 episode 后显示详细元信息。
+                </p>
+              )}
+            </SidebarCard>
+
+            <SidebarCard title="来源文档" eyebrow="SOURCE DOCS">
+              {selectedDocumentTitles.length > 0 ? (
+                <div className="space-y-2">
+                  {selectedDocumentTitles.map((title) => (
+                    <div
+                      key={title}
+                      className="rounded-[16px] border border-border/50 bg-card/80 px-3 py-3 text-sm text-foreground"
+                    >
+                      {title}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm leading-6 text-muted-foreground">
+                  当前没有可展示的来源文档映射。选择 episode 或先在左侧勾选文档。
+                </p>
+              )}
+            </SidebarCard>
+
+            <SidebarCard title="运行说明" eyebrow="RUNTIME">
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  无配置时页面仍然可进入，但生成动作依赖设置页里的真实 provider 与预算规则。
+                </p>
+                <p>
+                  审阅阶段的倒计时、重试、取消和删除都继续连到现有真实 mutation。
+                </p>
+              </div>
+            </SidebarCard>
+          </>
+        }
+      />
 
       <PodcastPlayerModal
         open={isPlayerOpen}
@@ -1040,6 +938,126 @@ export function PodcastPage() {
         onClose={() => setIsPlayerOpen(false)}
       />
     </>
+  )
+}
+
+function SurfaceSection({
+  eyebrow,
+  title,
+  description,
+  headerSlot,
+  children,
+  className,
+  ...rest
+}: {
+  eyebrow: string
+  title: string
+  description?: string
+  headerSlot?: ReactNode
+  children: ReactNode
+  className?: string
+} & React.ComponentProps<'div'>) {
+  return (
+    <Card className={cn('border-border/60 bg-card/90 py-0 shadow-sm', className)} {...rest}>
+      <CardContent className="space-y-5 p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+              {eyebrow}
+            </p>
+            <h2 className="mt-1 text-xl font-medium text-foreground">{title}</h2>
+            {description ? (
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
+            ) : null}
+          </div>
+          {headerSlot}
+        </div>
+        {children}
+      </CardContent>
+    </Card>
+  )
+}
+
+function SidebarCard({
+  title,
+  eyebrow,
+  children,
+}: {
+  title: string
+  eyebrow: string
+  children: ReactNode
+}) {
+  return (
+    <Card className="border-border/60 bg-card/90 py-0 shadow-sm">
+      <CardContent className="space-y-4 p-5">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+            {eyebrow}
+          </p>
+          <h3 className="mt-1 text-base font-medium text-foreground">{title}</h3>
+        </div>
+        {children}
+      </CardContent>
+    </Card>
+  )
+}
+
+function WorkspaceEmptyState({
+  title,
+  description,
+  action,
+  className,
+}: {
+  title: string
+  description: string
+  action?: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn('rounded-[18px] border border-dashed border-border/60 bg-background/30', className)}>
+      <EmptyState title={title} description={description} className="py-10" />
+      {action ? <div className="-mt-6 flex justify-center pb-6">{action}</div> : null}
+    </div>
+  )
+}
+
+function EpisodeListItem({
+  episode,
+  active,
+  onSelect,
+}: {
+  episode: PodcastEpisode
+  active: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'w-full rounded-[18px] border px-4 py-4 text-left transition-colors',
+        active
+          ? 'border-foreground/20 bg-card shadow-sm'
+          : 'border-border/50 bg-card/70 hover:border-foreground/15 hover:bg-card'
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">{episode.title}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {formatDateTime(episode.createdAt)} · {episode.style} · {episode.language}
+          </p>
+        </div>
+        <StatusBadge status={episode.status} />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span>{episode.audioFormat.toUpperCase()}</span>
+        <span>·</span>
+        <span>{episode.durationTier}</span>
+        <span>·</span>
+        <span>{Math.round(getEpisodeProgress(episode))}%</span>
+      </div>
+    </button>
   )
 }
 
@@ -1059,8 +1077,8 @@ function OptionGrid({
   return (
     <section className="space-y-3">
       <div>
-        <p className="text-sm font-medium text-ink">{title}</p>
-        <p className="text-xs leading-5 text-ink-muted">{description}</p>
+        <p className="text-sm font-medium text-foreground">{title}</p>
+        <p className="text-xs leading-5 text-muted-foreground">{description}</p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         {options.map((option) => {
@@ -1071,15 +1089,15 @@ function OptionGrid({
               type="button"
               onClick={() => onChange(option.value)}
               className={cn(
-                'rounded-[20px] border px-4 py-3 text-left transition-all',
+                'rounded-[18px] border px-4 py-3 text-left transition-colors',
                 active
-                  ? 'border-ink/20 bg-paper-muted/70 shadow-paper'
-                  : 'border-line-soft/70 bg-paper-base hover:border-ink/15 hover:bg-paper-muted/45'
+                  ? 'border-foreground/20 bg-card shadow-sm'
+                  : 'border-border/50 bg-card/70 hover:border-foreground/15 hover:bg-card'
               )}
             >
-              <p className="text-sm font-medium text-ink">{option.label}</p>
+              <p className="text-sm font-medium text-foreground">{option.label}</p>
               {option.hint ? (
-                <p className="mt-1 text-xs leading-5 text-ink-muted">{option.hint}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{option.hint}</p>
               ) : null}
             </button>
           )
@@ -1089,71 +1107,49 @@ function OptionGrid({
   )
 }
 
-function SimpleToggleGroup({
-  title,
-  options,
+function SelectField({
+  label,
   value,
+  options,
   onChange,
 }: {
-  title: string
-  options: Array<{ value: string; label: string }>
+  label: string
   value: string
+  options: Array<{ value: string; label: string }>
   onChange: (value: string) => void
 }) {
   return (
-    <section className="space-y-3">
-      <p className="text-sm font-medium text-ink">{title}</p>
-      <div className="flex flex-wrap gap-2">
+    <label className="space-y-2">
+      <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-11 w-full rounded-[16px] border border-border/50 bg-background/50 px-4 text-sm text-foreground outline-none transition-colors focus:border-foreground/25"
+      >
         {options.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-            className={cn(
-              'rounded-full border px-4 py-2 text-sm transition-colors',
-              option.value === value
-                ? 'border-ink bg-ink text-paper-base'
-                : 'border-line-soft bg-paper-base text-ink-muted hover:border-ink/20 hover:text-ink'
-            )}
-          >
+          <option key={option.value} value={option.value}>
             {option.label}
-          </button>
+          </option>
         ))}
-      </div>
-    </section>
+      </select>
+    </label>
   )
 }
 
 function StatusBadge({ status }: { status: PodcastStatus }) {
   const meta = STATUS_META[status]
-  return (
-    <span
-      className={cn(
-        'rounded-full border px-3 py-1 text-[11px] font-medium tracking-wide',
-        meta.tone
-      )}
-    >
-      {meta.label}
-    </span>
-  )
-}
+  const toneClass =
+    meta.tone === 'success'
+      ? 'bg-emerald-100 text-emerald-700'
+      : meta.tone === 'warning'
+        ? 'bg-amber-100 text-amber-700'
+        : meta.tone === 'danger'
+          ? 'bg-destructive/10 text-destructive'
+          : meta.tone === 'info'
+            ? 'bg-sky-100 text-sky-700'
+            : 'bg-muted text-muted-foreground'
 
-function MetricTile({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: string | number
-  hint: string
-}) {
-  return (
-    <div className="rounded-[22px] border border-line-soft/70 bg-paper-card px-4 py-4 shadow-paper">
-      <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">{label}</p>
-      <p className="mt-3 font-display text-2xl text-ink">{value}</p>
-      <p className="mt-2 text-xs leading-5 text-ink-muted">{hint}</p>
-    </div>
-  )
+  return <Badge className={cn('rounded-md border-0 font-normal', toneClass)}>{meta.label}</Badge>
 }
 
 function EstimateStat({
@@ -1166,10 +1162,10 @@ function EstimateStat({
   hint: string
 }) {
   return (
-    <div className="rounded-[18px] border border-line-soft/70 bg-paper-base px-4 py-3">
-      <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">{label}</p>
-      <p className="mt-2 font-display text-xl text-ink">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-ink-muted">{hint}</p>
+    <div className="rounded-[16px] border border-border/50 bg-card/80 px-4 py-3">
+      <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-lg font-medium text-foreground">{value}</p>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{hint}</p>
     </div>
   )
 }
@@ -1186,15 +1182,13 @@ function ScoreTile({
   return (
     <div
       className={cn(
-        'rounded-[22px] border px-4 py-4',
-        strong
-          ? 'border-ink/20 bg-paper-muted/75 shadow-paper'
-          : 'border-line-soft/70 bg-paper-base'
+        'rounded-[18px] border px-4 py-4',
+        strong ? 'border-foreground/20 bg-card shadow-sm' : 'border-border/50 bg-muted/20'
       )}
     >
-      <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">{label}</p>
-      <p className="mt-3 font-display text-3xl text-ink">{value.toFixed(1)}</p>
-      <p className="mt-1 text-xs text-ink-muted">/ 10</p>
+      <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
+      <p className="mt-3 text-3xl font-medium text-foreground">{value.toFixed(1)}</p>
+      <p className="mt-1 text-xs text-muted-foreground">/ 10</p>
     </div>
   )
 }
@@ -1209,20 +1203,38 @@ function BulletPanel({
   emptyLabel: string
 }) {
   return (
-    <div className="rounded-[22px] border border-line-soft/70 bg-paper-base px-4 py-4">
-      <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">{title}</p>
+    <div className="rounded-[18px] border border-border/50 bg-card/80 px-4 py-4">
+      <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">{title}</p>
       <div className="mt-3 space-y-2">
         {items.length === 0 ? (
-          <p className="text-sm leading-6 text-ink-muted">{emptyLabel}</p>
+          <p className="text-sm leading-6 text-muted-foreground">{emptyLabel}</p>
         ) : (
           items.map((item) => (
-            <div key={item} className="flex gap-3 text-sm leading-6 text-ink-muted">
-              <span className="mt-[10px] h-1.5 w-1.5 flex-none rounded-full bg-ink/50" />
+            <div key={item} className="flex gap-3 text-sm leading-6 text-muted-foreground">
+              <span className="mt-[10px] h-1.5 w-1.5 flex-none rounded-full bg-foreground/50" />
               <span>{item}</span>
             </div>
           ))
         )}
       </div>
+    </div>
+  )
+}
+
+function SectionHeading({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">{eyebrow}</p>
+      <h3 className="mt-1 text-lg font-medium text-foreground">{title}</h3>
+    </div>
+  )
+}
+
+function SidebarRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   )
 }
@@ -1297,9 +1309,7 @@ function formatDuration(durationMs: number) {
 
 function formatDateTime(value: string) {
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
+  if (Number.isNaN(date.getTime())) return value
 
   return new Intl.DateTimeFormat('zh-CN', {
     month: 'numeric',
@@ -1325,8 +1335,7 @@ function estimatePodcastGeneration({
   const durationMinutes = DURATION_ESTIMATE_MINUTES[durationTier]
   const segmentCount = DURATION_ESTIMATE_SEGMENTS[durationTier]
   const promptWeight = Math.min(1, prompt.trim().length / 240)
-  const charsPerMinute =
-    language === 'en-US' ? 780 : 340
+  const charsPerMinute = language === 'en-US' ? 780 : 340
 
   const llmTokens = Math.round(
     1800 +

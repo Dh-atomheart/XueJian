@@ -1,73 +1,37 @@
-# React + TypeScript + Vite
+# xuejian frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+这是学笺的主前端工程，负责桌面端 UI、页面状态、查询层、Reader 交互和各知识加工工作流的可视化承载。
 
-Currently, two official plugins are available:
+## 技术栈
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React 19
+- TypeScript
+- Vite
+- Tailwind CSS
+- TanStack Query
+- Zustand
+- Tauri 2
 
-## React Compiler
+## 设计约束
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- 以 `examples/sample of design code/b_UWqxn1dtBzw` 为高保真视觉参考
+- 保持单壳层应用结构，不迁移到 Next.js
+- 业务数据仍走现有 `queries/`、`services/gateway/`、`store/`
+- 保留稳定测试锚点：`app-shell`、`app-shell-page-title`、`sidebar-nav-*`
 
-## Expanding the ESLint configuration
+## 常用命令
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- `npm run dev`
+- `npm run build`
+- `npm run lint`
+- `npm run test`
+- `npm run test:e2e`
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## 关键目录
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- `src/components/shell/`: 应用壳层
+- `src/features/`: 页面级业务模块
+- `src/components/ui/`: 通用 UI 组件
+- `src/queries/`: React Query hooks
+- `src/services/gateway/`: 前后端桥接
+- `tests/`: 单测与 E2E

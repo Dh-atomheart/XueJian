@@ -6,12 +6,17 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
+  type ComponentProps,
+  type ReactNode,
 } from 'react'
 import Graph from 'graphology'
 import forceAtlas2 from 'graphology-layout-forceatlas2'
 import Sigma from 'sigma'
 import './knowledge-graph.css'
-import { Button, Input, Panel } from '@/components/ui'
+import { KnowledgeGraphPageLayout } from '@/components/pages/knowledge-graph-page'
+import { Button, Card, Input } from '@/components/ui'
+import { cn } from '@/lib/utils'
 import { useDocumentsQuery } from '@/queries'
 import {
   useAllGraphEdgesQuery,
@@ -107,6 +112,18 @@ type CanvasEdge = {
   relation: RelationType
   confidence: number
   color: string
+}
+
+function Panel({
+  className,
+  children,
+  ...props
+}: ComponentProps<'div'> & { children: ReactNode }) {
+  return (
+    <Card className={cn('gap-0 py-0', className)} {...props}>
+      {children}
+    </Card>
+  )
 }
 
 export function KnowledgeGraphPage() {
@@ -290,10 +307,9 @@ export function KnowledgeGraphPage() {
     selectedCommunitySummary ?? safeParseSummary(selectedCommunity?.summaryJson ?? null)
 
   return (
-    <div className="paper-texture flex h-full flex-col gap-4 overflow-hidden p-4">
-      <StatsBar stats={stats} buildRuns={buildRuns} />
-
-      <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_360px] gap-4 xl:grid-cols-[260px_minmax(0,1fr)_340px] lg:grid-cols-1">
+    <KnowledgeGraphPageLayout
+      statsBar={<StatsBar stats={stats} buildRuns={buildRuns} />}
+      buildPanel={
         <Panel className="flex min-h-0 flex-col gap-4 overflow-hidden border border-ink/10 bg-paper-card/80 backdrop-blur">
           <section className="rounded-[22px] border border-ink/10 bg-[linear-gradient(145deg,rgba(255,255,255,0.95),rgba(245,245,240,0.92))] p-4 shadow-paper">
             <div className="mb-3 flex items-end justify-between gap-3">
@@ -413,7 +429,28 @@ export function KnowledgeGraphPage() {
             </div>
           </section>
         </Panel>
-
+      }
+      viewTabs={VIEW_MODE_OPTIONS.map((option) => ({
+        id: option.id,
+        label: option.label,
+        active: viewMode === option.id,
+        onClick: () => setViewMode(option.id),
+      }))}
+      searchBar={
+        <div className="min-w-[240px] flex-1 xl:max-w-[360px]">
+          <Input
+            placeholder="搜索节点名称、描述或别名"
+            value={searchInput}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchInput(event.target.value)}
+          />
+        </div>
+      }
+      stageHint={
+        viewMode === 'explore' && selectedNode
+          ? `从 ${selectedNode.label} 向外展开`
+          : '支持社区折叠与节点高亮'
+      }
+      graphStage={
         <Panel className="relative min-h-0 overflow-hidden border border-ink/10 bg-paper-card/85 p-0 backdrop-blur">
           <div className="absolute inset-x-0 top-0 z-10 flex flex-wrap items-center gap-2 border-b border-ink/10 bg-paper-card/82 px-4 py-3 backdrop-blur">
             <div className="inline-flex rounded-full border border-ink/10 bg-paper-base/80 p-1">
@@ -435,7 +472,7 @@ export function KnowledgeGraphPage() {
               <Input
                 placeholder="搜索节点名称、描述或别名"
                 value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchInput(event.target.value)}
               />
             </div>
             <div className="rounded-full border border-ink/10 bg-paper-base/80 px-3 py-1 text-xs text-ink-muted">
@@ -464,7 +501,8 @@ export function KnowledgeGraphPage() {
             </div>
           </div>
         </Panel>
-
+      }
+      detailRail={
         <Panel className="flex min-h-0 flex-col gap-4 overflow-hidden border border-ink/10 bg-paper-card/82 backdrop-blur">
           {selectedNode ? (
             <>
@@ -500,7 +538,7 @@ export function KnowledgeGraphPage() {
                     <span>标签</span>
                     <Input
                       value={nodeDraft.label}
-                      onChange={(event) =>
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         setNodeDraft((current) => ({ ...current, label: event.target.value }))
                       }
                     />
@@ -511,7 +549,7 @@ export function KnowledgeGraphPage() {
                       aria-label="节点类型"
                       className="rounded-[16px] border border-line-soft bg-paper-card px-3 py-2 text-sm text-ink"
                       value={nodeDraft.nodeType}
-                      onChange={(event) =>
+                      onChange={(event: ChangeEvent<HTMLSelectElement>) =>
                         setNodeDraft((current) => ({
                           ...current,
                           nodeType: event.target.value as KnowledgeNodeType,
@@ -530,7 +568,7 @@ export function KnowledgeGraphPage() {
                     <Input
                       placeholder="使用逗号分隔"
                       value={nodeDraft.aliases}
-                      onChange={(event) =>
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         setNodeDraft((current) => ({ ...current, aliases: event.target.value }))
                       }
                     />
@@ -626,7 +664,7 @@ export function KnowledgeGraphPage() {
                         step={0.05}
                         type="number"
                         value={newEdgeConfidence}
-                        onChange={(event) => setNewEdgeConfidence(Number(event.target.value) || 0)}
+                        onChange={(event: ChangeEvent<HTMLInputElement>) => setNewEdgeConfidence(Number(event.target.value) || 0)}
                       />
                     </div>
                     <Button size="sm" onClick={handleCreateEdge}>
@@ -665,7 +703,7 @@ export function KnowledgeGraphPage() {
                             aria-label="编辑边关系类型"
                             className="rounded-[14px] border border-line-soft bg-paper-base px-3 py-2 text-sm text-ink"
                             value={draft.relation}
-                            onChange={(event) =>
+                            onChange={(event: ChangeEvent<HTMLSelectElement>) =>
                               setEdgeDrafts((current) => ({
                                 ...current,
                                 [edge.id]: {
@@ -687,7 +725,7 @@ export function KnowledgeGraphPage() {
                             step={0.05}
                             type="number"
                             value={draft.confidence}
-                            onChange={(event) =>
+                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
                               setEdgeDrafts((current) => ({
                                 ...current,
                                 [edge.id]: {
@@ -776,8 +814,8 @@ export function KnowledgeGraphPage() {
             </Panel>
           )}
         </Panel>
-      </div>
-    </div>
+      }
+    />
   )
 }
 

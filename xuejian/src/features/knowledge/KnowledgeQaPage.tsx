@@ -1,31 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Input, Panel, SketchEmptyState } from '@/components/ui'
-import {
-  KnowledgeChatPanel,
-  type KnowledgeChatCitation,
-  type KnowledgeChatTurn,
-} from '@/components/knowledge'
+import { KnowledgeQaPage as KnowledgeQaPageView } from '@/components/pages/knowledge-qa-page'
 import { useStartKnowledgeQaMutation, useKnowledgeSearchQuery } from '@/queries/knowledge'
 import { useDocumentsQuery, useOrchestrationServiceHealthQuery } from '@/queries'
 import { getErrorMessage, reportAppError, reportFeedback } from '@/lib/appFeedback'
 import { useAppUiStore } from '@/store'
-import { cn } from '@/lib/utils'
 import { isTauriEnvironment } from '@/services/gateway'
 import { orchestrationGateway } from '@/services/gateway/orchestration'
 import type { ChunkSearchResult, WorkflowEvent } from '@/types'
 
-type TurnState = KnowledgeChatTurn & {
+type TurnState = {
+  id: string
+  question: string
+  answer: string | null
+  citations: Array<{
+    id: string
+    documentId: string
+    documentTitle: string
+    page: number | null
+    snippet: string
+    relevance: number | null
+  }>
+  status: 'pending' | 'answered' | 'error'
+  errorMessage?: string | null
   documentTitleCache: Map<string, string>
   workflowRunId: string | null
 }
 
 const KNOWLEDGE_POLL_INTERVAL_MS = 1_800
-
-const EXAMPLE_PROMPTS = [
-  '这份材料的核心论点是什么？',
-  '第 3 节的结论和第 5 节如何对应？',
-  '帮我对比两篇文档里相似的概念。',
-]
 
 export function KnowledgeQaPage() {
   const [question, setQuestion] = useState('')
@@ -33,7 +34,6 @@ export function KnowledgeQaPage() {
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
   const [turns, setTurns] = useState<TurnState[]>([])
   const [isRestartingService, setIsRestartingService] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
   const reportedWorkflowFailuresRef = useRef(new Set<string>())
 
   const { data: documents = [] } = useDocumentsQuery()
@@ -45,6 +45,7 @@ export function KnowledgeQaPage() {
   )
   const startQaMutation = useStartKnowledgeQaMutation()
   const openReader = useAppUiStore((state) => state.openReader)
+  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
 
   const documentTitleLookup = useMemo(() => {
     const map = new Map<string, string>()
@@ -86,7 +87,7 @@ export function KnowledgeQaPage() {
             }
 
             if (run.status === 'failed' || run.status === 'cancelled') {
-              const failedMessage = run.errorMessage ?? '知识问答后台流程执行失败'
+              const failedMessage = run.errorMessage ?? 'Knowledge QA workflow failed'
 
               if (!reportedWorkflowFailuresRef.current.has(run.id)) {
                 reportedWorkflowFailuresRef.current.add(run.id)
@@ -124,22 +125,20 @@ export function KnowledgeQaPage() {
             return {
               turnId: turn.id,
               status: 'error' as const,
-              errorMessage: getErrorMessage(error, '读取知识问答结果失败'),
+              errorMessage: getErrorMessage(error, 'Failed to read knowledge QA result'),
             }
           }
         })
       ).then((updates) => {
-        if (cancelled) {
-          return
-        }
+        if (cancelled) return
 
         const updateMap = new Map(
-          updates.filter((update): update is NonNullable<typeof update> => update != null).map((update) => [update.turnId, update])
+          updates
+            .filter((update): update is NonNullable<typeof update> => update != null)
+            .map((update) => [update.turnId, update])
         )
 
-        if (updateMap.size === 0) {
-          return
-        }
+        if (updateMap.size === 0) return
 
         setTurns((prev) =>
           prev.map((turn) => {
@@ -163,13 +162,13 @@ export function KnowledgeQaPage() {
       const restarted = await orchestrationGateway.restart()
 
       if (restarted.status !== 'healthy' && restarted.status !== 'degraded') {
-        throw new Error(restarted.errorMessage ?? `当前服务状态：${restarted.status}`)
+        throw new Error(restarted.errorMessage ?? `Current service state: ${restarted.status}`)
       }
 
       reportFeedback({
         scope: '知识问答',
         title: '知识问答服务已重启',
-        detail: restarted.endpoint ? `服务地址：${restarted.endpoint}` : '服务已恢复响应。',
+        detail: restarted.endpoint ? `Service endpoint: ${restarted.endpoint}` : 'Service restored',
         level: 'info',
         showToast: true,
       })
@@ -253,204 +252,75 @@ export function KnowledgeQaPage() {
     ]
   )
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        handleAsk()
-      }
-    },
-    [handleAsk]
-  )
-
   const toggleDoc = useCallback((docId: string) => {
     setSelectedDocIds((prev) =>
       prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId]
     )
   }, [])
 
-  const handleCitationClick = useCallback(
-    (citation: KnowledgeChatCitation) => {
-      openReader(citation.documentId)
-    },
-    [openReader]
-  )
-
   const handleRetry = useCallback(
-    (turn: KnowledgeChatTurn) => {
+    (turnId: string) => {
+      const turn = turns.find((item) => item.id === turnId)
+      if (!turn) return
       void handleAsk(turn.question)
     },
-    [handleAsk]
+    [handleAsk, turns]
   )
 
-  const handleFillExample = useCallback((prompt: string) => {
-    setQuestion(prompt)
-    inputRef.current?.focus()
-  }, [])
+  const latestCitations = turns.flatMap((turn) => turn.citations).slice(0, 6)
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 p-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="font-ui text-[11px] uppercase tracking-[0.24em] text-ink-soft">
-            知识问答工作台
-          </p>
-          <h1 className="mt-2 font-display text-2xl text-ink">知识问答</h1>
-          <p className="mt-1 font-body text-sm leading-6 text-ink-muted">
-            在选定的文档范围内提问，回答附带可跳转的原文引用。
-          </p>
-        </div>
-        {selectedDocIds.length > 0 && (
-          <span className="rounded-full border border-ink/15 bg-paper-muted/60 px-3 py-1 font-latin text-[11px] tracking-wide text-ink-soft">
-            已限定 {selectedDocIds.length} 份文档
-          </span>
-        )}
-      </header>
-
-      {shouldWarnOrchestration ? (
-        <Panel variant="paperCard" className="rounded-[20px] border border-amber-200 bg-amber-50/80 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-1">
-              <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                服务状态
-              </p>
-              <p className="text-sm text-ink">
-                当前知识问答服务不可用或协议不兼容，系统无法稳定生成回答。
-              </p>
-              {orchestrationHealth?.errorMessage ? (
-                <p className="text-xs leading-5 text-ink-muted break-all">
-                  {orchestrationHealth.errorMessage}
-                </p>
-              ) : null}
-            </div>
-            <Button
-              variant="outline"
-              disabled={isRestartingService}
-              onClick={() => {
-                void handleRestartService()
-              }}
-            >
-              {isRestartingService ? '正在重启服务...' : '重启问答服务'}
-            </Button>
-          </div>
-        </Panel>
-      ) : null}
-
-      {documents.length > 0 && (
-        <Panel variant="paperCard" className="rounded-[20px] p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-              文档范围（可选）
-            </p>
-            {selectedDocIds.length > 0 && (
-              <button
-                type="button"
-                className="font-ui text-xs text-ink-soft hover:text-ink"
-                onClick={() => setSelectedDocIds([])}
-              >
-                清除选择
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {documents.map((doc) => {
-              const active = selectedDocIds.includes(doc.id)
-              return (
-                <button
-                  key={doc.id}
-                  type="button"
-                  onClick={() => toggleDoc(doc.id)}
-                  className={cn(
-                    'rounded-full border px-3 py-1.5 font-ui text-xs transition-colors',
-                    active
-                      ? 'border-ink/35 bg-ink/[0.08] text-ink'
-                      : 'border-line-soft bg-paper-card text-ink-muted hover:border-ink/20 hover:text-ink'
-                  )}
-                >
-                  {doc.title}
-                </button>
-              )
-            })}
-          </div>
-        </Panel>
-      )}
-
-      <div className="flex flex-col gap-2">
-        <div className="flex gap-3">
-          <Input
-            ref={inputRef}
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="输入你的问题…（Enter 发送）"
-            className="flex-1 rounded-[14px]"
-          />
-          <Button
-            onClick={() => handleAsk()}
-            disabled={!question.trim() || startQaMutation.isPending || isRestartingService}
-            variant="sketch"
-            className="rounded-[14px]"
-          >
-            {startQaMutation.isPending || isRestartingService ? '处理中...' : '提问'}
-          </Button>
-        </div>
-        {turns.length === 0 && (
-          <div className="flex flex-wrap gap-2">
-            {EXAMPLE_PROMPTS.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={() => handleFillExample(prompt)}
-                className="rounded-full border border-dashed border-line-soft bg-paper-card/70 px-3 py-1 font-ui text-xs text-ink-muted hover:border-ink/25 hover:text-ink"
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {searchResults.length > 0 && (
-        <Panel variant="paperCard" className="rounded-[20px] p-4">
-          <p className="mb-3 font-ui text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-            相关文档片段 · {searchResults.length}
-          </p>
-          <div className="space-y-2">
-            {searchResults.map((chunk: ChunkSearchResult) => (
-              <button
-                key={chunk.id}
-                type="button"
-                onClick={() => openReader(chunk.documentId)}
-                className="block w-full rounded-[14px] border border-line-soft bg-paper-muted/40 p-3 text-left transition-colors hover:border-ink/20 hover:bg-paper-muted"
-              >
-                <p className="font-body text-sm leading-6 text-ink">
-                  {chunk.snippet || chunk.content}
-                </p>
-                <p className="mt-1 font-latin text-xs text-ink-soft">
-                  {documentTitleLookup.get(chunk.documentId) ?? '文档'} · 页{' '}
-                  {chunk.pageStart ?? '?'}–{chunk.pageEnd ?? '?'}
-                </p>
-              </button>
-            ))}
-          </div>
-        </Panel>
-      )}
-
-      <KnowledgeChatPanel
-        turns={turns}
-        onOpenCitation={handleCitationClick}
-        onRetry={handleRetry}
-        className="flex-1"
-        emptyContent={
-          <SketchEmptyState
-            illustration="chat"
-            title="从你的文档里问一个问题"
-            description="输入问题后，系统会先在选定的文档里检索，再给出带引用的回答。点击下方的引用可以直接跳回原文。"
-            className="max-w-md"
-          />
-        }
-      />
-    </div>
+    <KnowledgeQaPageView
+      question={question}
+      documents={documents.map((doc) => ({ id: doc.id, title: doc.title }))}
+      selectedDocumentIds={selectedDocIds}
+      turns={turns.map((turn) => ({
+        id: turn.id,
+        question: turn.question,
+        answer: turn.answer,
+        status: turn.status,
+        errorMessage: turn.errorMessage ?? null,
+        citations: turn.citations.map((citation) => ({
+          id: citation.id,
+          documentId: citation.documentId,
+          documentTitle: citation.documentTitle ?? 'Document',
+          pageLabel: citation.page != null ? `P.${citation.page}` : 'Unknown page',
+          snippet: citation.snippet,
+        })),
+      }))}
+      citations={latestCitations.map((citation) => ({
+        id: citation.id,
+        documentId: citation.documentId,
+        documentTitle: citation.documentTitle ?? 'Document',
+        pageLabel: citation.page != null ? `P.${citation.page}` : 'Unknown page',
+        snippet: citation.snippet,
+      }))}
+      searchResults={searchResults.map((chunk: ChunkSearchResult) => ({
+        id: chunk.id,
+        documentId: chunk.documentId,
+        documentTitle: documentTitleLookup.get(chunk.documentId) ?? 'Document',
+        pageLabel: `P.${chunk.pageStart ?? '?'}-${chunk.pageEnd ?? '?'}`,
+        snippet: chunk.snippet || chunk.content,
+      }))}
+      isSubmitting={startQaMutation.isPending || isRestartingService}
+      hasConfiguration
+      serviceWarningTitle={shouldWarnOrchestration ? '知识问答服务当前不可用或协议不兼容' : null}
+      serviceWarningMessage={orchestrationHealth?.errorMessage ?? null}
+      isRestartingService={isRestartingService}
+      onQuestionChange={setQuestion}
+      onSubmit={() => {
+        void handleAsk()
+      }}
+      onRetryQuestion={handleRetry}
+      onToggleDocument={toggleDoc}
+      onClearDocuments={() => setSelectedDocIds([])}
+      onUsePrompt={setQuestion}
+      onOpenCitation={(documentId) => openReader(documentId)}
+      onRestartService={() => {
+        void handleRestartService()
+      }}
+      onOpenSettings={() => setActiveNavItem('settings')}
+    />
   )
 }
 
@@ -470,7 +340,7 @@ function extractKnowledgeQaResult(
   const answer =
     answerPayload && typeof answerPayload['answer'] === 'string' && answerPayload['answer'].trim()
       ? answerPayload['answer']
-      : '回答已生成，但没有返回可显示的正文。'
+      : 'Answer generated, but no displayable body was returned.'
 
   const citations = Array.isArray(answerPayload?.['citations'])
     ? answerPayload['citations'].flatMap((citation, index) =>
@@ -485,7 +355,7 @@ function normalizeKnowledgeCitation(
   rawCitation: unknown,
   index: number,
   documentTitleCache: Map<string, string>
-): KnowledgeChatCitation[] {
+) {
   if (!rawCitation || typeof rawCitation !== 'object') {
     return []
   }
@@ -507,7 +377,7 @@ function normalizeKnowledgeCitation(
     {
       id: `${documentId}-${index}`,
       documentId,
-      documentTitle: documentTitleCache.get(documentId) ?? '文档',
+      documentTitle: documentTitleCache.get(documentId) ?? 'Document',
       page: typeof citation['page'] === 'number' ? citation['page'] : null,
       snippet: snippetCandidate,
       relevance:

@@ -19,54 +19,51 @@
 }
 
 :root {
-  --font-geist-sans: 'Geist', 'Geist Fallback', 'Inter', system-ui, sans-serif;
-  --font-geist-mono: 'Geist Mono', 'Geist Mono Fallback', 'SFMono-Regular', Consolas, monospace;
+  --font-geist-sans: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-geist-mono: 'Geist Mono', 'SFMono-Regular', Consolas, monospace;
   --font-reading-zh: 'LXGW WenKai', 'Songti SC', serif;
 
   --paper-base: 245 243 239;
   --paper-muted: 238 236 231;
-  --paper-soft: 232 229 223;
-  --paper-card: 250 248 244;
-  --ink: 41 37 36;
-  --ink-muted: 94 88 84;
-  --ink-soft: 135 128 123;
-  --line-soft: 218 214 208;
+  --paper-soft: 234 231 225;
+  --paper-card: 251 249 246;
+  --ink: 43 38 34;
+  --ink-muted: 104 95 88;
+  --ink-soft: 141 131 123;
+  --line-soft: 220 215 208;
   --highlight-yellow: 229 206 142;
   --highlight-green: 172 196 162;
   --highlight-blue: 164 192 220;
   --highlight-pink: 221 186 190;
-  --shadow-paper: 0 10px 30px rgba(20, 18, 16, 0.04);
-  --shadow-sticky: 0 14px 34px rgba(20, 18, 16, 0.06);
-  --shadow-card: 0 4px 16px rgba(20, 18, 16, 0.05);
-  --theme-wash: 228 223 214;
+  --shadow-paper: 0 18px 45px rgba(57, 48, 39, 0.05);
+  --shadow-sticky: 0 20px 55px rgba(57, 48, 39, 0.08);
+  --shadow-card: 0 10px 30px rgba(57, 48, 39, 0.045);
+  --theme-wash: 232 227 219;
 
   --background: 245 243 239;
-  --foreground: 41 37 36;
-  --card: 250 248 244;
-  --card-foreground: 41 37 36;
-  --popover: 250 248 244;
-  --popover-foreground: 41 37 36;
-  --primary: 41 37 36;
-  --primary-foreground: 250 248 244;
-  --secondary: 238 236 231;
-  --secondary-foreground: 41 37 36;
-  --muted: 238 236 231;
-  --muted-foreground: 110 102 98;
-  --accent: 228 223 214;
-  --accent-foreground: 41 37 36;
-  --destructive: 190 65 65;
+  --foreground: 43 38 34;
+  --card: 251 249 246;
+  --card-foreground: 43 38 34;
+  --popover: 251 249 246;
+  --popover-foreground: 43 38 34;
+  --primary: 43 38 34;
+  --primary-foreground: 251 249 246;
+  --secondary: 239 235 229;
+  --secondary-foreground: 43 38 34;
+  --muted: 239 235 229;
+  --muted-foreground: 116 108 101;
+  --accent: 231 226 217;
+  --accent-foreground: 43 38 34;
+  --destructive: 189 77 77;
   --destructive-foreground: 255 255 255;
-  --border: 218 214 208;
-  --input: 218 214 208;
-  --ring: 41 37 36;
-  --sidebar-bg: 245 243 239;
-  --sidebar-fg: 41 37 36;
-  --sidebar-primary: 41 37 36;
-  --sidebar-primary-foreground: 250 248 244;
-  --sidebar-accent: 238 236 231;
-  --sidebar-accent-foreground: 41 37 36;
-  --sidebar-border: 218 214 208;
-  --sidebar-ring: 41 37 36;
+  --border: 220 215 208;
+  --input: 220 215 208;
+  --ring: 43 38 34;
+  --chart-1: 145 180 146;
+  --chart-2: 228 203 126;
+  --chart-3: 155 186 218;
+  --chart-4: 223 185 191;
+  --chart-5: 218 170 120;
 }
 
 * {
@@ -84,7 +81,10 @@ html {
 
 body {
   min-height: 100vh;
-  background: hsl(30 15% 95%);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.95), rgba(245, 243, 239, 0) 38%),
+    radial-gradient(circle at right 10% bottom 12%, rgba(233, 226, 211, 0.65), rgba(245, 243, 239, 0) 30%),
+    linear-gradient(180deg, rgb(var(--paper-base)), rgb(var(--paper-soft)));
   color: rgb(var(--foreground));
   font-family: var(--font-geist-sans);
 }
@@ -93,9 +93,27 @@ body {
   min-height: 100vh;
 }
 
-.paper-texture,
-.app-shell-frame {
-  background: transparent;
+.paper-texture {
+  position: relative;
+}
+
+.paper-texture::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0)),
+    radial-gradient(circle at center, transparent 0%, rgba(58, 49, 38, 0.015) 100%);
+}
+
+.app-shell-frame > :not([data-app-overlay-root]) {
+  position: relative;
+  z-index: 1;
+}
+
+.app-shell-main {
+  scrollbar-gutter: stable;
 }
 
 .theme-button,
@@ -107,7 +125,8 @@ body {
     background-color 160ms ease,
     border-color 160ms ease,
     color 160ms ease,
-    box-shadow 160ms ease;
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 ::-webkit-scrollbar {
@@ -167,6 +186,7 @@ body {
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);

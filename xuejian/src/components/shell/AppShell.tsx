@@ -1,4 +1,5 @@
-import { useMemo, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
+import { useMemo } from 'react'
 import { hasUsableApiConfig, useApiConfigsQuery } from '@/queries'
 import { cn } from '@/lib/utils'
 import { useAppUiStore, type NavItemId } from '@/store'
@@ -27,68 +28,29 @@ const NAV_ITEMS: NavItemDefinition[] = [
   { id: 'profile', label: '我的', shortLabel: '我的', icon: <ProfileIcon /> },
 ]
 
-const PAGE_META: Record<NavItemId, { eyebrow: string; title: string; description: string }> = {
-  home: {
-    eyebrow: 'STUDY CENTER',
-    title: '今日学习中心',
-    description: '围绕今天的任务、文档和卡片工作流继续推进。',
-  },
-  library: {
-    eyebrow: 'DOCUMENT LIBRARY',
-    title: '文档库',
-    description: '管理导入文档、查看状态，并从这里进入阅读与后续工作流。',
-  },
-  cards: {
-    eyebrow: 'CARD STUDIO',
-    title: '卡片工坊',
-    description: '把文档内容转为候选卡片，并在人工确认后写入正式卡片库。',
-  },
-  learning: {
-    eyebrow: 'REVIEW',
-    title: '复习',
-    description: '完成今日新卡与到期卡片的复习任务。',
-  },
-  knowledge: {
-    eyebrow: 'KNOWLEDGE QA',
-    title: '知识问答',
-    description: '围绕你的文档提问，并获得可追溯的引用答案。',
-  },
-  graph: {
-    eyebrow: 'KNOWLEDGE GRAPH',
-    title: '知识图谱',
-    description: '查看概念之间的连接、社区关系与来源脉络。',
-  },
-  podcast: {
-    eyebrow: 'PODCAST WORKSHOP',
-    title: '播客工坊',
-    description: '将文档内容改写为可听脚本与音频节目。',
-  },
-  profile: {
-    eyebrow: 'PROFILE',
-    title: '我的',
-    description: '查看学习统计、阶段进度与累计积分变化。',
-  },
-  settings: {
-    eyebrow: 'SETTINGS',
-    title: '设置',
-    description: '配置模型、学习偏好和应用行为。',
-  },
+const PAGE_META: Record<NavItemId, { eyebrow: string; description: string }> = {
+  home: { eyebrow: 'STUDY CENTER', description: '学习中心、最近文档和知识工作流总览。' },
+  library: { eyebrow: 'DOCUMENT LIBRARY', description: '双栏文档库、上传状态和文档详情面板。' },
+  cards: { eyebrow: 'CARDS WORKSHOP', description: '卡片生成、整理和进入学习队列。' },
+  learning: { eyebrow: 'SPACED REVIEW', description: '单卡片主舞台与评分驱动的复习会话。' },
+  knowledge: { eyebrow: 'AI ASSISTANT', description: '基于文档上下文的问答工作区。' },
+  graph: { eyebrow: 'KNOWLEDGE GRAPH', description: '概念关系和结构化知识浏览。' },
+  podcast: { eyebrow: 'PODCAST WORKSHOP', description: '播客脚本与音频生成流程。' },
+  profile: { eyebrow: 'PROFILE', description: '个人统计、进度和学习回顾。' },
+  settings: { eyebrow: 'SETTINGS', description: 'BYOK、工作流分配和体验配置。' },
 }
 
 export function AppShell({ children, contextPanel, className }: AppShellProps) {
   const activeNavItem = useAppUiStore((state) => state.activeNavItem)
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const reader = useAppUiStore((state) => state.reader)
-  const feedbackLog = useAppUiStore((state) => state.feedbackLog)
-  const toggleFeedbackPanel = useAppUiStore((state) => state.toggleFeedbackPanel)
   const { data: apiConfigs = [], isLoading: isLoadingApiConfigs } = useApiConfigsQuery()
 
   const pageMeta = useMemo(() => {
     if (reader.documentId) {
       return {
         eyebrow: 'READER',
-        title: '阅读',
-        description: '沉浸式阅读文档，并在上下文中连接卡片与批注。',
+        description: '保留真实阅读能力与右侧上下文栏。',
       }
     }
 
@@ -99,125 +61,105 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
 
   return (
     <div
-      className={cn('app-shell flex h-screen overflow-hidden bg-background text-foreground', className)}
+      className={cn('app-shell app-shell-frame paper-texture flex h-screen overflow-hidden bg-background text-foreground', className)}
       data-testid="app-shell"
     >
-      <aside className="hidden h-screen w-52 shrink-0 flex-col border-r border-border/60 bg-background md:flex">
-        <div className="px-4 py-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/5 text-foreground">
-              <span className="text-lg font-semibold">笺</span>
+      {!reader.documentId ? (
+        <aside className="app-sidebar-rail hidden h-screen w-[230px] shrink-0 overflow-hidden border-r border-border/70 bg-background/95 md:flex">
+          <div className="flex h-full w-full flex-col px-4 py-5">
+            <div className="flex items-center gap-2 px-1 py-1">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground/5 text-foreground">
+                <span className="text-lg font-medium">笺</span>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.26em] text-muted-foreground">XUEJIAN</p>
+                <p className="text-lg font-medium text-foreground">学笺</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">XUEJIAN</p>
-              <p className="text-lg font-semibold text-foreground">学笺</p>
+
+            <nav className="mt-6 flex-1 space-y-1" aria-label="Primary">
+              {NAV_ITEMS.map((item) => (
+                <NavButton
+                  key={item.id}
+                  active={activeNavItem === item.id}
+                  icon={item.icon}
+                  label={item.label}
+                  onClick={() => setActiveNavItem(item.id)}
+                  testId={`sidebar-nav-${item.id}`}
+                />
+              ))}
+            </nav>
+
+            <div className="mt-4 border-t border-border/75 pt-4">
+              <NavButton
+                active={activeNavItem === 'settings'}
+                icon={<SettingsIcon />}
+                label="设置"
+                onClick={() => setActiveNavItem('settings')}
+                testId="sidebar-nav-settings"
+              />
             </div>
           </div>
-        </div>
+        </aside>
+      ) : null}
 
-        <nav className="flex-1 space-y-1 px-3" aria-label="Primary">
-          {NAV_ITEMS.map((item) => (
-            <NavButton
-              key={item.id}
-              active={activeNavItem === item.id}
-              icon={item.icon}
-              label={item.label}
-              onClick={() => setActiveNavItem(item.id)}
-              testId={`sidebar-nav-${item.id}`}
-            />
-          ))}
-        </nav>
-
-        <div className="border-t border-border/60 px-3 py-4">
-          <NavButton
-            active={activeNavItem === 'settings'}
-            icon={<SettingsIcon />}
-            label="设置"
-            onClick={() => setActiveNavItem('settings')}
-            testId="sidebar-nav-settings"
-          />
-        </div>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col bg-background">
-        <header className="border-b border-border/60 bg-background/92 px-5 py-4 backdrop-blur md:px-8">
-          <div className="mx-auto flex w-full max-w-[1440px] items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                {pageMeta.eyebrow}
-              </p>
-              <h1 className="mt-1 text-2xl font-medium text-foreground" data-testid="app-shell-page-title">
-                {pageMeta.title}
-              </h1>
-              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{pageMeta.description}</p>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-2">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {!reader.documentId ? (
+          <header className="border-b border-border/70 bg-background/88 px-5 py-3 backdrop-blur md:px-8">
+            <div className="mx-auto flex w-full max-w-[1480px] items-center justify-between gap-5">
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground">{pageMeta.eyebrow}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{pageMeta.description}</p>
+              </div>
               {showApiHint ? (
                 <button
                   type="button"
                   onClick={() => setActiveNavItem('settings')}
                   data-testid="api-setup-hint"
-                  className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted/40"
+                  className="inline-flex h-10 items-center rounded-full border border-border bg-card px-4 text-sm text-foreground transition hover:bg-muted/50"
                 >
                   配置 AI
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={toggleFeedbackPanel}
-                aria-label={`错误日志 ${feedbackLog.length}`}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-              >
-                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-foreground/5 px-1.5 py-0.5 text-[11px] text-foreground">
-                  {feedbackLog.length}
-                </span>
-                日志
-              </button>
             </div>
-          </div>
 
-          <nav className="mt-4 flex gap-2 overflow-x-auto md:hidden">
-            {NAV_ITEMS.map((item) => (
+            <nav className="mt-4 flex gap-2 overflow-x-auto md:hidden">
+              {NAV_ITEMS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveNavItem(item.id)}
+                  className={cn(
+                    'rounded-full border px-3 py-2 text-sm transition',
+                    activeNavItem === item.id
+                      ? 'border-border bg-card text-foreground shadow-sm'
+                      : 'border-transparent bg-transparent text-muted-foreground hover:border-border/70 hover:bg-card/70 hover:text-foreground'
+                  )}
+                >
+                  {item.shortLabel}
+                </button>
+              ))}
               <button
-                key={item.id}
                 type="button"
-                onClick={() => setActiveNavItem(item.id)}
+                onClick={() => setActiveNavItem('settings')}
                 className={cn(
-                  'rounded-lg px-3 py-2 text-sm transition-colors',
-                  activeNavItem === item.id
-                    ? 'bg-foreground/6 text-foreground'
-                    : 'text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground'
+                  'rounded-full border px-3 py-2 text-sm transition',
+                  activeNavItem === 'settings'
+                    ? 'border-border bg-card text-foreground shadow-sm'
+                    : 'border-transparent bg-transparent text-muted-foreground hover:border-border/70 hover:bg-card/70 hover:text-foreground'
                 )}
               >
-                {item.shortLabel}
+                设置
               </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setActiveNavItem('settings')}
-              className={cn(
-                'rounded-lg px-3 py-2 text-sm transition-colors',
-                activeNavItem === 'settings'
-                  ? 'bg-foreground/6 text-foreground'
-                  : 'text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground'
-              )}
-            >
-              设置
-            </button>
-          </nav>
-        </header>
+            </nav>
+          </header>
+        ) : null}
 
-        <main className="flex-1 overflow-auto">
-          <div
-            className={cn(
-              'mx-auto w-full max-w-[1440px] p-6 md:p-8',
-              contextPanel ? 'grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]' : ''
-            )}
-          >
+        <main className="app-shell-main min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          <div className={cn('mx-auto w-full max-w-[1480px] p-0', contextPanel ? 'grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]' : '')}>
             <div className="min-w-0">{children}</div>
             {contextPanel ? (
-              <aside className="hidden min-h-[70vh] overflow-hidden rounded-2xl border border-border/60 bg-card xl:block">
+              <aside className="hidden min-h-[72vh] overflow-hidden rounded-[28px] border border-border/70 bg-card/88 shadow-[0_20px_60px_rgba(58,48,37,0.07)] xl:block">
                 {contextPanel}
               </aside>
             ) : null}
@@ -247,10 +189,8 @@ function NavButton({
       onClick={onClick}
       data-testid={testId}
       className={cn(
-        'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors',
-        active
-          ? 'bg-foreground/5 text-foreground'
-          : 'text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground'
+        'flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm font-medium transition-colors',
+        active ? 'border-transparent bg-foreground/5 text-foreground' : 'border-transparent text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground'
       )}
     >
       <span className="flex h-[18px] w-[18px] items-center justify-center">{icon}</span>

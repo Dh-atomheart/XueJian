@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { CardEditorModal } from '@/components/cards/CardEditorModal'
 import { Button, Input } from '@/components/ui'
 import { cn } from '@/lib/utils'
@@ -196,7 +196,7 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
         <div className="mt-4 space-y-3">
           <Input
             value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
             placeholder="搜索卡片、原文、标签..."
             data-testid="reader-sticky-search"
           />

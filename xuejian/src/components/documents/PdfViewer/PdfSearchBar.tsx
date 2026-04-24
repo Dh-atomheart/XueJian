@@ -1,3 +1,4 @@
+import type { ChangeEvent } from 'react'
 import { Button, Input } from '@/components/ui'
 
 interface PdfSearchBarProps {
@@ -26,7 +27,7 @@ export function PdfSearchBar({
       <div className="min-w-0 flex-1">
         <Input
           value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
+          onChange={(event: ChangeEvent<HTMLInputElement>) => onQueryChange(event.target.value)}
           placeholder="搜索 PDF 文本..."
           data-testid="reader-search-input"
         />
