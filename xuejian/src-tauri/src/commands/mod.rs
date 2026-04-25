@@ -3,6 +3,7 @@ pub mod cards;
 pub mod documents;
 pub mod knowledge;
 pub mod knowledge_graph;
+pub mod logging;
 pub mod orchestration;
 pub mod podcast;
 pub mod points;

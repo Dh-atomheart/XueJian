@@ -40,13 +40,11 @@ describe('theme provider', () => {
       </QueryClientProvider>
     )
 
-    fireEvent.click(screen.getByText('通用').closest('button')!)
+    fireEvent.click(screen.getByRole('button', { name: '通用' }))
 
-    await screen.findByText('主题包')
+    await screen.findByDisplayValue('default')
     expect(screen.queryByTestId('theme-option-comic-sketch')).not.toBeInTheDocument()
     expect(screen.queryByTestId('theme-option-contrast-paper')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByTestId('theme-option-default'))
 
     await waitFor(() => {
       expect(document.documentElement.dataset.theme).toBe('default')

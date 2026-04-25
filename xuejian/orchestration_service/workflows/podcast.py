@@ -37,6 +37,7 @@ T = TypeVar("T", bound=BaseModel)
 DEFAULT_LLM_COST_PER_1K_TOKENS = 0.0025
 TTS_COST_PER_1K_CHARS = {
     "auto": 0.015,
+    "google": 0.012,
     "openai": 0.015,
     "edge_tts": 0.0,
     "elevenlabs": 0.03,
@@ -281,7 +282,12 @@ def _retrieve_chunks(
     active_profile = host.get_active_embedding_profile()
     if active_profile is not None:
         try:
-            query_embedding = embed_texts(host, active_profile, [query_text])[0]
+            query_embedding = embed_texts(
+                host,
+                active_profile,
+                [query_text],
+                task_type="RETRIEVAL_QUERY",
+            )[0]
             return (
                 host.search_hybrid(
                     query_text,
@@ -617,9 +623,16 @@ async def _render_audio_segments(
     script: PodcastScriptSchema,
     podcasts_root: str,
     existing_segments: list[dict[str, Any]] | None = None,
-) -> tuple[list[dict[str, Any]], str, int]:
+) -> tuple[list[dict[str, Any]], str, int, str, str | None]:
     router = TTSRouter(host)
     provider = router.get_provider(requested_provider)
+    fallback_warning: str | None = None
+    actual_provider_id = str(getattr(provider, "provider_id", "") or requested_provider or "auto")
+    if requested_provider not in {"", "auto"} and actual_provider_id != requested_provider:
+        fallback_warning = (
+            f"Requested TTS provider '{requested_provider}' was unavailable; "
+            f"fell back to '{actual_provider_id}'."
+        )
     _, _, speaker_name_to_role = _speaker_lookup(style)
 
     episode_dir = make_episode_dir(podcasts_root, episode_id)
@@ -645,7 +658,8 @@ async def _render_audio_segments(
 
         role = speaker_name_to_role.get(segment.speaker, "narrator")
         voice_id = router.resolve_voice(provider, language, role)
-        segment_path = episode_dir / f"segment-{index + 1:03d}.mp3"
+        segment_ext = "wav" if getattr(provider, "provider_id", "") == "google" else "mp3"
+        segment_path = episode_dir / f"segment-{index + 1:03d}.{segment_ext}"
         result = await provider.synthesize(
             text=segment.text,
             voice_id=voice_id,
@@ -712,8 +726,28 @@ async def _render_audio_segments(
         },
     )
     output_path = episode_dir / f"episode.{audio_format}"
-    stitched = stitch_audio_segments(segment_paths, str(output_path), output_format=audio_format)
-    return rendered_segments, str(output_path), int(stitched.get("duration_ms") or 0)
+    actual_audio_format = audio_format
+    export_warning: str | None = fallback_warning
+    try:
+        stitched = stitch_audio_segments(segment_paths, str(output_path), output_format=audio_format)
+        final_output_path = str(output_path)
+    except Exception as exc:
+        if audio_format != "mp3":
+            raise
+        logger.warning("Podcast mp3 export failed, falling back to wav: %s", exc)
+        actual_audio_format = "wav"
+        mp3_warning = f"MP3 export failed, fell back to WAV: {exc}"
+        export_warning = f"{export_warning} {mp3_warning}".strip() if export_warning else mp3_warning
+        output_path = episode_dir / "episode.wav"
+        stitched = stitch_audio_segments(segment_paths, str(output_path), output_format="wav")
+        final_output_path = str(output_path)
+    return (
+        rendered_segments,
+        final_output_path,
+        int(stitched.get("duration_ms") or 0),
+        actual_audio_format,
+        export_warning,
+    )
 
 
 def _cancel_result(
@@ -778,7 +812,7 @@ def run_podcast_workflow(
     if resolved_tts_provider == "auto" and configured_tts_provider != "auto":
         resolved_tts_provider = configured_tts_provider
     resolved_audio_format = audio_format or str(episode.get("audioFormat") or configured_audio_format or "mp3")
-    skip_review = bool(app_settings.get("podcastSkipReview", True))
+    skip_review = True
     existing_stage = int(episode.get("currentStage") or 0)
     budget_state: dict[str, float] = {
         "llmTokens": 0.0,
@@ -1172,7 +1206,7 @@ def run_podcast_workflow(
     )
     _safe_emit_event(host, run_id, "progress", "开始生成语音片段", progress=0.72, payload={"stage": 5})
 
-    rendered_segments, final_audio_path, duration_ms = asyncio.run(
+    rendered_segments, final_audio_path, duration_ms, actual_audio_format, audio_warning = asyncio.run(
         _render_audio_segments(
             host,
             run_id,
@@ -1193,13 +1227,14 @@ def run_podcast_workflow(
             "status": "ready",
             "currentStage": 6,
             "audioPath": final_audio_path,
+            "audioFormat": actual_audio_format,
             "durationMs": duration_ms,
             "completedSegments": len(script.segments),
             "totalSegments": len(script.segments),
             "scriptJson": _serialize_json(script),
             "outlineJson": _serialize_json(existing_outline),
             "evaluationJson": _serialize_json(evaluation),
-            "errorMessage": None,
+            "errorMessage": audio_warning,
         },
     )
     _safe_save_checkpoint(
@@ -1209,8 +1244,10 @@ def run_podcast_workflow(
         "stage-6",
         {
             "audioPath": final_audio_path,
+            "audioFormat": actual_audio_format,
             "durationMs": duration_ms,
             "audioSegments": rendered_segments,
+            "warning": audio_warning,
             "budget": budget_state,
         },
     )
@@ -1223,9 +1260,11 @@ def run_podcast_workflow(
         payload={
             "stage": 6,
             "audioPath": final_audio_path,
+            "audioFormat": actual_audio_format,
             "durationMs": duration_ms,
             "audioSegmentCount": len(rendered_segments),
             "estimatedCostUsd": budget_state["estimatedCostUsd"],
+            "warning": audio_warning,
         },
     )
 
@@ -1244,10 +1283,12 @@ def run_podcast_workflow(
         "scriptJson": _serialize_json(script),
         "evaluationJson": _serialize_json(evaluation),
         "audioPath": final_audio_path,
+        "audioFormat": actual_audio_format,
         "durationMs": duration_ms,
         "currentStage": 6,
         "completedSegments": len(script.segments),
         "totalSegments": len(script.segments),
         "audioSegments": rendered_segments,
         "estimatedCostUsd": budget_state["estimatedCostUsd"],
+        "warning": audio_warning,
     }

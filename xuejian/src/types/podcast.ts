@@ -5,7 +5,7 @@ import { z } from 'zod'
 export type PodcastStyle = 'deep_dive' | 'lecture' | 'interview' | 'casual' | 'exam_prep'
 export type PodcastDurationTier = 'short' | 'medium' | 'long' | 'ultra_long'
 export type PodcastLanguage = 'zh-CN' | 'en-US' | 'ja-JP' | 'ko-KR'
-export type TTSProviderId = 'auto' | 'openai' | 'edge_tts'
+export type TTSProviderId = 'auto' | 'openai' | 'edge_tts' | 'google'
 export type PodcastStatus =
   | 'queued'
   | 'retrieving'
@@ -101,7 +101,20 @@ export interface PodcastEpisode {
   audioPath: string | null
   durationMs: number
   status: PodcastStatus
+  stageKey:
+    | 'retrieval'
+    | 'outline'
+    | 'script'
+    | 'evaluation'
+    | 'awaiting_review'
+    | 'audio'
+    | 'ready'
+    | 'failed'
+    | 'cancelled'
   errorMessage: string | null
+  errorCode: string | null
+  errorStage: string | null
+  retryable: boolean
   currentStage: number
   completedSegments: number
   totalSegments: number
@@ -121,7 +134,7 @@ export const PodcastStyleSchema = z.enum([
 
 export const PodcastDurationTierSchema = z.enum(['short', 'medium', 'long', 'ultra_long'])
 export const PodcastLanguageSchema = z.enum(['zh-CN', 'en-US', 'ja-JP', 'ko-KR'])
-export const TTSProviderIdSchema = z.enum(['auto', 'openai', 'edge_tts'])
+export const TTSProviderIdSchema = z.enum(['auto', 'openai', 'edge_tts', 'google'])
 
 export const PodcastStatusSchema = z.enum([
   'queued',
@@ -213,10 +226,27 @@ export const PodcastEpisodeSchema = z.object({
   audioPath: z.string().nullable(),
   durationMs: z.number(),
   status: PodcastStatusSchema,
+  stageKey: z
+    .enum([
+      'retrieval',
+      'outline',
+      'script',
+      'evaluation',
+      'awaiting_review',
+      'audio',
+      'ready',
+      'failed',
+      'cancelled',
+    ])
+    .catch('retrieval')
+    .default('retrieval'),
   errorMessage: z.string().nullable(),
+  errorCode: z.string().nullable().catch(null),
+  errorStage: z.string().nullable().catch(null),
+  retryable: z.boolean().catch(true).default(true),
   currentStage: z.number().int().min(0).max(6),
   completedSegments: z.number().int().nonnegative(),
   totalSegments: z.number().int().nonnegative(),
   createdAt: z.string(),
   updatedAt: z.string(),
-})
+}) as unknown as z.ZodType<PodcastEpisode>

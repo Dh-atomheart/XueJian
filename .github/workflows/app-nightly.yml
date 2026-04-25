@@ -1,0 +1,196 @@
+name: App Nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 17 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-nightly
+  cancel-in-progress: true
+
+jobs:
+  nightly-regression:
+    name: nightly-regression
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: xuejian
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: xuejian/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: xuejian/orchestration_service/requirements.txt
+
+      - name: Setup Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: xuejian/src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install orchestration dependencies
+        run: python -m pip install -r orchestration_service/requirements.txt
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run lint regression
+        shell: bash
+        run: |
+          mkdir -p test-results/nightly
+          set +e
+          npm run lint > test-results/nightly/lint.stdout.log 2> test-results/nightly/lint.stderr.log
+          status=$?
+          set -e
+          if [[ $status -eq 0 ]]; then lint_status=passed; else lint_status=failed; fi
+          node scripts/ci/write-check-summary.mjs \
+            --output test-results/nightly/lint-summary.md \
+            --name nightly-lint \
+            --status "$lint_status" \
+            --command "npm run lint" \
+            --details "Nightly trend-only lint run." \
+            --stdout-file "test-results/nightly/lint.stdout.log" \
+            --stderr-file "test-results/nightly/lint.stderr.log"
+
+      - name: Run vitest regression
+        shell: bash
+        run: |
+          mkdir -p test-results/nightly
+          set +e
+          npm run test -- --run --reporter=default --reporter=json --outputFile=test-results/nightly/vitest-report.json > test-results/nightly/vitest.stdout.log 2> test-results/nightly/vitest.stderr.log
+          status=$?
+          set -e
+          if [[ $status -eq 0 ]]; then vitest_status=passed; else vitest_status=failed; fi
+          node scripts/ci/write-check-summary.mjs \
+            --output test-results/nightly/vitest-summary.md \
+            --name nightly-vitest \
+            --status "$vitest_status" \
+            --command "npm run test -- --run" \
+            --details "Nightly trend-only vitest run." \
+            --artifact "test-results/nightly/vitest-report.json" \
+            --stdout-file "test-results/nightly/vitest.stdout.log" \
+            --stderr-file "test-results/nightly/vitest.stderr.log"
+
+      - name: Run Playwright e2e regression
+        shell: bash
+        run: |
+          mkdir -p test-results/nightly
+          set +e
+          npm run test:e2e > test-results/nightly/e2e.stdout.log 2> test-results/nightly/e2e.stderr.log
+          status=$?
+          set -e
+          if [[ $status -eq 0 ]]; then e2e_status=passed; else e2e_status=failed; fi
+          node scripts/ci/write-check-summary.mjs \
+            --output test-results/nightly/e2e-summary.md \
+            --name nightly-e2e \
+            --status "$e2e_status" \
+            --command "npm run test:e2e" \
+            --details "Nightly full E2E regression suite." \
+            --artifact "playwright-report/" \
+            --stdout-file "test-results/nightly/e2e.stdout.log" \
+            --stderr-file "test-results/nightly/e2e.stderr.log"
+
+      - name: Upload nightly artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-regression
+          path: |
+            xuejian/playwright-report
+            xuejian/test-results/nightly
+          if-no-files-found: warn
+
+      - name: Append nightly summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            cat test-results/nightly/lint-summary.md
+            echo
+            cat test-results/nightly/vitest-summary.md
+            echo
+            cat test-results/nightly/e2e-summary.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  nightly-tauri-preview:
+    name: nightly-tauri-preview
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: xuejian
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: xuejian/package-lock.json
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: xuejian/src-tauri -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Tauri debug build preview
+        run: |
+          New-Item -ItemType Directory -Force -Path test-results/nightly | Out-Null
+          $stdout = "test-results/nightly/tauri-debug.stdout.log"
+          $stderr = "test-results/nightly/tauri-debug.stderr.log"
+          $summary = "test-results/nightly/tauri-debug-summary.md"
+          $status = "passed"
+          npx tauri build --debug *> $stdout
+          if ($LASTEXITCODE -ne 0) {
+            $status = "failed"
+            if (Test-Path $stdout) {
+              Copy-Item $stdout $stderr -Force
+            } else {
+              "npx tauri build --debug failed with exit code $LASTEXITCODE" | Out-File -FilePath $stderr -Encoding utf8
+            }
+          }
+          node scripts/ci/write-check-summary.mjs `
+            --output $summary `
+            --name nightly-tauri-debug `
+            --status $status `
+            --command "npx tauri build --debug" `
+            --details "Nightly Windows Tauri build preview." `
+            --stdout-file $stdout `
+            --stderr-file $stderr
+
+      - name: Upload Tauri preview artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-tauri-preview
+          path: |
+            xuejian/test-results/nightly
+            xuejian/src-tauri/target/debug/bundle
+          if-no-files-found: warn

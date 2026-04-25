@@ -1148,9 +1148,9 @@ async fn execute_card_generation_worker(app_handle: &AppHandle, run_id: &str) ->
                 let db = state.lock_db()?;
                 let card_repo = CardRepository::new(&db);
                 if !requests.is_empty() {
-                    let result = card_repo.insert_generated_candidates(requests)?;
-                    payload.generated_count += result.inserted_count;
-                    payload.duplicate_count += result.duplicate_count;
+                    let result = card_repo.insert_generated_cards(requests)?;
+                    payload.generated_count += result.created_count;
+                    payload.duplicate_count += result.skipped_duplicates;
                 }
                 card_repo.count_candidates_for_run(run_id)?
             };
@@ -1177,55 +1177,34 @@ async fn execute_card_generation_worker(app_handle: &AppHandle, run_id: &str) ->
     };
 
     payload.pending_count = final_counts.pending as usize;
-    let waiting_review = final_counts.total > 0;
-    payload.phase = if waiting_review {
-        "waiting_confirmation".to_string()
-    } else {
-        "completed".to_string()
-    };
+    payload.phase = "completed".to_string();
 
     let state = app_handle.state::<AppState>();
     let db = state.lock_db()?;
     let workflow_repo = WorkflowRepository::new(&db);
-    let checkpoint_ref = if waiting_review {
-        "waiting_confirmation"
-    } else {
-        "completed"
-    };
+    let checkpoint_ref = "completed";
     workflow_repo.upsert_checkpoint(UpsertWorkflowCheckpointRequest {
         run_id: run_id.to_string(),
         checkpoint_ref: checkpoint_ref.to_string(),
-        step_key: Some(if waiting_review {
-            "review-candidates".to_string()
-        } else {
-            "complete-no-candidates".to_string()
-        }),
+        step_key: Some("save-cards".to_string()),
         payload: serialize_checkpoint_payload(&payload)?,
     })?;
     workflow_repo.update_run(
         run_id,
         UpdateWorkflowRunRequest {
-            status: Some(if waiting_review {
-                "waiting_confirmation".to_string()
-            } else {
-                "completed".to_string()
-            }),
+            status: Some("completed".to_string()),
             checkpoint_ref: Some(checkpoint_ref.to_string()),
             approval_payload: Some(build_run_summary(&payload, &final_counts)),
             cost_usd: None,
             error_message: None,
             started_at: None,
-            finished_at: (!waiting_review).then(|| chrono::Utc::now().to_rfc3339()),
+            finished_at: Some(chrono::Utc::now().to_rfc3339()),
         },
     )?;
     workflow_repo.append_event(AppendWorkflowEventRequest {
         run_id: run_id.to_string(),
         event_type: checkpoint_ref.to_string(),
-        message: Some(if waiting_review {
-            format!("Generated {} reviewable candidates", final_counts.total)
-        } else {
-            "Workflow finished without new candidates".to_string()
-        }),
+        message: Some(format!("Created {} cards", payload.generated_count)),
         progress: Some(1.0),
         payload: Some(build_run_summary(&payload, &final_counts)),
     })?;
@@ -1592,6 +1571,8 @@ fn build_candidates_for_chunk(
                     anchor_id: Some(anchor.id.clone()),
                     title: None,
                     card_type: None,
+                    source_page: Some(anchor.page),
+                    source_quote: Some(anchor.text_quote.clone()),
                     front: front.clone(),
                     back: back.clone(),
                     tags: build_candidate_tags(anchor),

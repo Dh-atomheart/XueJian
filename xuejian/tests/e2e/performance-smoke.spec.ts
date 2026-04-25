@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
+import { gotoApp } from './support'
 
 async function warmApplication(page: Page) {
-  await page.goto('/', { waitUntil: 'domcontentloaded' })
-  await expect(page.getByTestId('app-shell')).toBeVisible()
+  await gotoApp(page)
 }
 
 test.describe('performance smoke', () => {
@@ -22,7 +22,7 @@ test.describe('performance smoke', () => {
     await expect(page.getByTestId('app-shell')).toBeVisible()
     const shellReadyAt = Date.now()
     await page.getByTestId('sidebar-nav-library').click()
-    await expect(page.getByText('文档面板')).toBeVisible()
+    await expect(page.getByTestId('library-open-reader')).toBeVisible()
 
     expect(shellReadyAt - startedAt).toBeLessThan(7000)
     expect(Date.now() - shellReadyAt).toBeLessThan(2000)
@@ -41,12 +41,12 @@ test.describe('performance smoke', () => {
     await page.getByTestId('sidebar-nav-library').click()
 
     const startedAt = Date.now()
-    await page.getByRole('button', { name: '进入阅读' }).click()
+    await page.getByTestId('library-open-reader').click()
     await expect(page.getByTestId('reader-layout')).toBeVisible()
     await expect(page.getByTestId('reader-main-stage')).toBeVisible()
 
-    await page.getByTestId('sidebar-nav-home').click()
-    await expect(page.getByRole('heading', { name: '最近文档' })).toBeVisible()
+    await page.getByTestId('reader-close').click()
+    await expect(page.getByTestId('library-open-reader')).toBeVisible()
 
     expect(Date.now() - startedAt).toBeLessThan(6000)
   })

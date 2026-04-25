@@ -33,22 +33,33 @@ interface ReaderState {
   hoveredHighlightId: string | null
   selectedCardId: string | null
   annotationScope: 'page' | 'all'
-  annotationFilterTags: string[]
   isLinkingMode: boolean
   linkingCardId: string | null
+}
+
+interface KnowledgeDraftState {
+  question: string | null
+  selectedDocumentIds: string[]
+  sourceLabel: string | null
+  graphContextSummary: string | null
 }
 
 interface AppUiState {
   activeNavItem: NavItemId
   activeSettingsSection: SettingsSectionId
+  preferredCardStudioDocumentId: string | null
   isContextRailOpen: boolean
   reader: ReaderState
+  knowledgeDraft: KnowledgeDraftState
   feedbackLog: AppFeedbackEntry[]
   activeNotices: AppFeedbackEntry[]
   isFeedbackPanelOpen: boolean
   setActiveNavItem: (item: NavItemId) => void
   setSettingsSection: (section: SettingsSectionId) => void
+  setPreferredCardStudioDocumentId: (documentId: string | null) => void
   setContextRailOpen: (open: boolean) => void
+  openKnowledgeQa: (draft?: Partial<KnowledgeDraftState>) => void
+  clearKnowledgeDraft: () => void
   openReader: (documentId: string, totalPages?: number) => void
   closeReader: () => void
   setReaderTotalPages: (totalPages: number) => void
@@ -57,7 +68,6 @@ interface AppUiState {
   selectHighlight: (highlightId: string | null) => void
   selectCard: (cardId: string | null) => void
   hoverHighlight: (highlightId: string | null) => void
-  setAnnotationFilterTags: (tags: string[]) => void
   setAnnotationScope: (scope: ReaderState['annotationScope']) => void
   enterLinkingMode: (cardId: string | null) => void
   exitLinkingMode: () => void
@@ -83,9 +93,15 @@ const initialReaderState: ReaderState = {
   hoveredHighlightId: null,
   selectedCardId: null,
   annotationScope: 'page',
-  annotationFilterTags: [],
   isLinkingMode: false,
   linkingCardId: null,
+}
+
+const initialKnowledgeDraftState: KnowledgeDraftState = {
+  question: null,
+  selectedDocumentIds: [],
+  sourceLabel: null,
+  graphContextSummary: null,
 }
 
 const MAX_FEEDBACK_LOG_ENTRIES = 120
@@ -110,8 +126,10 @@ function createFeedbackEntry(input: {
 export const useAppUiStore = create<AppUiState>((set) => ({
   activeNavItem: 'home',
   activeSettingsSection: 'ai',
+  preferredCardStudioDocumentId: null,
   isContextRailOpen: true,
   reader: initialReaderState,
+  knowledgeDraft: initialKnowledgeDraftState,
   feedbackLog: [],
   activeNotices: [],
   isFeedbackPanelOpen: false,
@@ -121,7 +139,21 @@ export const useAppUiStore = create<AppUiState>((set) => ({
       reader: state.reader.documentId ? initialReaderState : state.reader,
     })),
   setSettingsSection: (activeSettingsSection) => set({ activeSettingsSection }),
+  setPreferredCardStudioDocumentId: (preferredCardStudioDocumentId) =>
+    set({ preferredCardStudioDocumentId }),
   setContextRailOpen: (isContextRailOpen) => set({ isContextRailOpen }),
+  openKnowledgeQa: (draft) =>
+    set({
+      activeNavItem: 'knowledge',
+      knowledgeDraft: {
+        question: draft?.question ?? null,
+        selectedDocumentIds: draft?.selectedDocumentIds ?? [],
+        sourceLabel: draft?.sourceLabel ?? null,
+        graphContextSummary: draft?.graphContextSummary ?? null,
+      },
+      reader: initialReaderState,
+    }),
+  clearKnowledgeDraft: () => set({ knowledgeDraft: initialKnowledgeDraftState }),
   openReader: (documentId, totalPages) =>
     set({
       activeNavItem: 'library',
@@ -170,10 +202,6 @@ export const useAppUiStore = create<AppUiState>((set) => ({
   hoverHighlight: (hoveredHighlightId) =>
     set((state) => ({
       reader: { ...state.reader, hoveredHighlightId },
-    })),
-  setAnnotationFilterTags: (annotationFilterTags) =>
-    set((state) => ({
-      reader: { ...state.reader, annotationFilterTags },
     })),
   setAnnotationScope: (annotationScope) =>
     set((state) => ({

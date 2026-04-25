@@ -25,11 +25,9 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
   const selectCard = useAppUiStore((state) => state.selectCard)
   const selectHighlight = useAppUiStore((state) => state.selectHighlight)
   const hoverHighlight = useAppUiStore((state) => state.hoverHighlight)
-  const setAnnotationFilterTags = useAppUiStore((state) => state.setAnnotationFilterTags)
   const setAnnotationScope = useAppUiStore((state) => state.setAnnotationScope)
   const enterLinkingMode = useAppUiStore((state) => state.enterLinkingMode)
   const exitLinkingMode = useAppUiStore((state) => state.exitLinkingMode)
-  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const { data: currentDocument } = useDocumentQuery(documentId)
   const { data: cards = [] } = useCardsQuery(
     { documentId, limit: 5000 },
@@ -54,14 +52,6 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
     [highlights]
   )
 
-  const availableTags = useMemo(
-    () =>
-      Array.from(new Set(cards.flatMap((card) => card.tags)))
-        .filter(Boolean)
-        .sort((left, right) => left.localeCompare(right, 'zh-CN')),
-    [cards]
-  )
-
   const scopedCards = useMemo(() => {
     if (reader.annotationScope === 'all' || deferredSearchQuery.trim()) {
       return cards
@@ -81,13 +71,6 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
         highlight: highlightByCardId[card.id] ?? null,
       }))
       .filter(({ card, highlight }) => {
-        if (reader.annotationFilterTags.length > 0) {
-          const hasAllTags = reader.annotationFilterTags.every((tag) => card.tags.includes(tag))
-          if (!hasAllTags) {
-            return false
-          }
-        }
-
         if (!normalizedQuery) {
           return true
         }
@@ -97,7 +80,6 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
           card.front,
           card.back,
           highlight?.textContent,
-          card.tags.join(' '),
         ]
           .filter(Boolean)
           .join(' ')
@@ -122,7 +104,7 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
 
         return left.card.front.localeCompare(right.card.front, 'zh-CN')
       })
-  }, [deferredSearchQuery, highlightByCardId, reader.annotationFilterTags, scopedCards])
+  }, [deferredSearchQuery, highlightByCardId, scopedCards])
 
   const unlinkedCount = useMemo(
     () => cards.filter((card) => !highlightByCardId[card.id]).length,
@@ -197,7 +179,7 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
           <Input
             value={searchQuery}
             onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
-            placeholder="搜索卡片、原文、标签..."
+            placeholder="搜索正面、背面或关联高亮..."
             data-testid="reader-sticky-search"
           />
 
@@ -225,45 +207,6 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
             ))}
           </div>
 
-          {availableTags.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {availableTags.map((tag) => {
-                const isActive = reader.annotationFilterTags.includes(tag)
-
-                return (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => {
-                      setAnnotationFilterTags(
-                        isActive
-                          ? reader.annotationFilterTags.filter((item) => item !== tag)
-                          : [...reader.annotationFilterTags, tag]
-                      )
-                    }}
-                    className={cn(
-                      'rounded-full border px-2.5 py-1 text-[11px] transition',
-                      isActive
-                        ? 'border-ink/20 bg-highlight-yellow/35 text-ink'
-                        : 'border-line-soft bg-paper-base/75 text-ink-soft hover:border-ink/10 hover:text-ink'
-                    )}
-                  >
-                    #{tag}
-                  </button>
-                )
-              })}
-
-              {reader.annotationFilterTags.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setAnnotationFilterTags([])}
-                  className="rounded-full px-2 py-1 text-[11px] text-ink-soft transition hover:text-ink"
-                >
-                  清空过滤
-                </button>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -339,9 +282,9 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
                             )
                             selectCard(card.id)
                           }}
-                          onToggleExpand={() => {
+                          onToggleExpand={() =>
                             setExpandedCardId((current) => (current === card.id ? null : card.id))
-                          }}
+                          }
                           onLocate={() => {
                             setReaderPage(
                               highlight?.pageNumber ?? card.sourcePage ?? reader.currentPage
@@ -367,7 +310,6 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
                             selectCard(card.id)
                             enterLinkingMode(card.id)
                           }}
-                          onOpenCandidates={() => setActiveNavItem('cards')}
                         />
                       </div>
                     )

@@ -26,7 +26,8 @@ describe('app shell layout CSS', () => {
 
     expect(source).toContain('app-shell-frame paper-texture flex h-screen overflow-hidden')
     expect(source).toContain('app-sidebar-rail hidden h-screen w-[230px] shrink-0 overflow-hidden')
-    expect(source).toContain('app-shell-main min-h-0 flex-1 overflow-y-auto overflow-x-hidden')
+    expect(source).toContain('app-shell-main min-h-0 flex-1 overflow-x-hidden')
+    expect(source).toContain("reader.documentId ? 'overflow-hidden' : 'overflow-y-auto'")
   })
 
   it('removes page-level vertical scrolling from home-sized workspaces', () => {

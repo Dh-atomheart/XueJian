@@ -112,6 +112,19 @@ impl<'a> VectorRepository<'a> {
             .map_err(Into::into)
     }
 
+    pub fn get_embedding_profile(&self, id: &str) -> Result<Option<EmbeddingProfile>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, provider, model, dimensions, distance_metric, is_active, revision, created_at
+             FROM embedding_profiles
+             WHERE id = ?1
+             LIMIT 1",
+        )?;
+
+        stmt.query_row(params![id], map_embedding_profile_row)
+            .optional()
+            .map_err(Into::into)
+    }
+
     pub fn list_embedding_profiles(&self) -> Result<Vec<EmbeddingProfile>> {
         let mut stmt = self.db.connection().prepare(
             "SELECT id, provider, model, dimensions, distance_metric, is_active, revision, created_at
@@ -146,6 +159,85 @@ impl<'a> VectorRepository<'a> {
         transaction.commit()?;
 
         self.get_active_embedding_profile()
+    }
+
+    pub fn upsert_embedding_profile_with_id(
+        &self,
+        id: &str,
+        req: CreateEmbeddingProfileRequest,
+    ) -> Result<(EmbeddingProfile, bool)> {
+        let distance_metric = req.distance_metric.unwrap_or_else(|| "cosine".to_string());
+        let current = self.get_embedding_profile(id)?;
+
+        if req.is_active {
+            self.db.connection().execute(
+                "UPDATE embedding_profiles SET is_active = FALSE WHERE is_active = TRUE AND id != ?1",
+                params![id],
+            )?;
+        }
+
+        let changed = match current.as_ref() {
+            Some(existing) => {
+                existing.provider != req.provider
+                    || existing.model != req.model
+                    || existing.dimensions != req.dimensions
+                    || existing.distance_metric != distance_metric
+                    || existing.is_active != req.is_active
+            }
+            None => true,
+        };
+
+        match current {
+            Some(existing) => {
+                let revision = if changed {
+                    existing.revision.saturating_add(1)
+                } else {
+                    existing.revision
+                };
+                self.db.connection().execute(
+                    "UPDATE embedding_profiles
+                     SET provider = ?1,
+                         model = ?2,
+                         dimensions = ?3,
+                         distance_metric = ?4,
+                         is_active = ?5,
+                         revision = ?6
+                     WHERE id = ?7",
+                    params![
+                        req.provider,
+                        req.model,
+                        req.dimensions,
+                        distance_metric,
+                        req.is_active,
+                        revision,
+                        id,
+                    ],
+                )?;
+            }
+            None => {
+                let now = chrono::Utc::now().to_rfc3339();
+                self.db.connection().execute(
+                    "INSERT INTO embedding_profiles (
+                        id, provider, model, dimensions, distance_metric, is_active, revision, created_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        id,
+                        req.provider,
+                        req.model,
+                        req.dimensions,
+                        distance_metric,
+                        req.is_active,
+                        req.revision.max(1),
+                        now,
+                    ],
+                )?;
+            }
+        }
+
+        let profile = self
+            .get_embedding_profile(id)?
+            .expect("embedding profile should exist after upsert");
+        Ok((profile, changed))
     }
 
     pub fn mark_documents_embedding_stale(&self) -> Result<usize> {

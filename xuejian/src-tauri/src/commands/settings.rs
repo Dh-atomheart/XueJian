@@ -8,12 +8,14 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
+use crate::secrets::SecretError;
 use crate::{
     commands::{AppState, CommandError, CommandResult},
     db::{
         ApiConfig, AppSettings, CreateApiConfigRequest, CreateEmbeddingProfileRequest,
-        EmbeddingProfile, ProviderBudgetUsage, SettingsRepository, UpdateApiConfigRequest,
-        VectorRepository, WorkflowModelAssignment,
+        CreateModelProfileRequest, EmbeddingProfile, ModelProfile, ProviderBudgetUsage,
+        SettingsRepository, UpdateApiConfigRequest, UpdateModelProfileRequest, VectorRepository,
+        WorkflowModelAssignment,
     },
 };
 
@@ -28,7 +30,7 @@ const WORKFLOW_TYPES: [&str; 6] = [
 
 const ANTHROPIC_VERSION_HEADER: &str = "2023-06-01";
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiConfigDto {
     pub id: String,
@@ -47,6 +49,21 @@ pub struct ApiConfigDto {
     pub key_status: String,
     pub display_name: Option<String>,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelProfileDto {
+    pub id: String,
+    pub api_config_id: String,
+    pub model_id: String,
+    pub display_name: Option<String>,
+    pub capabilities_json: Option<String>,
+    pub is_enabled: bool,
+    pub is_default_for_connection: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub api_config: Option<ApiConfigDto>,
 }
 
 fn api_config_to_dto(config: ApiConfig) -> ApiConfigDto {
@@ -75,6 +92,40 @@ fn api_config_to_dto(config: ApiConfig) -> ApiConfigDto {
     }
 }
 
+fn sync_api_config_key_status(state: &AppState, config: &ApiConfig) -> CommandResult<String> {
+    if config.auth_mode == "adc" {
+        return Ok(config.key_status.clone());
+    }
+
+    let has_key = {
+        let secrets = state.lock_secrets()?;
+        secrets.has_api_key(&config.id)?
+    };
+    let actual_status = if has_key { "stored" } else { "none" };
+
+    if config.key_status != actual_status {
+        log::warn!(
+            "[BYOK] API key status drift detected: config_id={}, db_status={}, actual_status={}",
+            config.id,
+            config.key_status,
+            actual_status
+        );
+        let db = state.lock_db()?;
+        let repo = SettingsRepository::new(&db);
+        repo.update_api_key_status(&config.id, actual_status, None)?;
+    }
+
+    Ok(actual_status.to_string())
+}
+
+fn api_config_to_dto_with_actual_key_status(
+    state: &AppState,
+    mut config: ApiConfig,
+) -> CommandResult<ApiConfigDto> {
+    config.key_status = sync_api_config_key_status(state, &config)?;
+    Ok(api_config_to_dto(config))
+}
+
 impl ApiConfigDto {
     fn from_config_without_key(config: ApiConfig) -> Self {
         let has_stored_credential = config.auth_mode == "adc";
@@ -98,6 +149,35 @@ impl ApiConfigDto {
             created_at: config.created_at,
         }
     }
+}
+
+fn model_profile_to_dto(
+    profile: ModelProfile,
+    config: Option<ApiConfigDto>,
+) -> ModelProfileDto {
+    ModelProfileDto {
+        id: profile.id,
+        api_config_id: profile.api_config_id,
+        model_id: profile.model_id,
+        display_name: profile.display_name,
+        capabilities_json: profile.capabilities_json,
+        is_enabled: profile.is_enabled,
+        is_default_for_connection: profile.is_default_for_connection,
+        created_at: profile.created_at,
+        updated_at: profile.updated_at,
+        api_config: config,
+    }
+}
+
+fn model_profile_to_dto_with_actual_key_status(
+    state: &AppState,
+    profile: ModelProfile,
+    config: Option<ApiConfig>,
+) -> CommandResult<ModelProfileDto> {
+    let config = config
+        .map(|config| api_config_to_dto_with_actual_key_status(state, config))
+        .transpose()?;
+    Ok(model_profile_to_dto(profile, config))
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,6 +229,7 @@ pub struct AppSettingsDto {
     pub content_difficulty_preference: String,
     pub podcast_tts_provider: String,
     pub podcast_openai_model: String,
+    pub podcast_google_tts_model: String,
     pub podcast_fish_audio_endpoint: Option<String>,
     pub podcast_voice_overrides: std::collections::BTreeMap<String, String>,
     pub default_voice: String,
@@ -214,6 +295,7 @@ impl From<AppSettings> for AppSettingsDto {
             content_difficulty_preference: settings.content_difficulty_preference,
             podcast_tts_provider: settings.podcast_tts_provider,
             podcast_openai_model: settings.podcast_openai_model,
+            podcast_google_tts_model: settings.podcast_google_tts_model,
             podcast_fish_audio_endpoint: settings.podcast_fish_audio_endpoint,
             podcast_voice_overrides: settings.podcast_voice_overrides,
             default_voice: settings.default_voice,
@@ -253,6 +335,7 @@ pub struct UpdateSettingsDto {
     pub content_difficulty_preference: Option<String>,
     pub podcast_tts_provider: Option<String>,
     pub podcast_openai_model: Option<String>,
+    pub podcast_google_tts_model: Option<String>,
     pub podcast_fish_audio_endpoint: Option<Option<String>>,
     pub podcast_voice_overrides: Option<std::collections::BTreeMap<String, String>>,
     pub default_voice: Option<String>,
@@ -281,7 +364,7 @@ pub struct TestApiConnectionDto {
     pub config_id: Option<String>,
     pub provider: String,
     pub auth_mode: String,
-    pub api_key: String,
+    pub api_key: Option<String>,
     pub base_url: Option<String>,
     #[allow(dead_code)]
     pub model: Option<String>,
@@ -313,6 +396,18 @@ pub struct ApiConnectionTestResultDto {
     pub message: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretVaultStatusDto {
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlockSecretVaultDto {
+    pub password: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelCapabilitiesDto {
@@ -337,9 +432,10 @@ pub struct ModelInfoDto {
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowAssignmentDto {
     pub workflow_type: String,
-    pub api_config_id: String,
+    pub model_profile_id: String,
     pub assigned_at: String,
     pub updated_at: String,
+    pub model_profile: Option<ModelProfileDto>,
     pub api_config: Option<ApiConfigDto>,
 }
 
@@ -347,7 +443,28 @@ pub struct WorkflowAssignmentDto {
 #[serde(rename_all = "camelCase")]
 pub struct SetWorkflowAssignmentDto {
     pub workflow_type: String,
+    pub model_profile_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateModelProfileDto {
     pub api_config_id: String,
+    pub model_id: String,
+    pub display_name: Option<String>,
+    pub capabilities_json: Option<String>,
+    pub is_enabled: Option<bool>,
+    pub is_default_for_connection: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateModelProfileDto {
+    pub model_id: Option<String>,
+    pub display_name: Option<String>,
+    pub capabilities_json: Option<Option<String>>,
+    pub is_enabled: Option<bool>,
+    pub is_default_for_connection: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -407,6 +524,10 @@ fn provider_test_strategy(provider: &str) -> &'static str {
 }
 
 fn success_message_for_provider(provider: &str, elapsed_ms: u128) -> String {
+    if matches!(provider, "google" | "custom_google") {
+        return format!("Gemini API key verified in {elapsed_ms}ms.");
+    }
+
     match provider_test_strategy(provider) {
         "lightweight" => format!("Credential validation succeeded in {elapsed_ms}ms."),
         "full" => format!("Connection test succeeded in {elapsed_ms}ms."),
@@ -420,6 +541,13 @@ fn truncate_response_detail(detail: String) -> String {
     } else {
         detail
     }
+}
+
+fn redact_secret_from_message(message: &str, secret: &str) -> String {
+    if secret.is_empty() {
+        return message.to_string();
+    }
+    message.replace(secret, "[REDACTED]")
 }
 
 fn google_adc_default_paths() -> Vec<PathBuf> {
@@ -559,7 +687,11 @@ fn probe_google_adc_credentials() -> ApiConnectionTestResultDto {
 
 fn infer_model_capabilities(model_id: &str) -> ModelCapabilitiesDto {
     let lower = model_id.to_lowercase();
-    let max_context = if lower.contains("gemini") {
+    let is_embedding = lower.contains("embedding") || lower.contains("embed");
+    let is_tts = lower.contains("-tts");
+    let max_context = if is_embedding {
+        8_192
+    } else if lower.contains("gemini") {
         1_048_576
     } else if lower.contains("claude") {
         200_000
@@ -571,19 +703,93 @@ fn infer_model_capabilities(model_id: &str) -> ModelCapabilitiesDto {
         65_536
     };
 
-    let json_mode = !lower.contains("haiku") && !lower.contains("reasoner");
-    let vision = lower.contains("vision")
+    let json_mode = !is_embedding && !is_tts && !lower.contains("haiku") && !lower.contains("reasoner");
+    let vision = !is_embedding
+        && !is_tts
+        && (lower.contains("vision")
         || lower.contains("gpt-4")
         || lower.contains("gemini")
         || lower.contains("claude")
-        || lower.contains("deepseek-chat");
+        || lower.contains("deepseek-chat"));
 
     ModelCapabilitiesDto {
         vision,
-        function_calling: !lower.contains("reasoner"),
+        function_calling: !is_embedding && !is_tts && !lower.contains("reasoner"),
         max_context,
-        streaming: true,
+        streaming: !is_embedding,
         json_mode,
+    }
+}
+
+fn parse_capability_tokens(capabilities_json: Option<&str>) -> Vec<String> {
+    let Some(raw) = capabilities_json.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Vec::new();
+    };
+
+    let parsed = match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+
+    match parsed {
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .filter_map(|item| item.as_str().map(|value| value.trim().to_ascii_lowercase()))
+            .filter(|value| !value.is_empty())
+            .collect(),
+        serde_json::Value::Object(map) => map
+            .into_iter()
+            .filter_map(|(key, value)| match value {
+                serde_json::Value::Bool(true) => Some(key.trim().to_ascii_lowercase()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn is_embedding_model(profile: &ModelProfile) -> bool {
+    let model_id = profile.model_id.trim().to_ascii_lowercase();
+    let capability_tokens = parse_capability_tokens(profile.capabilities_json.as_deref());
+
+    capability_tokens.iter().any(|token| {
+        token.contains("embedding")
+            || token.contains("embed")
+            || token == "retrieval"
+            || token == "vector"
+    }) || model_id.contains("embedding")
+        || model_id.contains("embed")
+        || model_id.contains("text-embedding")
+        || model_id.contains("multilingual-e5")
+}
+
+fn is_generation_model(profile: &ModelProfile) -> bool {
+    let model_id = profile.model_id.trim().to_ascii_lowercase();
+    let capability_tokens = parse_capability_tokens(profile.capabilities_json.as_deref());
+
+    if model_id.contains("-tts") {
+        return false;
+    }
+
+    if capability_tokens.iter().any(|token| {
+        token.contains("chat")
+            || token.contains("completion")
+            || token.contains("generate")
+            || token.contains("reason")
+            || token.contains("vision")
+    }) {
+        return true;
+    }
+
+    !is_embedding_model(profile)
+}
+
+fn infer_embedding_dimensions(model_id: &str) -> i32 {
+    match model_id.trim().to_ascii_lowercase().as_str() {
+        "gemini-embedding-001" => 3072,
+        "text-embedding-3-large" => 3072,
+        "text-embedding-3-small" | "text-embedding-ada-002" => 1536,
+        _ => 0,
     }
 }
 
@@ -637,11 +843,18 @@ fn preset_models_for_provider(provider: &str) -> Vec<ModelInfoDto> {
                 is_recommended: true,
             },
             ModelInfoDto {
-                id: "gemini-2.0-flash".to_string(),
-                display_name: "Gemini 2.0 Flash".to_string(),
+                id: "gemini-2.5-flash".to_string(),
+                display_name: "Gemini 2.5 Flash".to_string(),
                 source: "preset".to_string(),
-                capabilities: infer_model_capabilities("gemini-2.0-flash"),
-                is_recommended: true,
+                capabilities: infer_model_capabilities("gemini-2.5-flash"),
+                is_recommended: false,
+            },
+            ModelInfoDto {
+                id: "gemini-embedding-001".to_string(),
+                display_name: "Gemini Embedding 001".to_string(),
+                source: "preset".to_string(),
+                capabilities: infer_model_capabilities("gemini-embedding-001"),
+                is_recommended: false,
             },
         ],
         "deepseek" => vec![
@@ -819,39 +1032,173 @@ fn validate_workflow_type(workflow_type: &str) -> CommandResult<()> {
     }
 }
 
-fn workflow_assignment_to_dto(
+fn workflow_assignment_to_dto_with_actual_key_status(
+    state: &AppState,
     assignment: WorkflowModelAssignment,
+    model_profile: Option<ModelProfile>,
     config: Option<ApiConfig>,
-) -> WorkflowAssignmentDto {
-    WorkflowAssignmentDto {
+) -> CommandResult<WorkflowAssignmentDto> {
+    let config = config
+        .map(|config| api_config_to_dto_with_actual_key_status(state, config))
+        .transpose()?;
+    let model_profile = model_profile.map(|profile| ModelProfileDto {
+        id: profile.id,
+        api_config_id: profile.api_config_id,
+        model_id: profile.model_id,
+        display_name: profile.display_name,
+        capabilities_json: profile.capabilities_json,
+        is_enabled: profile.is_enabled,
+        is_default_for_connection: profile.is_default_for_connection,
+        created_at: profile.created_at,
+        updated_at: profile.updated_at,
+        api_config: config.clone(),
+    });
+    Ok(WorkflowAssignmentDto {
         workflow_type: assignment.workflow_type,
-        api_config_id: assignment.api_config_id,
+        model_profile_id: assignment.model_profile_id,
         assigned_at: assignment.assigned_at,
         updated_at: assignment.updated_at,
-        api_config: config.map(api_config_to_dto),
-    }
+        model_profile,
+        api_config: config,
+    })
 }
 
-fn validate_assignment_target(state: &AppState, api_config_id: &str) -> CommandResult<()> {
-    let config = {
+fn validate_assignment_target(
+    state: &AppState,
+    workflow_type: &str,
+    model_profile_id: &str,
+) -> CommandResult<()> {
+    let (profile, config) = {
         let db = state.lock_db()?;
         let repo = SettingsRepository::new(&db);
-        repo.get_api_config(api_config_id)?
-            .ok_or(CommandError::NotFound)?
+        let profile = repo
+            .get_model_profile(model_profile_id)?
+            .ok_or(CommandError::NotFound)?;
+        let config = repo
+            .get_api_config(&profile.api_config_id)?
+            .ok_or(CommandError::NotFound)?;
+        (profile, config)
     };
 
-    if !config.is_enabled {
-        return Err(CommandError::InvalidInput("该供应商配置已禁用".to_string()));
+    if !profile.is_enabled {
+        return Err(CommandError::InvalidInput("该模型档案已禁用".to_string()));
     }
 
-    let secrets = state.lock_secrets()?;
-    if config.auth_mode != "adc" && !secrets.has_api_key(api_config_id)? {
+    if !config.is_enabled {
+        return Err(CommandError::InvalidInput("该连接已禁用".to_string()));
+    }
+
+    if config.auth_mode != "adc" && sync_api_config_key_status(state, &config)? == "none" {
+        return Err(CommandError::InvalidInput("该连接尚未存储 API Key".to_string()));
+    }
+
+    if workflow_type == "document_embedding" {
+        if !is_embedding_model(&profile) {
+            return Err(CommandError::InvalidInput(
+                "文档向量化只能分配嵌入模型。请为该工作流选择 embedding 模型档案。"
+                    .to_string(),
+            ));
+        }
+    } else if !is_generation_model(&profile) {
         return Err(CommandError::InvalidInput(
-            "该供应商配置未存储 API Key".to_string(),
+            "该工作流需要可生成内容的模型，不能分配为嵌入专用模型。".to_string(),
         ));
     }
 
     Ok(())
+}
+
+fn resolve_effective_embedding_profile_internal(
+    state: &AppState,
+) -> CommandResult<Option<EmbeddingProfile>> {
+    let db = state.lock_db()?;
+    let settings_repo = SettingsRepository::new(&db);
+    let Some(assignment) = settings_repo.get_workflow_assignment("document_embedding")? else {
+        return Ok(None);
+    };
+    let Some(model_profile) = settings_repo.get_model_profile(&assignment.model_profile_id)? else {
+        return Ok(None);
+    };
+    let Some(api_config) = settings_repo.get_api_config(&model_profile.api_config_id)? else {
+        return Ok(None);
+    };
+    drop(settings_repo);
+
+    if !model_profile.is_enabled || !api_config.is_enabled {
+        return Ok(None);
+    }
+
+    if api_config.auth_mode != "adc" && sync_api_config_key_status(state, &api_config)? == "none" {
+        return Ok(None);
+    }
+
+    if !is_embedding_model(&model_profile) {
+        return Ok(None);
+    }
+
+    let vector_repo = VectorRepository::new(&db);
+    let previous_active = vector_repo.get_active_embedding_profile()?;
+    let (profile, changed) = vector_repo.upsert_embedding_profile_with_id(
+        &model_profile.id,
+        CreateEmbeddingProfileRequest {
+            provider: api_config.provider.clone(),
+            model: model_profile.model_id.clone(),
+            dimensions: infer_embedding_dimensions(&model_profile.model_id),
+            distance_metric: Some("cosine".to_string()),
+            is_active: true,
+            revision: 1,
+        },
+    )?;
+
+    let switched_profile = previous_active
+        .as_ref()
+        .map(|previous| previous.id != profile.id)
+        .unwrap_or(false);
+    if changed || switched_profile {
+        vector_repo.mark_documents_embedding_stale()?;
+    }
+
+    Ok(Some(profile))
+}
+
+pub(crate) fn resolve_effective_embedding_profile(
+    state: &AppState,
+) -> CommandResult<Option<EmbeddingProfile>> {
+    resolve_effective_embedding_profile_internal(state)
+}
+
+#[tauri::command]
+pub fn get_secret_vault_status(state: State<'_, AppState>) -> CommandResult<SecretVaultStatusDto> {
+    let secrets = state.lock_secrets()?;
+    Ok(SecretVaultStatusDto {
+        status: secrets.status().to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn lock_secret_vault(state: State<'_, AppState>) -> CommandResult<SecretVaultStatusDto> {
+    let mut secrets = state.lock_secrets()?;
+    secrets.lock();
+    Ok(SecretVaultStatusDto {
+        status: secrets.status().to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn unlock_secret_vault(
+    state: State<'_, AppState>,
+    data: UnlockSecretVaultDto,
+) -> CommandResult<SecretVaultStatusDto> {
+    if data.password.trim().is_empty() {
+        return Err(CommandError::InvalidInput(
+            "Vault password must not be empty".to_string(),
+        ));
+    }
+    let mut secrets = state.lock_secrets()?;
+    secrets.unlock(data.password.trim())?;
+    Ok(SecretVaultStatusDto {
+        status: secrets.status().to_string(),
+    })
 }
 
 #[tauri::command]
@@ -882,6 +1229,7 @@ pub fn update_settings(
         content_difficulty_preference: data.content_difficulty_preference,
         podcast_tts_provider: data.podcast_tts_provider,
         podcast_openai_model: data.podcast_openai_model,
+        podcast_google_tts_model: data.podcast_google_tts_model,
         podcast_fish_audio_endpoint: data.podcast_fish_audio_endpoint,
         podcast_voice_overrides: data.podcast_voice_overrides,
         default_voice: data.default_voice,
@@ -915,7 +1263,10 @@ pub fn list_api_configs(state: State<'_, AppState>) -> CommandResult<Vec<ApiConf
         repo.list_api_configs()?
     };
     let config_count = configs.len();
-    let result: Vec<ApiConfigDto> = configs.into_iter().map(api_config_to_dto).collect();
+    let result: Vec<ApiConfigDto> = configs
+        .into_iter()
+        .map(|config| api_config_to_dto_with_actual_key_status(&state, config))
+        .collect::<CommandResult<Vec<_>>>()?;
 
     log::info!(
         "[Perf][BYOK] list_api_configs finished: count={}, duration_ms={:.2}",
@@ -941,7 +1292,7 @@ pub fn get_api_config(
         return Ok(None);
     };
 
-    Ok(Some(api_config_to_dto(config)))
+    Ok(Some(api_config_to_dto_with_actual_key_status(&state, config)?))
 }
 
 #[tauri::command]
@@ -995,7 +1346,7 @@ pub fn update_api_config(
         repo.update_api_config(&id, req)?
             .ok_or(CommandError::NotFound)?
     };
-    Ok(api_config_to_dto(config))
+    Ok(api_config_to_dto_with_actual_key_status(&state, config)?)
 }
 
 #[tauri::command]
@@ -1036,6 +1387,107 @@ pub fn delete_api_config(
         total_start.elapsed().as_secs_f64() * 1000.0
     );
 
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_model_profiles(state: State<'_, AppState>) -> CommandResult<Vec<ModelProfileDto>> {
+    let (profiles, configs) = {
+        let db = state.lock_db()?;
+        let repo = SettingsRepository::new(&db);
+        let profiles = repo.list_model_profiles()?;
+        let configs = repo
+            .list_api_configs()?
+            .into_iter()
+            .map(|config| (config.id.clone(), config))
+            .collect::<BTreeMap<_, _>>();
+        (profiles, configs)
+    };
+
+    profiles
+        .into_iter()
+        .map(|profile| {
+            let config = configs.get(&profile.api_config_id).cloned();
+            model_profile_to_dto_with_actual_key_status(&state, profile, config)
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn list_model_profiles_by_api_config(
+    state: State<'_, AppState>,
+    api_config_id: String,
+) -> CommandResult<Vec<ModelProfileDto>> {
+    let (profiles, config) = {
+        let db = state.lock_db()?;
+        let repo = SettingsRepository::new(&db);
+        let profiles = repo.list_model_profiles_by_api_config(&api_config_id)?;
+        let config = repo.get_api_config(&api_config_id)?;
+        (profiles, config)
+    };
+
+    profiles
+        .into_iter()
+        .map(|profile| model_profile_to_dto_with_actual_key_status(&state, profile, config.clone()))
+        .collect()
+}
+
+#[tauri::command]
+pub fn create_model_profile(
+    state: State<'_, AppState>,
+    data: CreateModelProfileDto,
+) -> CommandResult<ModelProfileDto> {
+    let (profile, config) = {
+        let db = state.lock_db()?;
+        let repo = SettingsRepository::new(&db);
+        let profile = repo.create_model_profile(CreateModelProfileRequest {
+            api_config_id: data.api_config_id.clone(),
+            model_id: data.model_id,
+            display_name: data.display_name,
+            capabilities_json: data.capabilities_json,
+            is_enabled: data.is_enabled,
+            is_default_for_connection: data.is_default_for_connection,
+        })?;
+        let config = repo.get_api_config(&data.api_config_id)?;
+        (profile, config)
+    };
+
+    model_profile_to_dto_with_actual_key_status(&state, profile, config)
+}
+
+#[tauri::command]
+pub fn update_model_profile(
+    state: State<'_, AppState>,
+    id: String,
+    data: UpdateModelProfileDto,
+) -> CommandResult<ModelProfileDto> {
+    let (profile, config) = {
+        let db = state.lock_db()?;
+        let repo = SettingsRepository::new(&db);
+        let profile = repo
+            .update_model_profile(
+                &id,
+                UpdateModelProfileRequest {
+                    model_id: data.model_id,
+                    display_name: data.display_name,
+                    capabilities_json: data.capabilities_json,
+                    is_enabled: data.is_enabled,
+                    is_default_for_connection: data.is_default_for_connection,
+                },
+            )?
+            .ok_or(CommandError::NotFound)?;
+        let config = repo.get_api_config(&profile.api_config_id)?;
+        (profile, config)
+    };
+
+    model_profile_to_dto_with_actual_key_status(&state, profile, config)
+}
+
+#[tauri::command]
+pub fn delete_model_profile(state: State<'_, AppState>, id: String) -> CommandResult<()> {
+    let db = state.lock_db()?;
+    let repo = SettingsRepository::new(&db);
+    repo.delete_model_profile(&id)?;
     Ok(())
 }
 
@@ -1106,15 +1558,58 @@ fn spawn_delete_api_config_secret_cleanup(app_handle: AppHandle, config_id: Stri
 }
 
 #[tauri::command]
-pub fn store_api_key(state: State<'_, AppState>, data: StoreApiKeyDto) -> CommandResult<()> {
-    {
-        let secrets = state.lock_secrets()?;
-        secrets.store_api_key(&data.config_id, &data.api_key)?;
+pub fn get_api_key(state: State<'_, AppState>, config_id: String) -> CommandResult<String> {
+    let start = std::time::Instant::now();
+    let secrets = state.lock_secrets()?;
+    let api_key = match secrets.get_api_key(&config_id) {
+        Ok(api_key) => api_key,
+        Err(SecretError::NotFound) => {
+            drop(secrets);
+            log::warn!(
+                "[BYOK] get_api_key found no Stronghold entry: config_id={}",
+                config_id
+            );
+            let db = state.lock_db()?;
+            let repo = SettingsRepository::new(&db);
+            repo.update_api_key_status(&config_id, "none", None)?;
+            return Err(CommandError::Secret(SecretError::NotFound));
+        }
+        Err(error) => return Err(CommandError::Secret(error)),
+    };
+    log::info!(
+        "[Perf][BYOK] get_api_key finished: config_id={}, duration_ms={:.2}",
+        config_id,
+        start.elapsed().as_secs_f64() * 1000.0
+    );
+    Ok(api_key)
+}
+
+#[tauri::command]
+pub async fn store_api_key(app: AppHandle, data: StoreApiKeyDto) -> CommandResult<()> {
+    let trimmed_api_key = data.api_key.trim().to_string();
+    if trimmed_api_key.is_empty() {
+        return Err(CommandError::InvalidInput("Missing API key.".to_string()));
     }
+
+    let config_id = data.config_id;
+    let state = app.state::<AppState>();
+    tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        let config_id = config_id.clone();
+        let trimmed_api_key = trimmed_api_key.clone();
+        move || -> CommandResult<()> {
+            let state = app.state::<AppState>();
+            let secrets = state.lock_secrets()?;
+            secrets.store_api_key(&config_id, &trimmed_api_key)?;
+            Ok(())
+        }
+    })
+    .await
+    .map_err(|error| CommandError::Internal(format!("Secret write task failed: {error}")))??;
 
     let db = state.lock_db()?;
     let repo = SettingsRepository::new(&db);
-    repo.update_api_key_status(&data.config_id, "stored", None)?;
+    repo.update_api_key_status(&config_id, "stored", None)?;
     Ok(())
 }
 
@@ -1125,7 +1620,39 @@ pub async fn test_api_connection(
 ) -> CommandResult<ApiConnectionTestResultDto> {
     let provider = normalize_provider(&data.provider);
     let auth_mode = data.auth_mode.as_str();
-    let trimmed_api_key = data.api_key.trim().to_string();
+    let provided_api_key = data
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let trimmed_api_key = match provided_api_key {
+        Some(value) => value,
+        None => match data.config_id.as_deref() {
+            Some(config_id) => {
+                let secrets = state.lock_secrets()?;
+                match secrets.get_api_key(config_id) {
+                    Ok(value) => value.trim().to_string(),
+                    Err(SecretError::NotFound) => {
+                        drop(secrets);
+                        log::warn!(
+                            "[BYOK] test_api_connection found no Stronghold entry: config_id={}",
+                            config_id
+                        );
+                        let db = state.lock_db()?;
+                        let repo = SettingsRepository::new(&db);
+                        repo.update_api_key_status(config_id, "none", None)?;
+                        return Ok(ApiConnectionTestResultDto {
+                            success: false,
+                            message: "No API key is stored for this provider.".to_string(),
+                        });
+                    }
+                    Err(error) => return Err(CommandError::Secret(error)),
+                }
+            }
+            None => String::new(),
+        },
+    };
     let normalized_base_url = data
         .base_url
         .as_ref()
@@ -1271,7 +1798,10 @@ pub async fn test_api_connection(
                     None,
                     ApiConnectionTestResultDto {
                         success: false,
-                        message: format!("Unable to connect to the server: {e}"),
+                        message: format!(
+                            "Unable to connect to the server: {}",
+                            redact_secret_from_message(&e.to_string(), &trimmed_api_key)
+                        ),
                     },
                 )
             } else {
@@ -1279,7 +1809,10 @@ pub async fn test_api_connection(
                     None,
                     ApiConnectionTestResultDto {
                         success: false,
-                        message: format!("Request failed: {e}"),
+                        message: format!(
+                            "Request failed: {}",
+                            redact_secret_from_message(&e.to_string(), &trimmed_api_key)
+                        ),
                     },
                 )
             }
@@ -1435,26 +1968,34 @@ pub async fn fetch_provider_models(
 pub fn list_workflow_assignments(
     state: State<'_, AppState>,
 ) -> CommandResult<Vec<WorkflowAssignmentDto>> {
-    let (assignments, configs) = {
+    let (assignments, profiles, configs) = {
         let db = state.lock_db()?;
         let repo = SettingsRepository::new(&db);
         let assignments = repo.list_workflow_assignments()?;
+        let profiles = repo
+            .list_model_profiles()?
+            .into_iter()
+            .map(|profile| (profile.id.clone(), profile))
+            .collect::<BTreeMap<_, _>>();
         let configs = repo
             .list_api_configs()?
             .into_iter()
             .map(|config| (config.id.clone(), config))
             .collect::<BTreeMap<_, _>>();
-        (assignments, configs)
+        (assignments, profiles, configs)
     };
-    Ok(assignments
+    assignments
         .into_iter()
         .map(|assignment| {
-            workflow_assignment_to_dto(
+            let model_profile = profiles.get(&assignment.model_profile_id).cloned();
+            workflow_assignment_to_dto_with_actual_key_status(
+                &state,
                 assignment.clone(),
-                configs.get(&assignment.api_config_id).cloned(),
+                model_profile.clone(),
+                model_profile.and_then(|profile| configs.get(&profile.api_config_id).cloned()),
             )
         })
-        .collect())
+        .collect()
 }
 
 #[tauri::command]
@@ -1464,22 +2005,28 @@ pub fn get_workflow_assignment(
 ) -> CommandResult<Option<WorkflowAssignmentDto>> {
     validate_workflow_type(&workflow_type)?;
 
-    let (assignment, config) = {
+    let (assignment, model_profile, config) = {
         let db = state.lock_db()?;
         let repo = SettingsRepository::new(&db);
         let assignment = repo.get_workflow_assignment(&workflow_type)?;
-        let config = match assignment.as_ref() {
+        let model_profile = match assignment.as_ref() {
+            Some(value) => repo.get_model_profile(&value.model_profile_id)?,
+            None => None,
+        };
+        let config = match model_profile.as_ref() {
             Some(value) => repo.get_api_config(&value.api_config_id)?,
             None => None,
         };
-        (assignment, config)
+        (assignment, model_profile, config)
     };
 
     let Some(assignment) = assignment else {
         return Ok(None);
     };
 
-    Ok(Some(workflow_assignment_to_dto(assignment, config)))
+    Ok(Some(workflow_assignment_to_dto_with_actual_key_status(
+        &state, assignment, model_profile, config,
+    )?))
 }
 
 #[tauri::command]
@@ -1488,46 +2035,69 @@ pub fn set_workflow_assignment(
     data: SetWorkflowAssignmentDto,
 ) -> CommandResult<WorkflowAssignmentDto> {
     validate_workflow_type(&data.workflow_type)?;
-    validate_assignment_target(&state, &data.api_config_id)?;
+    validate_assignment_target(&state, &data.workflow_type, &data.model_profile_id)?;
 
     let assignment = {
         let db = state.lock_db()?;
         let repo = SettingsRepository::new(&db);
-        repo.upsert_workflow_assignment(&data.workflow_type, &data.api_config_id)?
+        repo.upsert_workflow_assignment(&data.workflow_type, &data.model_profile_id)?
     };
 
-    let config = {
+    if data.workflow_type == "document_embedding" {
+        let _ = resolve_effective_embedding_profile_internal(&state)?;
+    }
+
+    let (model_profile, config) = {
         let db = state.lock_db()?;
         let repo = SettingsRepository::new(&db);
-        repo.get_api_config(&data.api_config_id)?
+        let model_profile = repo.get_model_profile(&data.model_profile_id)?;
+        let config = match model_profile.as_ref() {
+            Some(value) => repo.get_api_config(&value.api_config_id)?,
+            None => None,
+        };
+        (model_profile, config)
     };
-    Ok(workflow_assignment_to_dto(assignment, config))
+    workflow_assignment_to_dto_with_actual_key_status(&state, assignment, model_profile, config)
 }
 
 #[tauri::command]
 pub fn set_all_workflow_assignments(
     state: State<'_, AppState>,
-    api_config_id: String,
+    model_profile_id: String,
 ) -> CommandResult<Vec<WorkflowAssignmentDto>> {
-    validate_assignment_target(&state, &api_config_id)?;
+    for workflow_type in WORKFLOW_TYPES {
+        validate_assignment_target(&state, workflow_type, &model_profile_id)?;
+    }
 
     let assignments = {
         let db = state.lock_db()?;
         let repo = SettingsRepository::new(&db);
         WORKFLOW_TYPES
             .iter()
-            .map(|workflow_type| repo.upsert_workflow_assignment(workflow_type, &api_config_id))
+            .map(|workflow_type| repo.upsert_workflow_assignment(workflow_type, &model_profile_id))
             .collect::<Result<Vec<_>, _>>()?
     };
-    let config = {
+    let (model_profile, config) = {
         let db = state.lock_db()?;
         let repo = SettingsRepository::new(&db);
-        repo.get_api_config(&api_config_id)?
+        let model_profile = repo.get_model_profile(&model_profile_id)?;
+        let config = match model_profile.as_ref() {
+            Some(value) => repo.get_api_config(&value.api_config_id)?,
+            None => None,
+        };
+        (model_profile, config)
     };
-    Ok(assignments
+    assignments
         .into_iter()
-        .map(|assignment| workflow_assignment_to_dto(assignment, config.clone()))
-        .collect())
+        .map(|assignment| {
+            workflow_assignment_to_dto_with_actual_key_status(
+                &state,
+                assignment,
+                model_profile.clone(),
+                config.clone(),
+            )
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -1593,9 +2163,7 @@ pub fn list_embedding_profiles(
 pub fn get_active_embedding_profile(
     state: State<'_, AppState>,
 ) -> CommandResult<Option<EmbeddingProfileDto>> {
-    let db = state.lock_db()?;
-    let repo = VectorRepository::new(&db);
-    let profile = repo.get_active_embedding_profile()?;
+    let profile = resolve_effective_embedding_profile_internal(&state)?;
     Ok(profile.map(Into::into))
 }
 

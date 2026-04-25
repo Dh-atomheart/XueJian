@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ReviewPage as ReviewPageView } from '@/components/pages/review-page'
 import { useDailyStatsQuery, useDueCardsQuery, useSubmitReviewMutation } from '@/queries/learning'
+import { usePointsSummaryQuery } from '@/queries/points'
 import { useAppUiStore } from '@/store'
 import { useLearningSessionStore } from '@/store/learning'
 import type { ReviewRating } from '@/services/learning'
@@ -19,6 +20,7 @@ export function ReviewPage() {
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const { data: dueCards = [] } = useDueCardsQuery()
   const { data: dailyStats } = useDailyStatsQuery()
+  const { data: pointsSummary } = usePointsSummaryQuery()
   const submitReview = useSubmitReviewMutation()
 
   const { queue, currentIndex, isFlipped, reviewedCount, loadQueue, flipCard, advanceCard, resetSession } =
@@ -102,7 +104,7 @@ export function ReviewPage() {
       totalCards={queue.length || dueCards.length}
       reviewedCount={reviewedCount}
       progressPercent={progressPercent}
-      todayPoints={(dailyStats?.reviewCards ?? 0) * 3}
+      todayPoints={pointsSummary?.todayPoints ?? 0}
       isFlipped={isFlipped}
       isSubmitting={submitReview.isPending}
       dueCount={dueCards.length}

@@ -1,0 +1,343 @@
+name: App Main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-main-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: detect-changes
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+      app: ${{ steps.filter.outputs.app }}
+      desktop: ${{ steps.filter.outputs.desktop }}
+      python: ${{ steps.filter.outputs.python }}
+      docs_only: ${{ steps.flags.outputs.docs_only }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            docs:
+              - 'docs/**'
+              - 'README.md'
+              - 'scripts/docs/**'
+              - '.github/workflows/knowledge-base.yml'
+              - '.github/workflows/doc-garden.yml'
+            app:
+              - 'xuejian/**'
+              - 'scripts/ci/**'
+              - '.github/workflows/app-*.yml'
+              - '.github/workflows/release-windows.yml'
+            desktop:
+              - 'xuejian/src-tauri/**'
+              - 'xuejian/Cargo.lock'
+            python:
+              - 'xuejian/orchestration_service/**'
+              - 'scripts/ci/python_orchestration_smoke.py'
+
+      - name: Compute flags
+        id: flags
+        run: |
+          if [[ "${{ steps.filter.outputs.docs }}" == 'true' && "${{ steps.filter.outputs.app }}" != 'true' && "${{ steps.filter.outputs.desktop }}" != 'true' && "${{ steps.filter.outputs.python }}" != 'true' ]]; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  docs-validate:
+    name: docs-validate
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.docs == 'true' || needs.detect-changes.outputs.docs_only == 'true' || needs.detect-changes.outputs.app == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: xuejian/package-lock.json
+
+      - name: Install app dependencies
+        working-directory: xuejian
+        run: npm ci
+
+      - name: Validate docs
+        run: python scripts/docs/validate.py
+
+      - name: Validate architecture boundaries
+        run: python scripts/docs/check_architecture.py
+
+      - name: Check generated DB schema
+        run: python scripts/docs/generate_db_schema.py --check
+
+  frontend-build:
+    name: frontend-build
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: xuejian
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: xuejian/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Upload frontend dist artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: xuejian/dist
+          if-no-files-found: warn
+
+  rust-test:
+    name: rust-test
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: xuejian/src-tauri -> target
+
+      - name: Run Rust tests
+        shell: bash
+        run: |
+          mkdir -p xuejian/test-results/ci
+          set -o pipefail
+          cargo test --manifest-path xuejian/src-tauri/Cargo.toml 2>&1 | tee xuejian/test-results/ci/rust-test.log
+
+      - name: Write Rust summary
+        run: |
+          node xuejian/scripts/ci/write-check-summary.mjs \
+            --output xuejian/test-results/ci/rust-summary.md \
+            --name rust-test \
+            --status passed \
+            --command "cargo test --manifest-path src-tauri/Cargo.toml" \
+            --details "Blocking Rust integration test suite on main." \
+            --stdout-file "xuejian/test-results/ci/rust-test.log"
+
+      - name: Upload Rust test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-test-results
+          path: |
+            xuejian/test-results/ci/rust-test.log
+            xuejian/test-results/ci/rust-summary.md
+          if-no-files-found: warn
+
+  python-orchestration-smoke:
+    name: python-orchestration-smoke
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: xuejian/orchestration_service/requirements.txt
+
+      - name: Install orchestration dependencies
+        run: python -m pip install -r xuejian/orchestration_service/requirements.txt
+
+      - name: Run orchestration smoke check
+        shell: bash
+        run: |
+          mkdir -p xuejian/test-results/ci
+          python scripts/ci/python_orchestration_smoke.py > xuejian/test-results/ci/python-smoke.json
+
+      - name: Write Python smoke summary
+        run: |
+          node xuejian/scripts/ci/write-check-summary.mjs \
+            --output xuejian/test-results/ci/python-smoke-summary.md \
+            --name python-orchestration-smoke \
+            --status passed \
+            --command "python scripts/ci/python_orchestration_smoke.py" \
+            --details "Blocking smoke validation for the Python orchestration service." \
+            --artifact "xuejian/test-results/ci/python-smoke.json"
+
+      - name: Upload Python smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-smoke-results
+          path: |
+            xuejian/test-results/ci/python-smoke.json
+            xuejian/test-results/ci/python-smoke-summary.md
+          if-no-files-found: warn
+
+  frontend-quality-baseline:
+    name: frontend-quality-baseline
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: xuejian
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: xuejian/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint baseline
+        shell: bash
+        run: |
+          mkdir -p test-results/ci
+          set +e
+          npm run lint > test-results/ci/lint.stdout.log 2> test-results/ci/lint.stderr.log
+          status=$?
+          set -e
+          if [[ $status -eq 0 ]]; then lint_status=passed; else lint_status=failed; fi
+          node scripts/ci/write-check-summary.mjs \
+            --output test-results/ci/lint-summary.md \
+            --name lint \
+            --status "$lint_status" \
+            --command "npm run lint" \
+            --details "Non-blocking frontend baseline check on main." \
+            --stdout-file "test-results/ci/lint.stdout.log" \
+            --stderr-file "test-results/ci/lint.stderr.log"
+
+      - name: Run vitest baseline
+        shell: bash
+        run: |
+          mkdir -p test-results/ci
+          set +e
+          npm run test -- --run --reporter=default --reporter=json --outputFile=test-results/ci/vitest-report.json > test-results/ci/vitest.stdout.log 2> test-results/ci/vitest.stderr.log
+          status=$?
+          set -e
+          if [[ $status -eq 0 ]]; then vitest_status=passed; else vitest_status=failed; fi
+          node scripts/ci/write-check-summary.mjs \
+            --output test-results/ci/vitest-summary.md \
+            --name vitest \
+            --status "$vitest_status" \
+            --command "npm run test -- --run" \
+            --details "Non-blocking frontend baseline check on main." \
+            --artifact "test-results/ci/vitest-report.json" \
+            --stdout-file "test-results/ci/vitest.stdout.log" \
+            --stderr-file "test-results/ci/vitest.stderr.log"
+
+      - name: Upload frontend baseline artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-baseline-results
+          path: |
+            xuejian/test-results/ci/lint-summary.md
+            xuejian/test-results/ci/lint.stdout.log
+            xuejian/test-results/ci/lint.stderr.log
+            xuejian/test-results/ci/vitest-summary.md
+            xuejian/test-results/ci/vitest.stdout.log
+            xuejian/test-results/ci/vitest.stderr.log
+            xuejian/test-results/ci/vitest-report.json
+          if-no-files-found: warn
+
+  playwright-smoke:
+    name: playwright-smoke
+    needs:
+      - detect-changes
+      - frontend-build
+    if: ${{ needs.detect-changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: xuejian
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: xuejian/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke suite
+        shell: bash
+        run: |
+          mkdir -p test-results/ci
+          set -o pipefail
+          npm run test:smoke 2>&1 | tee test-results/ci/playwright-smoke.log
+
+      - name: Write Playwright smoke summary
+        run: |
+          node scripts/ci/write-check-summary.mjs \
+            --output test-results/ci/playwright-smoke-summary.md \
+            --name playwright-smoke \
+            --status passed \
+            --command "npm run test:smoke" \
+            --details "Blocking Playwright smoke suite on main." \
+            --artifact "playwright-report/" \
+            --stdout-file "test-results/ci/playwright-smoke.log"
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-report
+          path: |
+            xuejian/playwright-report
+            xuejian/test-results
+          if-no-files-found: warn
+

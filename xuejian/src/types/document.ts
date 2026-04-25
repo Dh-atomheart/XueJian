@@ -401,8 +401,9 @@ export interface AppSettings {
   studyTimePreferences: StudyTimeSlotId[]
   studyContentPreferences: StudyContentPreferenceId[]
   contentDifficultyPreference: ContentDifficultyId
-  podcastTtsProvider: 'auto' | 'openai' | 'edge_tts'
+  podcastTtsProvider: 'auto' | 'openai' | 'edge_tts' | 'google'
   podcastOpenaiModel: string
+  podcastGoogleTtsModel: string
   podcastFishAudioEndpoint: string | null
   podcastVoiceOverrides: Record<string, string>
   defaultVoice: string
@@ -459,8 +460,18 @@ export interface EmbeddingProfile {
   createdAt: Date
 }
 
-// `ModelProfile` is kept as a compatibility alias for existing code and docs.
-export type ModelProfile = ApiConfig
+export interface ModelProfile {
+  id: string
+  apiConfigId: string
+  modelId: string
+  displayName: string | null
+  capabilitiesJson: string | null
+  isEnabled: boolean
+  isDefaultForConnection: boolean
+  createdAt: Date
+  updatedAt: Date
+  apiConfig?: ApiConfig | null
+}
 
 export interface ApiConnectionTestResult {
   success: boolean
@@ -469,9 +480,10 @@ export interface ApiConnectionTestResult {
 
 export interface WorkflowModelAssignment {
   workflowType: WorkflowType
-  apiConfigId: string
+  modelProfileId: string
   assignedAt: Date
   updatedAt: Date
+  modelProfile?: ModelProfile | null
   apiConfig?: ApiConfig | null
 }
 
@@ -607,7 +619,15 @@ export interface Citation {
 export interface RagAnswer {
   answer: string
   answerMode: 'grounded' | 'no_relevant_content' | 'excerpt_fallback'
-  retrievalMode: 'fts5' | 'hybrid'
+  retrievalMode: 'fts5' | 'hybrid' | 'graph_rag+fts5' | 'graph_rag+hybrid'
+  retrievalStatus:
+    | 'ready'
+    | 'embedding_missing'
+    | 'embedding_stale'
+    | 'embedding_failed'
+    | 'no_hits'
+  graphEnhanced: boolean
+  graphContextSummary: string | null
   citations: Citation[]
 }
 

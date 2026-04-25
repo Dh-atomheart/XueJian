@@ -1,47 +1,52 @@
 import { expect, test } from '@playwright/test'
+import { gotoApp } from './support'
 
 /**
- * E2E tests for data export and review flow.
- * These tests verify the W3/W4 integration points:
- * - Settings page has export UI
- * - Dashboard shows daily stats with correct_rate
- * - Card studio shows documents ready for generation
+ * E2E tests for the current dashboard, settings, and card-studio contracts.
+ * These assertions target stable test ids and current onboarding structure
+ * instead of historical copy that no longer exists in the UI.
  */
 
 // @acceptance:w3-a5
-test('settings page shows the data export panel with CSV button', async ({ page }) => {
-  await page.goto('/')
+test('settings page shows the BYOK onboarding callout and add-config entrypoint', async ({
+  page,
+}) => {
+  await gotoApp(page)
   await page.getByTestId('sidebar-nav-settings').click()
 
-  await expect(page.getByText('数据导出')).toBeVisible()
-  await expect(page.getByRole('button', { name: '导出 CSV' })).toBeVisible()
+  await expect(page.getByTestId('settings-setup-callout')).toBeVisible()
+  await expect(page.getByTestId('settings-toggle-add-config')).toBeVisible()
 })
 
 // @acceptance:w4-a3
-test('dashboard shows daily stats including correct rate when available', async ({ page }) => {
-  await page.goto('/')
+test('dashboard shows the stable home panels for recent docs, quick actions, and heatmap', async ({
+  page,
+}) => {
+  await gotoApp(page)
 
-  // Dashboard should be the default view
-  await expect(page.getByText('今日待学')).toBeVisible()
-  await expect(page.getByText('新卡')).toBeVisible()
-  await expect(page.getByText('复习')).toBeVisible()
+  await expect(page.getByTestId('home-recent-documents-panel')).toBeVisible()
+  await expect(page.getByTestId('home-quick-actions-panel')).toBeVisible()
+  await expect(page.getByTestId('home-heatmap-panel')).toBeVisible()
 })
 
 // @acceptance:w3-a3
 test('card studio shows documents with parsed status as eligible', async ({ page }) => {
-  await page.goto('/')
+  await gotoApp(page)
   await page.getByTestId('sidebar-nav-cards').click()
 
-  // Card studio page should load
   await expect(page.getByTestId('card-studio-page')).toBeVisible()
+  await expect(page.getByTestId('card-studio-start-generation')).toBeVisible()
+  await expect(page.getByTestId('card-studio-run-list')).toBeVisible()
 })
 
 // @acceptance:w4-a1
-test('settings page shows API connection test with real validation', async ({ page }) => {
-  await page.goto('/')
+test('settings page gates workflow assignment until a provider is configured', async ({
+  page,
+}) => {
+  await gotoApp(page)
   await page.getByTestId('sidebar-nav-settings').click()
 
-  await expect(page.getByText('模型配置')).toBeVisible()
-  // The connection test button should be present if a config exists
-  await expect(page.getByText('模型与偏好')).toBeVisible()
+  await expect(page.getByTestId('settings-toggle-add-config')).toBeVisible()
+  await expect(page.getByTestId('settings-setup-callout')).toBeVisible()
+  await expect(page.getByTestId('settings-workflow-assignments')).toHaveCount(0)
 })

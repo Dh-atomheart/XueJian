@@ -1,0 +1,99 @@
+name: Release Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release-windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: xuejian
+        shell: pwsh
+    env:
+      RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: xuejian/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: xuejian/orchestration_service/requirements.txt
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: xuejian/src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install orchestration dependencies
+        run: python -m pip install -r orchestration_service/requirements.txt
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Playwright smoke suite
+        run: npm run test:smoke
+
+      - name: Generate release metadata
+        working-directory: .
+        shell: pwsh
+        run: node xuejian/scripts/ci/release-metadata.mjs
+
+      - name: Build Windows release bundle
+        run: npm run tauri:build
+
+      - name: Upload Windows bundle artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-bundle
+          path: |
+            xuejian/src-tauri/target/release/bundle
+            release-metadata
+          if-no-files-found: warn
+
+      - name: Create or update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          body_path: release-metadata/release-notes.md
+          files: |
+            xuejian/src-tauri/target/release/bundle/**/*.msi
+            xuejian/src-tauri/target/release/bundle/**/*.exe
+            release-metadata/metadata.json

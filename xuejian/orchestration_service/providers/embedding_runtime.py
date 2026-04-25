@@ -14,15 +14,32 @@ def resolve_embedding_config(
     host: HostGatewayClient,
     profile: dict,
 ) -> tuple[dict, str] | None:
-    provider = normalize_provider(profile.get("provider", "openai"))
-    config_with_key = host.get_config_with_key_by_provider(provider)
-    if config_with_key is None:
+    assignment = host.get_workflow_assignment("document_embedding")
+    if not assignment:
         return None
 
-    config, api_key = config_with_key
+    model_profile = assignment.get("modelProfile") or {}
+    config_payload = assignment.get("apiConfig") or {}
+    config_id = config_payload.get("id") or model_profile.get("apiConfigId")
+    if not config_id:
+        return None
+
+    if profile.get("id") and model_profile.get("id") and profile.get("id") != model_profile.get("id"):
+        return None
+
+    config = host.get_api_config(config_id) or config_payload
+    if not config or not config.get("isEnabled"):
+        return None
+
+    api_key = ""
+    if config.get("authMode") != "adc":
+        api_key = host.get_api_key(config_id)
+        if not api_key:
+            return None
+
     runtime_config = dict(config)
-    runtime_config["provider"] = provider
-    runtime_config["model"] = profile.get("model") or config.get("model")
+    runtime_config["provider"] = normalize_provider(config.get("provider", profile.get("provider", "openai")))
+    runtime_config["model"] = model_profile.get("modelId") or profile.get("model") or config.get("model")
     if profile.get("dimensions"):
         runtime_config["dimensions"] = profile["dimensions"]
     return runtime_config, api_key
@@ -32,6 +49,7 @@ def embed_texts(
     host: HostGatewayClient,
     profile: dict,
     texts: list[str],
+    task_type: str | None = None,
 ) -> list[list[float]]:
     resolved = resolve_embedding_config(host, profile)
     if resolved is None:
@@ -39,6 +57,9 @@ def embed_texts(
         raise RuntimeError(f"No enabled API config with key found for provider '{provider}'")
 
     config, api_key = resolved
+    if task_type:
+        config = dict(config)
+        config["taskType"] = task_type
     vectors = litellm_embedding(config, api_key, texts)
     expected_dimensions = int(profile.get("dimensions") or 0)
     if expected_dimensions > 0:

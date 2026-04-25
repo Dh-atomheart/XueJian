@@ -95,13 +95,14 @@ export async function renderPdfPageToCanvas(
   const page = await pdf.getPage(pageNumber)
   const viewport = page.getViewport({ scale })
   const context = canvas.getContext('2d')
+  const outputScale = getCanvasOutputScale()
 
   if (!context) {
     throw new Error('Canvas 2D context is not available')
   }
 
-  canvas.width = Math.ceil(viewport.width)
-  canvas.height = Math.ceil(viewport.height)
+  canvas.width = Math.ceil(viewport.width * outputScale)
+  canvas.height = Math.ceil(viewport.height * outputScale)
   canvas.style.width = `${Math.ceil(viewport.width)}px`
   canvas.style.height = `${Math.ceil(viewport.height)}px`
 
@@ -109,6 +110,7 @@ export async function renderPdfPageToCanvas(
     canvas,
     canvasContext: context,
     viewport,
+    transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
   })
 
   const abortHandler = () => renderTask.cancel()
@@ -127,6 +129,25 @@ export async function renderPdfPageToCanvas(
     signal?.removeEventListener('abort', abortHandler)
     page.cleanup()
   }
+}
+
+export async function getPdfPageViewport(
+  bytes: Uint8Array,
+  pageNumber: number,
+  scale = 1,
+  signal?: AbortSignal
+) {
+  const pdf = await loadPdfDocument(bytes)
+
+  if (signal?.aborted) {
+    throw new DOMException('PDF viewport lookup aborted', 'AbortError')
+  }
+
+  const page = await pdf.getPage(pageNumber)
+  const viewport = page.getViewport({ scale })
+
+  page.cleanup()
+  return { width: viewport.width, height: viewport.height }
 }
 
 export async function getPdfPageTextLayer(
@@ -180,6 +201,14 @@ async function loadPdfDocument(bytes: Uint8Array) {
 
 function isCancelledRender(error: unknown) {
   return error instanceof Error && error.name === 'RenderingCancelledException'
+}
+
+function getCanvasOutputScale() {
+  if (typeof window === 'undefined') {
+    return 1
+  }
+
+  return Math.max(1, window.devicePixelRatio || 1)
 }
 
 function normalizeTextItem(

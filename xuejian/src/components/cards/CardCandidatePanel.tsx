@@ -95,6 +95,7 @@ export function CardCandidatePanel({
             size="sm"
             onClick={togglePending}
             disabled={pending.length === 0 || busy}
+            data-testid="card-candidate-toggle-pending"
           >
             {allPendingSelected ? '取消全选' : '全选待确认'}
           </Button>
@@ -103,6 +104,7 @@ export function CardCandidatePanel({
             size="sm"
             disabled={selectedCandidates.length === 0 || !onBulkReject || busy}
             onClick={() => onBulkReject?.(selectedCandidates)}
+            data-testid="card-candidate-bulk-reject"
           >
             批量丢弃
           </Button>
@@ -111,6 +113,7 @@ export function CardCandidatePanel({
             size="sm"
             disabled={selectedCandidates.length === 0 || !onBulkAccept || busy}
             onClick={() => onBulkAccept?.(selectedCandidates)}
+            data-testid="card-candidate-bulk-accept"
           >
             批量接受 ({selectedCandidates.length})
           </Button>
@@ -212,6 +215,7 @@ export function CardCandidatePanel({
                           size="sm"
                           disabled={!onAccept || busy}
                           onClick={() => onAccept?.(candidate)}
+                          data-testid={`card-candidate-accept-${candidate.id}`}
                         >
                           接受
                         </Button>
@@ -220,6 +224,7 @@ export function CardCandidatePanel({
                           size="sm"
                           disabled={!onEdit || busy}
                           onClick={() => onEdit?.(candidate)}
+                          data-testid={`card-candidate-edit-${candidate.id}`}
                         >
                           编辑
                         </Button>
@@ -228,6 +233,7 @@ export function CardCandidatePanel({
                           size="sm"
                           disabled={!onReject || busy}
                           onClick={() => onReject?.(candidate)}
+                          data-testid={`card-candidate-reject-${candidate.id}`}
                         >
                           丢弃
                         </Button>

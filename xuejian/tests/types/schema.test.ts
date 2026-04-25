@@ -20,6 +20,7 @@ describe('structured schemas', () => {
       reviewTimeLimit: 30,
       podcastTtsProvider: 'auto',
       podcastOpenaiModel: 'tts-1',
+      podcastGoogleTtsModel: 'gemini-2.5-flash-preview-tts',
       podcastFishAudioEndpoint: null,
       podcastVoiceOverrides: {},
       podcastOutputFormat: 'mp3',
@@ -57,6 +58,7 @@ describe('structured schemas', () => {
       contentDifficultyPreference: 'bad_diff',
       podcastTtsProvider: 'auto',
       podcastOpenaiModel: '   ',
+      podcastGoogleTtsModel: '   ',
       podcastFishAudioEndpoint: '   ',
       podcastVoiceOverrides: {},
       defaultVoice: '   ',
@@ -95,6 +97,7 @@ describe('structured schemas', () => {
     ])
     expect(settings.contentDifficultyPreference).toBe('intermediate')
     expect(settings.podcastOpenaiModel).toBe('tts-1')
+    expect(settings.podcastGoogleTtsModel).toBe('gemini-2.5-flash-preview-tts')
     expect(settings.podcastFishAudioEndpoint).toBeNull()
     expect(settings.defaultVoice).toBe('gentle_female_xiaoxiao')
     expect(settings.speechRate).toBe(1.5)
@@ -112,13 +115,13 @@ describe('structured schemas', () => {
 
   it('parses card generation candidates with strict shape', () => {
     const candidate = cardGenerationCandidateSchema.parse({
-      front: '什么是 FSRS？',
-      back: '一种用于间隔重复调度的算法。',
+      front: '浠€涔堟槸 FSRS锛?',
+      back: '涓€绉嶇敤浜庨棿闅旈噸澶嶈皟搴︾殑绠楁硶銆?',
       tags: ['fsrs', 'memory'],
       confidence: 0.82,
       sourcePage: 12,
       sourceParagraph: 3,
-      sourceQuote: 'FSRS 是一种基于记忆稳定性的调度算法。',
+      sourceQuote: 'FSRS 鏄竴绉嶅熀浜庤蹇嗙ǔ瀹氭€х殑璋冨害绠楁硶銆?',
     })
 
     expect(candidate.tags).toEqual(['fsrs', 'memory'])
@@ -141,9 +144,12 @@ describe('structured schemas', () => {
 
   it('parses rag answers with citations', () => {
     const answer = ragAnswerSchema.parse({
-      answer: 'FSRS 通过历史复习数据估计下一次最佳复习时间。',
+      answer: 'FSRS 閫氳繃鍘嗗彶澶嶄範鏁版嵁浼拌涓嬩竴娆℃渶浣冲涔犳椂闂淬€?',
       answerMode: 'grounded',
+      retrievalStatus: 'ready',
       retrievalMode: 'fts5',
+      graphEnhanced: true,
+      graphContextSummary: 'FSRS connects review spacing with retention outcomes.',
       citations: [
         {
           documentId: '4f4ac6a1-21d0-4d62-bec0-4b7188b84d51',
@@ -160,6 +166,7 @@ describe('structured schemas', () => {
     expect(answer.citations).toHaveLength(1)
     expect(answer.answerMode).toBe('grounded')
     expect(answer.retrievalMode).toBe('fts5')
+    expect(answer.graphEnhanced).toBe(true)
   })
 
   it('parses fallback workflow events and normalizes timestamps into Date instances', () => {

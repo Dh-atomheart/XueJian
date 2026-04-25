@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
 CardType = Literal["qa", "cloze", "fact", "choice"]
@@ -56,23 +56,37 @@ class CardDraftBatch(BaseModel):
     """A batch of card drafts, typically from a single LLM response."""
 
     drafts: list[CardDraft] = Field(default_factory=list)
+    invalid_count: int = 0
+    rejection_reasons: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_llm_json(cls, items: list[dict], anchor_id: str | None, document_id: str) -> "CardDraftBatch":
         """Parse a raw list of LLM-generated card objects into validated CardDraft instances.
 
-        Silently skips items that fail validation.
+        Invalid items are skipped and counted so the workflow can report quality
+        filtering instead of silently losing generated output.
         """
         import hashlib
 
         drafts: list[CardDraft] = []
-        for item in items:
+        rejection_reasons: list[str] = []
+
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                rejection_reasons.append(f"item[{index}]: not an object")
+                continue
+
             front = str(item.get("front", "")).strip()
             back = str(item.get("back", "")).strip()
             if len(front) < 8 or len(back) < 12:
+                rejection_reasons.append(f"item[{index}]: front/back below minimum length")
                 continue
 
-            confidence = float(item.get("confidence", 0.7))
+            try:
+                confidence = float(item.get("confidence", 0.7))
+            except (TypeError, ValueError):
+                rejection_reasons.append(f"item[{index}]: invalid confidence")
+                continue
             confidence = max(0.0, min(1.0, confidence))
 
             tags = item.get("tags", [])
@@ -105,7 +119,11 @@ class CardDraftBatch(BaseModel):
                         dedupe_key=dedupe_key,
                     )
                 )
-            except Exception:  # noqa: BLE001
-                continue
+            except ValidationError as exc:
+                rejection_reasons.append(f"item[{index}]: {exc.errors()[0].get('msg', 'validation failed')}")
 
-        return cls(drafts=drafts)
+        return cls(
+            drafts=drafts,
+            invalid_count=len(rejection_reasons),
+            rejection_reasons=rejection_reasons[:12],
+        )

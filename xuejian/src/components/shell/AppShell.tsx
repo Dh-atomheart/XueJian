@@ -155,11 +155,25 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
           </header>
         ) : null}
 
-        <main className="app-shell-main min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-          <div className={cn('mx-auto w-full max-w-[1480px] p-0', contextPanel ? 'grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]' : '')}>
-            <div className="min-w-0">{children}</div>
+        <main
+          className={cn(
+            'app-shell-main min-h-0 flex-1 overflow-x-hidden',
+            reader.documentId ? 'overflow-hidden' : 'overflow-y-auto'
+          )}
+        >
+          <div
+            className={cn(
+              'mx-auto w-full max-w-[1480px] p-0',
+              contextPanel
+                ? 'grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]'
+                : reader.documentId
+                  ? 'flex h-full min-h-0 flex-col'
+                  : ''
+            )}
+          >
+            <div className={cn('min-w-0', reader.documentId && 'min-h-0')}>{children}</div>
             {contextPanel ? (
-              <aside className="hidden min-h-[72vh] overflow-hidden rounded-[28px] border border-border/70 bg-card/88 shadow-[0_20px_60px_rgba(58,48,37,0.07)] xl:block">
+              <aside className="hidden min-h-0 overflow-hidden rounded-[28px] border border-border/70 bg-card/88 shadow-[0_20px_60px_rgba(58,48,37,0.07)] xl:block">
                 {contextPanel}
               </aside>
             ) : null}

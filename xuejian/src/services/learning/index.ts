@@ -22,6 +22,11 @@ export interface SchedulingResult {
   intervalDays: number
 }
 
+export interface DailyReviewQueueOptions {
+  limit?: number
+  now?: Date
+}
+
 const STATE_MAP: Record<number, Card['state']> = {
   0: 'new',
   1: 'learning',
@@ -67,4 +72,39 @@ export function previewScheduling(card: Card): Record<ReviewRating, { intervalDa
     result[rating] = { intervalDays: scheduled.intervalDays }
   }
   return result
+}
+
+function reviewTime(card: Card): number {
+  if (!card.nextReview) {
+    return Number.NEGATIVE_INFINITY
+  }
+  return new Date(card.nextReview).getTime()
+}
+
+function isDue(card: Card, now: Date): boolean {
+  if (!card.nextReview) {
+    return true
+  }
+  const dueAt = reviewTime(card)
+  return Number.isFinite(dueAt) && dueAt <= now.getTime()
+}
+
+export function buildDailyReviewQueue(
+  cards: Card[],
+  options: DailyReviewQueueOptions = {}
+): Card[] {
+  const now = options.now ?? new Date()
+  const limit = Math.max(0, options.limit ?? cards.length)
+
+  return cards
+    .filter((card) => isDue(card, now))
+    .sort((left, right) => {
+      const leftDue = reviewTime(left)
+      const rightDue = reviewTime(right)
+      if (leftDue !== rightDue) {
+        return leftDue - rightDue
+      }
+      return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+    })
+    .slice(0, limit)
 }

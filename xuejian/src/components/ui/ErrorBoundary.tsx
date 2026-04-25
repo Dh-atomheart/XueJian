@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Button } from './Button'
 import { Panel } from './Panel'
+import { appLogger } from '@/lib/logger'
 
 interface Props {
   children: ReactNode
@@ -21,6 +22,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('[ErrorBoundary]', error, errorInfo.componentStack)
+    appLogger.error('frontend.react', 'React error boundary caught an error', error, {
+      componentStack: errorInfo.componentStack,
+    })
   }
 
   private handleReset = () => {

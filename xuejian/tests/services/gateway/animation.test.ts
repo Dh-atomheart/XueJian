@@ -14,6 +14,7 @@ describe('animation start: card animation workflow can be started from a card', 
     expect(anim).not.toBeNull()
     expect(anim.cardId).toBe(MOCK_CARD_ID)
     expect(['queued', 'generating', 'ready', 'failed']).toContain(anim.status)
+    expect(['quick_preview', 'video_render']).toContain(anim.mode)
   })
 
   it('startCardAnimation record has an animType', async () => {
@@ -34,6 +35,14 @@ describe('animation start: card animation workflow can be started from a card', 
       animType: 'keyword_emphasis',
     })
     expect(anim).toBeDefined()
+  })
+
+  it('startCardAnimation supports explicit render mode', async () => {
+    const anim = await startCardAnimation({
+      cardId: MOCK_CARD_ID,
+      mode: 'video_render',
+    })
+    expect(anim.mode).toBe('video_render')
   })
 })
 
@@ -97,6 +106,7 @@ describe('animation failure: failed task retains context and allows retry', () =
     if (anim) {
       // errorMessage should be string or null — not undefined
       expect(anim.errorMessage === null || typeof anim.errorMessage === 'string').toBe(true)
+      expect(anim.retryable === true || anim.retryable === false).toBe(true)
     }
   })
 

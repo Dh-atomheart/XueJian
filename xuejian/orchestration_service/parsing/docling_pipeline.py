@@ -22,6 +22,7 @@ MIN_SECTION_CHARS = 24
 MAX_PARENT_CHARS = 6000
 MAX_CHILD_CHARS = 900
 OVERLAP_UNITS = 1
+PDF_TEXT_MIN_CHARS_PER_PAGE = 24
 
 
 def _stable_uuid(*parts: object) -> str:
@@ -338,13 +339,31 @@ def _build_chunks(document_id: str, sections: list[dict[str, Any]]) -> list[dict
     return deduped_chunks
 
 
-def _assemble_analysis(document_id: str, page_count: int, blocks: list[dict[str, Any]]) -> dict[str, Any]:
+def _apply_parse_metadata(items: list[dict[str, Any]], parse_metadata: dict[str, Any]) -> None:
+    for item in items:
+        metadata = item.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata.update(parse_metadata)
+        item["metadata"] = metadata
+
+
+def _assemble_analysis(
+    document_id: str,
+    page_count: int,
+    blocks: list[dict[str, Any]],
+    parse_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     anchors = _hydrate_anchors(document_id, blocks)
     sections = _build_sections(document_id, blocks)
     chunks = _build_chunks(document_id, sections)
+    if parse_metadata:
+        _apply_parse_metadata(sections, parse_metadata)
+        _apply_parse_metadata(chunks, parse_metadata)
 
     return {
         "pageCount": page_count,
+        "parseMetadata": parse_metadata or {},
         "anchors": anchors,
         "sections": [
             {key: value for key, value in section.items() if key != "blocks"}
@@ -479,6 +498,44 @@ def _extract_pymupdf_blocks(file_path: str, document_id: str) -> tuple[int, list
     return page_count, blocks
 
 
+def _detect_pdf_type(file_path: str) -> dict[str, Any]:
+    """Classify a PDF by text-layer coverage before choosing the parser."""
+    try:
+        import fitz
+    except ImportError:
+        return {"pdfType": "unknown", "textLayerPages": 0, "scannedPages": 0, "totalPages": 0}
+
+    doc = fitz.open(file_path)
+    try:
+        total_pages = doc.page_count
+        text_layer_pages = 0
+        scanned_pages = 0
+        for page_num in range(total_pages):
+            text = _normalize_text(doc.load_page(page_num).get_text("text"))
+            if len(text) >= PDF_TEXT_MIN_CHARS_PER_PAGE:
+                text_layer_pages += 1
+            else:
+                scanned_pages += 1
+
+        if total_pages == 0:
+            pdf_type = "unknown"
+        elif text_layer_pages == total_pages:
+            pdf_type = "text"
+        elif scanned_pages == total_pages:
+            pdf_type = "scanned"
+        else:
+            pdf_type = "mixed"
+
+        return {
+            "pdfType": pdf_type,
+            "textLayerPages": text_layer_pages,
+            "scannedPages": scanned_pages,
+            "totalPages": total_pages,
+        }
+    finally:
+        doc.close()
+
+
 def _extract_text_blocks(file_path: str, document_id: str) -> tuple[int, list[dict[str, Any]]]:
     content = Path(file_path).read_text(encoding="utf-8", errors="ignore")
     suffix = Path(file_path).suffix.lower()
@@ -546,16 +603,39 @@ def _parse_document(file_path: str, document_id: str) -> dict[str, Any]:
 
     if suffix in {".md", ".txt"}:
         page_count, blocks = _extract_text_blocks(file_path, document_id)
-        return _assemble_analysis(document_id, page_count, blocks)
+        return _assemble_analysis(document_id, page_count, blocks, {"parseMode": "text"})
+
+    if suffix == ".pdf":
+        detection = _detect_pdf_type(file_path)
+        pdf_type = detection.get("pdfType", "unknown")
+        if pdf_type in {"text", "mixed"}:
+            page_count, blocks = _extract_pymupdf_blocks(file_path, document_id)
+            metadata = {**detection, "parseMode": "pymupdf"}
+            if pdf_type == "mixed":
+                metadata["parseWarning"] = "mixed_pdf_text_layer; OCR pages require follow-up parsing"
+            return _assemble_analysis(document_id, page_count, blocks, metadata)
+
+        docling_result = _extract_docling_blocks(file_path, document_id)
+        if docling_result is not None:
+            page_count, blocks = docling_result
+            return _assemble_analysis(
+                document_id,
+                page_count,
+                blocks,
+                {**detection, "parseMode": "docling_ocr" if pdf_type == "scanned" else "docling"},
+            )
+
+        page_count, blocks = _extract_pymupdf_blocks(file_path, document_id)
+        return _assemble_analysis(document_id, page_count, blocks, {**detection, "parseMode": "pymupdf"})
 
     docling_result = _extract_docling_blocks(file_path, document_id)
     if docling_result is not None:
         page_count, blocks = docling_result
-        return _assemble_analysis(document_id, page_count, blocks)
+        return _assemble_analysis(document_id, page_count, blocks, {"parseMode": "docling"})
 
     logger.info("Falling back to PyMuPDF for document %s", document_id)
     page_count, blocks = _extract_pymupdf_blocks(file_path, document_id)
-    return _assemble_analysis(document_id, page_count, blocks)
+    return _assemble_analysis(document_id, page_count, blocks, {"parseMode": "pymupdf"})
 
 
 def run_document_parse_workflow(
@@ -599,4 +679,5 @@ def run_document_parse_workflow(
         "anchorCount": len(result["anchors"]),
         "sectionCount": len(result["sections"]),
         "chunkCount": len(result["chunks"]),
+        "parseMetadata": result.get("parseMetadata", {}),
     }

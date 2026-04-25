@@ -4,10 +4,11 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 
 use crate::app_state::AppState;
+use crate::commands::settings::resolve_effective_embedding_profile;
 use crate::db::{
     ApiConfig, ChunkEmbeddingRecord, Community, CommunityRepository, CreateCardCandidateRequest,
     EmbeddingProfile, InsertKnowledgeEdgeRequest, InsertKnowledgeNodeRequest, KnowledgeEdge,
-    KnowledgeGraphRepository, KnowledgeNode, ProviderBudgetUsage, SettingsRepository,
+    KnowledgeGraphRepository, KnowledgeNode, ModelProfile, ProviderBudgetUsage, SettingsRepository,
     UpdateKnowledgeEdgeRequest, UpdateKnowledgeNodeRequest, VectorRepository,
     WorkflowModelAssignment,
 };
@@ -101,6 +102,7 @@ impl HostHttpGateway {
 fn handle_connection(mut stream: std::net::TcpStream, state: &HostGatewayState) {
     use std::io::{BufRead, BufReader, Write};
 
+    let started_at = std::time::Instant::now();
     let reader = BufReader::new(&stream);
     let mut lines = reader.lines();
 
@@ -139,9 +141,22 @@ fn handle_connection(mut stream: std::net::TcpStream, state: &HostGatewayState) 
     };
 
     let response = route_request(method, path, &body, state);
+    let status_code = response.status_code();
+    let duration_ms = started_at.elapsed().as_secs_f64() * 1000.0;
+    if status_code >= 500 {
+        log::error!(
+            target: "host_gateway",
+            "HTTP {method} {path} -> {status_code} ({duration_ms:.2}ms)"
+        );
+    } else {
+        log::info!(
+            target: "host_gateway",
+            "HTTP {method} {path} -> {status_code} ({duration_ms:.2}ms)"
+        );
+    }
     let response_bytes = format!(
         "HTTP/1.1 {} OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        response.status_code(),
+        status_code,
         response.body().len(),
         response.body(),
     );
@@ -728,6 +743,23 @@ fn route_request(
         },
 
         // ── ToolGateway: cards (for export) ───────────────
+        ("POST", "/tool-gateway/cards") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match persist_cards_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
         ("GET", path) if path.starts_with("/tool-gateway/cards") => {
             match list_cards_json(&app_state, path) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
@@ -1011,6 +1043,11 @@ fn list_workflow_assignments_json(state: &AppState) -> Result<Value> {
     let db = state.lock_db()?;
     let repo = SettingsRepository::new(&db);
     let assignments = repo.list_workflow_assignments()?;
+    let profiles = repo
+        .list_model_profiles()?
+        .into_iter()
+        .map(|profile| (profile.id.clone(), profile))
+        .collect::<BTreeMap<_, _>>();
     let configs = repo
         .list_api_configs()?
         .into_iter()
@@ -1020,9 +1057,11 @@ fn list_workflow_assignments_json(state: &AppState) -> Result<Value> {
     Ok(assignments
         .into_iter()
         .map(|assignment| {
+            let model_profile = profiles.get(&assignment.model_profile_id).cloned();
             workflow_assignment_to_json(
                 assignment.clone(),
-                configs.get(&assignment.api_config_id).cloned(),
+                model_profile.clone(),
+                model_profile.and_then(|profile| configs.get(&profile.api_config_id).cloned()),
             )
         })
         .collect::<Vec<_>>()
@@ -1035,8 +1074,12 @@ fn get_workflow_assignment_json(state: &AppState, workflow_type: &str) -> Result
     let assignment = repo.get_workflow_assignment(workflow_type)?;
     Ok(match assignment {
         Some(assignment) => {
-            let config = repo.get_api_config(&assignment.api_config_id)?;
-            Some(workflow_assignment_to_json(assignment, config))
+            let model_profile = repo.get_model_profile(&assignment.model_profile_id)?;
+            let config = match model_profile.as_ref() {
+                Some(profile) => repo.get_api_config(&profile.api_config_id)?,
+                None => None,
+            };
+            Some(workflow_assignment_to_json(assignment, model_profile, config))
         }
         None => None,
     })
@@ -1062,14 +1105,30 @@ fn record_workflow_cost_json(state: &AppState, request: Value) -> Result<Value> 
 
 fn workflow_assignment_to_json(
     assignment: WorkflowModelAssignment,
+    model_profile: Option<ModelProfile>,
     config: Option<ApiConfig>,
 ) -> Value {
     json!({
         "workflowType": assignment.workflow_type,
-        "apiConfigId": assignment.api_config_id,
+        "modelProfileId": assignment.model_profile_id,
         "assignedAt": assignment.assigned_at,
         "updatedAt": assignment.updated_at,
+        "modelProfile": model_profile.map(model_profile_to_json),
         "apiConfig": config.map(api_config_to_json),
+    })
+}
+
+fn model_profile_to_json(profile: ModelProfile) -> Value {
+    json!({
+        "id": profile.id,
+        "apiConfigId": profile.api_config_id,
+        "modelId": profile.model_id,
+        "displayName": profile.display_name,
+        "capabilitiesJson": profile.capabilities_json,
+        "isEnabled": profile.is_enabled,
+        "isDefaultForConnection": profile.is_default_for_connection,
+        "createdAt": profile.created_at,
+        "updatedAt": profile.updated_at,
     })
 }
 
@@ -1115,11 +1174,7 @@ fn list_embedding_profiles_json(state: &AppState) -> Result<Value> {
 }
 
 fn get_active_embedding_profile_json(state: &AppState) -> Result<Option<Value>> {
-    let db = state.lock_db()?;
-    let repo = VectorRepository::new(&db);
-    Ok(repo
-        .get_active_embedding_profile()?
-        .map(embedding_profile_to_json))
+    Ok(resolve_effective_embedding_profile(state)?.map(embedding_profile_to_json))
 }
 
 fn embedding_profile_to_json(profile: EmbeddingProfile) -> Value {
@@ -1347,6 +1402,12 @@ fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
         let anchor_id = candidate["anchorId"].as_str().map(String::from);
         let front = candidate["front"].as_str().unwrap_or("").to_string();
         let back = candidate["back"].as_str().unwrap_or("").to_string();
+        let source_page = candidate["sourcePage"].as_i64().map(|value| value as i32);
+        let source_quote = candidate["sourceQuote"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(String::from);
         let tags = candidate["tags"]
             .as_array()
             .map(|arr| {
@@ -1357,6 +1418,24 @@ fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
             .unwrap_or_default();
         let confidence = candidate["confidence"].as_f64().unwrap_or(0.0);
         let dedupe_key = candidate["dedupeKey"].as_str().unwrap_or("").to_string();
+        let source_chunk_ids = candidate["sourceChunkIds"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        });
+
+        if front.trim().is_empty()
+            || back.trim().is_empty()
+            || dedupe_key.trim().is_empty()
+            || (anchor_id.is_none()
+                && (source_page.is_none()
+                    || source_chunk_ids
+                        .as_ref()
+                        .map(|ids| ids.is_empty())
+                        .unwrap_or(true)))
+        {
+            continue;
+        }
 
         requests.push(CreateCardCandidateRequest {
             workflow_run_id: Some(run_id.to_string()),
@@ -1365,6 +1444,8 @@ fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
             anchor_id,
             title: candidate["title"].as_str().map(String::from),
             card_type: candidate["cardType"].as_str().map(String::from),
+            source_page,
+            source_quote,
             front,
             back,
             tags,
@@ -1380,11 +1461,7 @@ fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
             generation_mode: candidate["generationMode"].as_str().map(String::from),
             fallback_reason: candidate["fallbackReason"].as_str().map(String::from),
             evaluation_summary: candidate["evaluationSummary"].as_str().map(String::from),
-            source_chunk_ids: candidate["sourceChunkIds"].as_array().map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            }),
+            source_chunk_ids,
         });
     }
 
@@ -1394,6 +1471,92 @@ fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
     Ok(json!({
         "insertedCount": result.inserted_count,
         "duplicateCount": result.duplicate_count,
+    }))
+}
+
+fn persist_cards_json(state: &AppState, request: Value) -> Result<Value> {
+    let document_id = request["documentId"].as_str().unwrap_or("");
+    let cards = match request["cards"].as_array() {
+        Some(arr) => arr,
+        None => {
+            return Ok(json!({
+                "createdCount": 0,
+                "skippedDuplicates": 0,
+                "discardedLowQuality": 0,
+            }))
+        }
+    };
+
+    let mut requests = Vec::new();
+    for card in cards {
+        let anchor_id = card["anchorId"].as_str().map(String::from);
+        let front = card["front"].as_str().unwrap_or("").to_string();
+        let back = card["back"].as_str().unwrap_or("").to_string();
+        let source_page = card["sourcePage"].as_i64().map(|value| value as i32);
+        let tags = card["tags"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let confidence = card["confidence"].as_f64().unwrap_or(0.0);
+        let dedupe_key = card["dedupeKey"].as_str().unwrap_or("").to_string();
+        let source_chunk_ids = card["sourceChunkIds"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        });
+
+        if front.trim().is_empty()
+            || back.trim().is_empty()
+            || dedupe_key.trim().is_empty()
+            || (anchor_id.is_none()
+                && (source_page.is_none()
+                    || source_chunk_ids
+                        .as_ref()
+                        .map(|ids| ids.is_empty())
+                        .unwrap_or(true)))
+        {
+            continue;
+        }
+
+        requests.push(CreateCardCandidateRequest {
+            workflow_run_id: request["runId"].as_str().map(String::from),
+            document_id: document_id.to_string(),
+            section_id: card["sectionId"].as_str().map(String::from),
+            anchor_id,
+            title: card["title"].as_str().map(String::from),
+            card_type: card["cardType"].as_str().map(String::from),
+            source_page,
+            source_quote: card["sourceQuote"].as_str().map(String::from),
+            front,
+            back,
+            tags,
+            confidence,
+            dedupe_key,
+            score_overall: card["scoreOverall"].as_f64(),
+            score_details: if card["scoreDetails"].is_null() {
+                None
+            } else {
+                Some(card["scoreDetails"].clone())
+            },
+            visibility_bucket: card["visibilityBucket"].as_str().map(String::from),
+            generation_mode: card["generationMode"].as_str().map(String::from),
+            fallback_reason: card["fallbackReason"].as_str().map(String::from),
+            evaluation_summary: card["evaluationSummary"].as_str().map(String::from),
+            source_chunk_ids,
+        });
+    }
+
+    let db = state.lock_db()?;
+    let repo = crate::db::CardRepository::new(&db);
+    let result = repo.insert_generated_cards(requests)?;
+    Ok(json!({
+        "createdCount": result.created_count,
+        "skippedDuplicates": result.skipped_duplicates,
+        "discardedLowQuality": result.discarded_low_quality,
     }))
 }
 
@@ -2082,6 +2245,7 @@ fn get_app_settings_json(state: &AppState) -> Result<Value> {
         "language": settings.language,
         "podcastTtsProvider": settings.podcast_tts_provider,
         "podcastOpenaiModel": settings.podcast_openai_model,
+        "podcastGoogleTtsModel": settings.podcast_google_tts_model,
         "podcastFishAudioEndpoint": settings.podcast_fish_audio_endpoint,
         "podcastVoiceOverrides": settings.podcast_voice_overrides,
         "podcastOutputFormat": settings.podcast_output_format,
@@ -2098,10 +2262,12 @@ fn get_runtime_paths_json(state: &HostGatewayState) -> Result<Value> {
             HostGatewayError::App("Failed to resolve app data directory".to_string())
         })?;
     let podcasts_dir = app_data_dir.join("podcasts");
+    let animations_dir = app_data_dir.join("animations");
 
     Ok(json!({
         "appDataDir": app_data_dir,
         "podcastsDir": podcasts_dir,
+        "animationsDir": animations_dir,
     }))
 }
 
@@ -2123,12 +2289,89 @@ fn podcast_episode_to_json(episode: crate::db::PodcastEpisode) -> Value {
         "audioPath": episode.audio_path,
         "durationMs": episode.duration_ms,
         "status": episode.status,
+        "stageKey": derive_podcast_stage_key(&episode.status, episode.current_stage),
         "errorMessage": episode.error_message,
+        "errorCode": derive_podcast_error_code(&episode.status, episode.error_message.as_deref()),
+        "errorStage": derive_podcast_error_stage(&episode.status, episode.current_stage, episode.error_message.as_deref()),
+        "retryable": !matches!(episode.status.as_str(), "ready"),
         "currentStage": episode.current_stage,
         "completedSegments": episode.completed_segments,
         "totalSegments": episode.total_segments,
         "createdAt": episode.created_at,
         "updatedAt": episode.updated_at,
+    })
+}
+
+fn derive_podcast_stage_key(status: &str, current_stage: i64) -> &'static str {
+    match status {
+        "ready" => "ready",
+        "failed" => "failed",
+        "cancelled" => "cancelled",
+        "awaiting_review" => "awaiting_review",
+        "queued" | "retrieving" => "retrieval",
+        "generating_outline" => "outline",
+        "generating_script" => "script",
+        "evaluating" => "evaluation",
+        "generating_audio" | "stitching" => "audio",
+        _ => match current_stage {
+            0 | 1 => "retrieval",
+            2 => "outline",
+            3 => "script",
+            4 => "evaluation",
+            5 | 6 => "audio",
+            _ => "retrieval",
+        },
+    }
+}
+
+fn derive_podcast_error_code(status: &str, error_message: Option<&str>) -> Option<&'static str> {
+    if status != "failed" && status != "cancelled" {
+        return None;
+    }
+
+    if let Some(message) = error_message {
+        let lowered = message.to_lowercase();
+        if lowered.contains("budget") {
+            return Some("budget_exceeded");
+        }
+        if lowered.contains("tts") {
+            return Some("tts_failed");
+        }
+        if lowered.contains("review") {
+            return Some("review_rejected");
+        }
+    }
+
+    Some(if status == "cancelled" {
+        "cancelled"
+    } else {
+        "workflow_failed"
+    })
+}
+
+fn derive_podcast_error_stage(
+    status: &str,
+    current_stage: i64,
+    error_message: Option<&str>,
+) -> Option<&'static str> {
+    if status != "failed" && status != "cancelled" {
+        return None;
+    }
+
+    if let Some(message) = error_message {
+        let lowered = message.to_lowercase();
+        if lowered.contains("review") {
+            return Some("awaiting_review");
+        }
+    }
+
+    Some(match current_stage {
+        0 | 1 => "retrieval",
+        2 => "outline",
+        3 => "script",
+        4 => "evaluation",
+        5 | 6 => "audio",
+        _ => "retrieval",
     })
 }
 

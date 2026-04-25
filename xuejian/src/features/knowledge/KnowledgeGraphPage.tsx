@@ -13,29 +13,22 @@ import {
 import Graph from 'graphology'
 import forceAtlas2 from 'graphology-layout-forceatlas2'
 import Sigma from 'sigma'
-import './knowledge-graph.css'
 import { KnowledgeGraphPageLayout } from '@/components/pages/knowledge-graph-page'
 import { Button, Card, Input } from '@/components/ui'
 import { cn } from '@/lib/utils'
-import { useDocumentsQuery } from '@/queries'
 import {
   useAllGraphEdgesQuery,
   useCancelGraphBuildMutation,
   useCommunitiesQuery,
   useCommunitySummaryQuery,
-  useCreateKnowledgeEdgeMutation,
-  useDeleteGraphNodeMutation,
-  useDeleteKnowledgeEdgeMutation,
   useGraphBuildRunsQuery,
-  useGraphStatsQuery,
   useGraphNodesQuery,
-  useMergeGraphNodesMutation,
+  useGraphStatsQuery,
   useNodeSourcesQuery,
   useStartGraphBuildMutation,
-  useToggleCommunityCollapseMutation,
-  useUpdateKnowledgeEdgeMutation,
-  useUpdateKnowledgeNodeMutation,
 } from '@/queries/knowledgeGraph'
+import { useDocumentsQuery } from '@/queries'
+import { useAppUiStore } from '@/store'
 import type {
   Community,
   CommunitySummary,
@@ -46,6 +39,7 @@ import type {
   KnowledgeNodeType,
   RelationType,
 } from '@/types/knowledge-graph'
+import './knowledge-graph.css'
 
 const NODE_TYPE_COLORS: Record<KnowledgeNodeType, string> = {
   concept: '#5B8DEF',
@@ -66,43 +60,18 @@ const RELATION_COLORS: Record<RelationType, string> = {
   produces: '#E8989F',
 }
 
-const RELATION_OPTIONS: RelationType[] = [
-  'is_a',
-  'part_of',
-  'depends_on',
-  'causes',
-  'related_to',
-  'similar_to',
-  'uses',
-  'produces',
-]
-
 const VIEW_MODE_OPTIONS = [
-  { id: 'global', label: '全局视图' },
-  { id: 'explore', label: '探索式视图' },
+  { id: 'global', label: 'Global' },
+  { id: 'explore', label: 'Explore' },
 ] as const
 
 type ViewMode = (typeof VIEW_MODE_OPTIONS)[number]['id']
-
-type NodeDraft = {
-  label: string
-  nodeType: KnowledgeNodeType
-  aliases: string
-  description: string
-}
-
-type EdgeDraft = {
-  relation: RelationType
-  confidence: number
-}
 
 type CanvasNode = {
   id: string
   label: string
   color: string
   size: number
-  isCommunity: boolean
-  communityId?: string
 }
 
 type CanvasEdge = {
@@ -127,44 +96,47 @@ function Panel({
 }
 
 export function KnowledgeGraphPage() {
+  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const openKnowledgeQa = useAppUiStore((state) => state.openKnowledgeQa)
+  const setPreferredCardStudioDocumentId = useAppUiStore(
+    (state) => state.setPreferredCardStudioDocumentId
+  )
+
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null)
-  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
-  const [incremental, setIncremental] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('global')
   const [searchInput, setSearchInput] = useState('')
-  const [mergeSourceId, setMergeSourceId] = useState('')
+  const [selectedBuildDocumentIds, setSelectedBuildDocumentIds] = useState<string[]>([])
   const [collapsedCommunityIds, setCollapsedCommunityIds] = useState<string[]>([])
-  const [nodeDraft, setNodeDraft] = useState<NodeDraft>({
-    label: '',
-    nodeType: 'concept',
-    aliases: '',
-    description: '',
-  })
-  const [newEdgeTargetId, setNewEdgeTargetId] = useState('')
-  const [newEdgeRelation, setNewEdgeRelation] = useState<RelationType>('related_to')
-  const [newEdgeConfidence, setNewEdgeConfidence] = useState(0.6)
-  const [edgeDrafts, setEdgeDrafts] = useState<Record<string, EdgeDraft>>({})
 
   const deferredSearch = useDeferredValue(searchInput.trim())
 
   const { data: stats } = useGraphStatsQuery()
+  const { data: documents = [] } = useDocumentsQuery()
   const { data: nodes = [] } = useGraphNodesQuery()
   const { data: allEdges = [] } = useAllGraphEdgesQuery()
   const { data: communities = [] } = useCommunitiesQuery()
   const { data: buildRuns = [] } = useGraphBuildRunsQuery()
   const { data: sources = [] } = useNodeSourcesQuery(selectedNodeId ?? '', !!selectedNodeId)
-  const { data: documents = [] } = useDocumentsQuery()
 
-  const startBuild = useStartGraphBuildMutation()
-  const cancelBuild = useCancelGraphBuildMutation()
-  const updateNode = useUpdateKnowledgeNodeMutation()
-  const mergeNodes = useMergeGraphNodesMutation()
-  const deleteNode = useDeleteGraphNodeMutation()
-  const createEdge = useCreateKnowledgeEdgeMutation()
-  const updateEdge = useUpdateKnowledgeEdgeMutation()
-  const deleteEdge = useDeleteKnowledgeEdgeMutation()
-  const toggleCommunityCollapse = useToggleCommunityCollapseMutation()
+  const startGraphBuildMutation = useStartGraphBuildMutation()
+  const cancelGraphBuildMutation = useCancelGraphBuildMutation()
+
+  const readyDocuments = useMemo(
+    () => documents.filter((document) => document.status === 'ready'),
+    [documents]
+  )
+  const documentTitleMap = useMemo(
+    () => new Map(readyDocuments.map((document) => [document.id, document.title])),
+    [readyDocuments]
+  )
+  const activeBuildRun = useMemo(
+    () =>
+      buildRuns.find((run) => run.status === 'running' || run.status === 'queued') ??
+      buildRuns[0] ??
+      null,
+    [buildRuns]
+  )
 
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null
   const selectedCommunity =
@@ -175,21 +147,17 @@ export function KnowledgeGraphPage() {
     selectedCommunity?.id ?? '',
     !!selectedCommunity?.id
   )
+  const communitySummary =
+    selectedCommunitySummary ?? safeParseSummary(selectedCommunity?.summaryJson ?? null)
 
-  const selectedIncidentEdges = useMemo(
+  const selectedSourceDocuments = useMemo(
     () =>
-      selectedNodeId
-        ? allEdges.filter(
-            (edge) => edge.fromNodeId === selectedNodeId || edge.toNodeId === selectedNodeId
-          )
-        : [],
-    [allEdges, selectedNodeId]
+      sources.map((sourceId) => ({
+        id: sourceId,
+        title: documentTitleMap.get(sourceId) ?? sourceId,
+      })),
+    [documentTitleMap, sources]
   )
-
-  const topCommunities = communities.filter((community) => community.level === 1)
-  const bottomCommunities = communities.filter((community) => community.level === 0)
-  const activeBuild =
-    buildRuns.find((run) => run.status === 'queued' || run.status === 'running') ?? null
 
   useEffect(() => {
     startTransition(() => {
@@ -200,32 +168,28 @@ export function KnowledgeGraphPage() {
   }, [communities])
 
   useEffect(() => {
-    if (!selectedNode) {
-      setNodeDraft({ label: '', nodeType: 'concept', aliases: '', description: '' })
+    if (readyDocuments.length === 0) {
+      setSelectedBuildDocumentIds([])
       return
     }
-    setNodeDraft({
-      label: selectedNode.label,
-      nodeType: selectedNode.nodeType,
-      aliases: selectedNode.aliases.join(', '),
-      description: selectedNode.description,
-    })
-  }, [selectedNode])
 
-  useEffect(() => {
-    if (!selectedNodeId) {
-      setEdgeDrafts({})
-      return
-    }
-    const nextDrafts: Record<string, EdgeDraft> = {}
-    for (const edge of selectedIncidentEdges) {
-      nextDrafts[edge.id] = {
-        relation: edge.relation,
-        confidence: edge.confidence,
-      }
-    }
-    setEdgeDrafts(nextDrafts)
-  }, [selectedNodeId, selectedIncidentEdges])
+    setSelectedBuildDocumentIds((current) => {
+      const valid = current.filter((documentId) =>
+        readyDocuments.some((document) => document.id === documentId)
+      )
+      return valid.length > 0 ? valid : [readyDocuments[0].id]
+    })
+  }, [readyDocuments])
+
+  const selectedIncidentEdges = useMemo(
+    () =>
+      selectedNodeId
+        ? allEdges.filter(
+            (edge) => edge.fromNodeId === selectedNodeId || edge.toNodeId === selectedNodeId
+          )
+        : [],
+    [allEdges, selectedNodeId]
+  )
 
   const handleCanvasNodeSelect = useEffectEvent((nodeId: string | null) => {
     setSelectedCommunityId(null)
@@ -238,195 +202,171 @@ export function KnowledgeGraphPage() {
   const handleCanvasCommunitySelect = useEffectEvent((communityId: string | null) => {
     setSelectedNodeId(null)
     setSelectedCommunityId(communityId)
+    if (communityId) {
+      setViewMode('explore')
+    }
   })
 
-  function handleBuild() {
-    if (selectedDocIds.length === 0) return
-    startBuild.mutate({ documentIds: selectedDocIds, incremental })
-  }
+  const handleToggleBuildDocument = useEffectEvent((documentId: string) => {
+    setSelectedBuildDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((id) => id !== documentId)
+        : [...current, documentId]
+    )
+  })
 
-  function handleSaveNode() {
+  const handleStartBuild = useEffectEvent(() => {
+    if (selectedBuildDocumentIds.length === 0) return
+
+    startGraphBuildMutation.mutate({
+      documentIds: selectedBuildDocumentIds,
+      scopeDescription:
+        selectedBuildDocumentIds.length === 1
+          ? 'single document graph build'
+          : 'multi document graph build',
+      incremental: nodes.length > 0,
+    })
+  })
+
+  const handleCancelBuild = useEffectEvent(() => {
+    if (!activeBuildRun) return
+    cancelGraphBuildMutation.mutate(activeBuildRun.id)
+  })
+
+  const handleAskWithGraph = useEffectEvent(() => {
     if (!selectedNode) return
-    updateNode.mutate({
-      nodeId: selectedNode.id,
-      updates: {
-        label: nodeDraft.label.trim(),
-        nodeType: nodeDraft.nodeType,
-        aliases: parseCommaList(nodeDraft.aliases),
-        description: nodeDraft.description.trim(),
-        metadata: { ...selectedNode.metadata, userEdited: true },
-      },
+    openKnowledgeQa({
+      question: `请结合知识图谱解释“${selectedNode.label}”`,
+      selectedDocumentIds: sources,
+      sourceLabel: selectedNode.label,
+      graphContextSummary:
+        communitySummary?.summary ??
+        selectedNode.description ??
+        `Graph-assisted answer for ${selectedNode.label}`,
     })
-  }
+  })
 
-  function handleMerge() {
-    if (!selectedNodeId || !mergeSourceId) return
-    mergeNodes.mutate(
-      { targetNodeId: selectedNodeId, sourceNodeId: mergeSourceId },
-      {
-        onSuccess: () => {
-          setMergeSourceId('')
-        },
-      }
-    )
-  }
-
-  function handleCreateEdge() {
-    if (!selectedNodeId || !newEdgeTargetId || newEdgeTargetId === selectedNodeId) return
-    createEdge.mutate(
-      {
-        fromNodeId: selectedNodeId,
-        toNodeId: newEdgeTargetId,
-        relation: newEdgeRelation,
-        confidence: newEdgeConfidence,
-        sourceIds: selectedNode?.sourceIds ?? [],
-        inferred: false,
-        metadata: { userEdited: true },
-      },
-      {
-        onSuccess: () => {
-          setNewEdgeTargetId('')
-          setNewEdgeRelation('related_to')
-          setNewEdgeConfidence(0.6)
-        },
-      }
-    )
-  }
-
-  function handleToggleCommunity(community: Community) {
-    const nextCollapsed = !collapsedCommunityIds.includes(community.id)
-    startTransition(() => {
-      setCollapsedCommunityIds((current) =>
-        nextCollapsed ? [...current, community.id] : current.filter((id) => id !== community.id)
-      )
-    })
-    toggleCommunityCollapse.mutate({ communityId: community.id, collapsed: nextCollapsed })
-  }
-
-  const communitySummary =
-    selectedCommunitySummary ?? safeParseSummary(selectedCommunity?.summaryJson ?? null)
+  const handleViewCards = useEffectEvent(() => {
+    const documentId = sources[0] ?? selectedNode?.sourceIds[0] ?? null
+    if (!documentId) return
+    setPreferredCardStudioDocumentId(documentId)
+    setActiveNavItem('cards')
+  })
 
   return (
     <KnowledgeGraphPageLayout
       statsBar={<StatsBar stats={stats} buildRuns={buildRuns} />}
       buildPanel={
-        <Panel className="flex min-h-0 flex-col gap-4 overflow-hidden border border-ink/10 bg-paper-card/80 backdrop-blur">
-          <section className="rounded-[22px] border border-ink/10 bg-[linear-gradient(145deg,rgba(255,255,255,0.95),rgba(245,245,240,0.92))] p-4 shadow-paper">
-            <div className="mb-3 flex items-end justify-between gap-3">
+        <Panel
+          className="flex min-h-0 flex-col gap-4 overflow-hidden border border-ink/10 bg-paper-card/80 p-4 backdrop-blur"
+          data-testid="knowledge-graph-build-panel"
+        >
+          <section className="rounded-[22px] border border-ink/10 bg-paper-base/78 p-4 shadow-paper">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.32em] text-ink-soft">
-                  Build Wizard
+                <p className="text-[11px] uppercase tracking-[0.32em] text-ink-soft">Build</p>
+                <h2 className="kg-display text-xl text-ink">Graph Build</h2>
+                <p className="mt-2 text-sm leading-7 text-ink-muted">
+                  Select ready documents, build the graph, then jump from nodes into QA or card study.
                 </p>
-                <h2 className="kg-display text-xl text-ink">图谱构建与增量更新</h2>
               </div>
-              {activeBuild ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={cancelBuild.isPending}
-                  onClick={() => cancelBuild.mutate(activeBuild.id)}
-                >
-                  取消当前构建
-                </Button>
-              ) : null}
+              <Button
+                size="sm"
+                onClick={activeBuildRun?.status === 'running' ? handleCancelBuild : handleStartBuild}
+                disabled={
+                  selectedBuildDocumentIds.length === 0 ||
+                  startGraphBuildMutation.isPending ||
+                  cancelGraphBuildMutation.isPending
+                }
+                data-testid="knowledge-graph-build-action"
+              >
+                {activeBuildRun?.status === 'running' ? 'Cancel build' : 'Build graph'}
+              </Button>
             </div>
-            <div className="mb-3 max-h-40 overflow-y-auto rounded-[18px] border border-ink/10 bg-paper-base/80 p-2">
-              <label className="mb-2 block text-xs text-ink-muted">选择文档</label>
-              <div className="flex flex-col gap-1.5">
-                {documents.map((document) => {
-                  const checked = selectedDocIds.includes(document.id)
+
+            <div className="mt-4 space-y-2">
+              {readyDocuments.length > 0 ? (
+                readyDocuments.map((document) => {
+                  const checked = selectedBuildDocumentIds.includes(document.id)
                   return (
                     <label
                       key={document.id}
-                      className="flex cursor-pointer items-start gap-2 rounded-[14px] border border-transparent px-2 py-2 transition hover:border-ink/10 hover:bg-paper-card"
+                      className="flex cursor-pointer items-start gap-3 rounded-[16px] border border-ink/10 bg-paper-card px-3 py-3"
                     >
                       <input
-                        checked={checked}
-                        className="mt-1"
                         type="checkbox"
-                        onChange={(event) => {
-                          const nextChecked = event.target.checked
-                          startTransition(() => {
-                            setSelectedDocIds((current) =>
-                              nextChecked
-                                ? [...current, document.id]
-                                : current.filter((id) => id !== document.id)
-                            )
-                          })
-                        }}
+                        checked={checked}
+                        onChange={() => handleToggleBuildDocument(document.id)}
+                        className="mt-1"
                       />
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-ink">
-                          {document.title}
-                        </div>
-                        <div className="text-xs text-ink-muted">{document.status}</div>
+                        <p className="truncate text-sm font-medium text-ink">{document.title}</p>
+                        <p className="mt-1 text-xs text-ink-muted">
+                          {document.pageCount ?? 0} pages
+                        </p>
                       </div>
                     </label>
                   )
-                })}
-              </div>
+                })
+              ) : (
+                <p className="text-sm text-ink-muted">No ready documents are available.</p>
+              )}
             </div>
-            <label className="mb-3 flex items-center justify-between rounded-[16px] border border-ink/10 bg-paper-base/70 px-3 py-2 text-sm text-ink">
-              <span>增量更新</span>
-              <input
-                checked={incremental}
-                type="checkbox"
-                onChange={(event) => setIncremental(event.target.checked)}
-              />
-            </label>
-            <Button
-              className="w-full"
-              disabled={selectedDocIds.length === 0 || startBuild.isPending}
-              onClick={handleBuild}
+
+            <div
+              className="mt-4 rounded-[16px] border border-ink/10 bg-paper-card px-3 py-3 text-sm text-ink-muted"
+              data-testid="knowledge-graph-build-status"
             >
-              {startBuild.isPending
-                ? '正在提交构建…'
-                : incremental
-                  ? '开始增量更新'
-                  : '开始全量构建'}
-            </Button>
+              {activeBuildRun ? (
+                <>
+                  <p className="font-medium text-ink">{activeBuildRun.scopeDescription}</p>
+                  <p className="mt-1">{describeBuildRun(activeBuildRun)}</p>
+                  {activeBuildRun.errorMessage ? (
+                    <p className="mt-2 text-destructive">{activeBuildRun.errorMessage}</p>
+                  ) : null}
+                </>
+              ) : (
+                <p>No graph build has been started yet.</p>
+              )}
+            </div>
           </section>
 
-          <section className="min-h-0 flex-1 overflow-hidden rounded-[22px] border border-ink/10 bg-paper-base/75 p-3">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.3em] text-ink-soft">Communities</p>
-                <h3 className="text-base font-medium text-ink">主题轨道</h3>
-              </div>
-              <div className="text-xs text-ink-muted">{communities.length} 个社区</div>
+          <section className="rounded-[22px] border border-ink/10 bg-[linear-gradient(145deg,rgba(255,255,255,0.95),rgba(245,245,240,0.92))] p-4 shadow-paper">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.32em] text-ink-soft">Overview</p>
+              <h2 className="kg-display text-xl text-ink">Knowledge map</h2>
+              <p className="mt-2 text-sm leading-7 text-ink-muted">
+                Use the graph as a working surface for exploration, not as an isolated report page.
+              </p>
             </div>
-            <div className="max-h-[34vh] overflow-y-auto pr-1">
-              <div className="mb-4 space-y-2">
-                {topCommunities.map((community) => (
-                  <CommunityRailCard
-                    key={community.id}
-                    community={community}
-                    isActive={community.id === selectedCommunity?.id}
-                    isCollapsed={collapsedCommunityIds.includes(community.id)}
-                    onSelect={() => {
-                      setSelectedCommunityId(community.id)
-                      setSelectedNodeId(null)
-                    }}
-                    onToggle={() => handleToggleCommunity(community)}
-                  />
+          </section>
+
+          <section className="rounded-[22px] border border-ink/10 bg-paper-base/78 p-4 shadow-paper">
+            <h3 className="text-sm font-semibold text-ink">How to use</h3>
+            <div className="mt-3 space-y-3 text-sm text-ink-muted">
+              <p>Use search to narrow down nodes by label, alias, or description.</p>
+              <p>Click a node to inspect its sources, relations, and graph-aware next actions.</p>
+              <p>Explore mode focuses on one node or one community at a time.</p>
+            </div>
+          </section>
+
+          <section className="rounded-[22px] border border-ink/10 bg-paper-base/78 p-4 shadow-paper">
+            <h3 className="text-sm font-semibold text-ink">Recent builds</h3>
+            {buildRuns.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {buildRuns.slice(0, 4).map((run) => (
+                  <div
+                    key={run.id}
+                    className="rounded-[16px] border border-ink/10 bg-paper-card px-3 py-3"
+                  >
+                    <p className="text-sm font-medium text-ink">{run.scopeDescription}</p>
+                    <p className="mt-1 text-xs text-ink-muted">{describeBuildRun(run)}</p>
+                  </div>
                 ))}
               </div>
-              <div className="space-y-2">
-                {bottomCommunities.map((community) => (
-                  <CommunityRailCard
-                    key={community.id}
-                    community={community}
-                    isActive={community.id === selectedCommunity?.id}
-                    isCollapsed={collapsedCommunityIds.includes(community.id)}
-                    onSelect={() => {
-                      setSelectedCommunityId(community.id)
-                      setSelectedNodeId(null)
-                    }}
-                    onToggle={() => handleToggleCommunity(community)}
-                  />
-                ))}
-              </div>
-            </div>
+            ) : (
+              <p className="mt-3 text-sm text-ink-muted">No recent graph builds yet.</p>
+            )}
           </section>
         </Panel>
       }
@@ -439,7 +379,7 @@ export function KnowledgeGraphPage() {
       searchBar={
         <div className="min-w-[240px] flex-1 xl:max-w-[360px]">
           <Input
-            placeholder="搜索节点名称、描述或别名"
+            placeholder="Search nodes, aliases, or descriptions"
             value={searchInput}
             onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchInput(event.target.value)}
           />
@@ -447,42 +387,14 @@ export function KnowledgeGraphPage() {
       }
       stageHint={
         viewMode === 'explore' && selectedNode
-          ? `从 ${selectedNode.label} 向外展开`
-          : '支持社区折叠与节点高亮'
+          ? `Focused node: ${selectedNode.label}`
+          : selectedCommunity
+            ? `Focused community: ${selectedCommunity.title || 'Untitled'}`
+            : 'Browse the complete knowledge graph'
       }
       graphStage={
         <Panel className="relative min-h-0 overflow-hidden border border-ink/10 bg-paper-card/85 p-0 backdrop-blur">
-          <div className="absolute inset-x-0 top-0 z-10 flex flex-wrap items-center gap-2 border-b border-ink/10 bg-paper-card/82 px-4 py-3 backdrop-blur">
-            <div className="inline-flex rounded-full border border-ink/10 bg-paper-base/80 p-1">
-              {VIEW_MODE_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  className={`rounded-full px-3 py-1.5 text-sm transition ${
-                    viewMode === option.id
-                      ? 'bg-ink text-paper-base shadow-paper'
-                      : 'text-ink-muted hover:bg-paper-card hover:text-ink'
-                  }`}
-                  onClick={() => setViewMode(option.id)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <div className="min-w-[240px] flex-1">
-              <Input
-                placeholder="搜索节点名称、描述或别名"
-                value={searchInput}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchInput(event.target.value)}
-              />
-            </div>
-            <div className="rounded-full border border-ink/10 bg-paper-base/80 px-3 py-1 text-xs text-ink-muted">
-              {viewMode === 'explore' && selectedNode
-                ? `从 ${selectedNode.label} 向外展开`
-                : '支持社区折叠与节点高亮'}
-            </div>
-          </div>
-
-          <div className="grid h-full min-h-0 grid-rows-[1fr_auto] pt-[74px]">
+          <div className="grid h-full min-h-0 grid-rows-[1fr_auto]">
             <GraphCanvas
               collapsedCommunityIds={collapsedCommunityIds}
               communities={communities}
@@ -496,319 +408,109 @@ export function KnowledgeGraphPage() {
               onSelectNode={handleCanvasNodeSelect}
             />
             <div className="border-t border-ink/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.8),rgba(245,245,240,0.88))] px-4 py-3 text-xs text-ink-muted">
-              节点大小按连接度缩放，颜色对应节点类型；搜索会高亮匹配节点，探索模式只保留 1-hop
-              邻域。
+              The canvas stays read-oriented. Build state and downstream actions live in the side rails.
             </div>
           </div>
         </Panel>
       }
       detailRail={
-        <Panel className="flex min-h-0 flex-col gap-4 overflow-hidden border border-ink/10 bg-paper-card/82 backdrop-blur">
+        <Panel className="flex min-h-0 flex-col gap-4 overflow-hidden border border-ink/10 bg-paper-card/82 p-4 backdrop-blur">
           {selectedNode ? (
             <>
               <section className="rounded-[22px] border border-ink/10 bg-[linear-gradient(160deg,rgba(91,141,239,0.08),rgba(255,255,255,0.95))] p-4 shadow-paper">
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.3em] text-ink-soft">
-                      Node Detail
-                    </p>
-                    <h2 className="kg-display text-2xl text-ink">{selectedNode.label}</h2>
-                    <p className="text-sm text-ink-muted">
-                      {selectedNode.nodeType} · 度数 {selectedNode.degree} ·{' '}
-                      {selectedNode.hasEmbedding ? '已嵌入' : '待嵌入'}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      deleteNode.mutate(selectedNode.id, {
-                        onSuccess: () => {
-                          setSelectedNodeId(null)
-                          setSelectedCommunityId(null)
-                        },
-                      })
-                    }
-                  >
-                    删除节点
-                  </Button>
-                </div>
-                <div className="grid gap-3">
-                  <label className="grid gap-1 text-sm text-ink">
-                    <span>标签</span>
-                    <Input
-                      value={nodeDraft.label}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                        setNodeDraft((current) => ({ ...current, label: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <label className="grid gap-1 text-sm text-ink">
-                    <span>类型</span>
-                    <select
-                      aria-label="节点类型"
-                      className="rounded-[16px] border border-line-soft bg-paper-card px-3 py-2 text-sm text-ink"
-                      value={nodeDraft.nodeType}
-                      onChange={(event: ChangeEvent<HTMLSelectElement>) =>
-                        setNodeDraft((current) => ({
-                          ...current,
-                          nodeType: event.target.value as KnowledgeNodeType,
-                        }))
-                      }
-                    >
-                      {Object.keys(NODE_TYPE_COLORS).map((nodeType) => (
-                        <option key={nodeType} value={nodeType}>
-                          {nodeType}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="grid gap-1 text-sm text-ink">
-                    <span>别名</span>
-                    <Input
-                      placeholder="使用逗号分隔"
-                      value={nodeDraft.aliases}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                        setNodeDraft((current) => ({ ...current, aliases: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <label className="grid gap-1 text-sm text-ink">
-                    <span>描述</span>
-                    <textarea
-                      className="min-h-28 rounded-[18px] border border-line-soft bg-paper-card px-3 py-2 text-sm text-ink outline-none focus:border-ink/30"
-                      value={nodeDraft.description}
-                      onChange={(event) =>
-                        setNodeDraft((current) => ({ ...current, description: event.target.value }))
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" onClick={handleSaveNode}>
-                    保存节点修改
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setViewMode('explore')}>
-                    仅看邻域
-                  </Button>
-                </div>
-              </section>
-
-              <section className="rounded-[22px] border border-ink/10 bg-paper-base/75 p-4 shadow-paper">
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-ink">来源文档</h3>
-                  <span className="text-xs text-ink-muted">{sources.length} 条来源</span>
-                </div>
-                {sources.length === 0 ? (
-                  <p className="text-sm text-ink-muted">当前节点暂无来源回溯。</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {sources.map((sourceId) => {
-                      const doc = documents.find((document) => document.id === sourceId)
-                      return (
-                        <span
-                          key={sourceId}
-                          className="rounded-full border border-ink/10 bg-paper-card px-3 py-1 text-xs text-ink"
-                        >
-                          {doc?.title ?? sourceId}
-                        </span>
-                      )
-                    })}
-                  </div>
-                )}
-              </section>
-
-              <section className="min-h-0 flex-1 overflow-y-auto rounded-[22px] border border-ink/10 bg-paper-base/78 p-4 shadow-paper">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-ink">关系编辑器</h3>
-                  <span className="text-xs text-ink-muted">
-                    {selectedIncidentEdges.length} 条关联边
-                  </span>
-                </div>
-                <div className="mb-4 rounded-[18px] border border-dashed border-ink/15 bg-paper-card/80 p-3">
-                  <p className="mb-2 text-xs uppercase tracking-[0.24em] text-ink-soft">
-                    Create Edge
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.3em] text-ink-soft">Node</p>
+                  <h2 className="kg-display text-2xl text-ink">{selectedNode.label}</h2>
+                  <p className="mt-2 text-sm text-ink-muted">
+                    {selectedNode.description || 'No node description yet.'}
                   </p>
-                  <div className="grid gap-2">
-                    <select
-                      aria-label="新边目标节点"
-                      className="rounded-[16px] border border-line-soft bg-paper-card px-3 py-2 text-sm text-ink"
-                      value={newEdgeTargetId}
-                      onChange={(event) => setNewEdgeTargetId(event.target.value)}
-                    >
-                      <option value="">选择目标节点</option>
-                      {nodes
-                        .filter((node) => node.id !== selectedNode.id)
-                        .map((node) => (
-                          <option key={node.id} value={node.id}>
-                            {node.label}
-                          </option>
-                        ))}
-                    </select>
-                    <div className="grid grid-cols-[1fr_110px] gap-2">
-                      <select
-                        aria-label="新边关系类型"
-                        className="rounded-[16px] border border-line-soft bg-paper-card px-3 py-2 text-sm text-ink"
-                        value={newEdgeRelation}
-                        onChange={(event) => setNewEdgeRelation(event.target.value as RelationType)}
-                      >
-                        {RELATION_OPTIONS.map((relation) => (
-                          <option key={relation} value={relation}>
-                            {relation}
-                          </option>
-                        ))}
-                      </select>
-                      <Input
-                        max={1}
-                        min={0}
-                        step={0.05}
-                        type="number"
-                        value={newEdgeConfidence}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) => setNewEdgeConfidence(Number(event.target.value) || 0)}
-                      />
-                    </div>
-                    <Button size="sm" onClick={handleCreateEdge}>
-                      添加边
-                    </Button>
-                  </div>
                 </div>
-
-                <div className="space-y-3">
-                  {selectedIncidentEdges.map((edge) => {
-                    const draft = edgeDrafts[edge.id] ?? {
-                      relation: edge.relation,
-                      confidence: edge.confidence,
-                    }
-                    const oppositeId =
-                      edge.fromNodeId === selectedNode.id ? edge.toNodeId : edge.fromNodeId
-                    const oppositeNode = nodes.find((node) => node.id === oppositeId)
-                    return (
-                      <div
-                        key={edge.id}
-                        className="rounded-[18px] border border-ink/10 bg-paper-card/80 p-3"
-                      >
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <button
-                            className="text-left text-sm font-medium text-ink underline decoration-ink/20"
-                            onClick={() => setSelectedNodeId(oppositeId)}
-                          >
-                            {oppositeNode?.label ?? oppositeId}
-                          </button>
-                          <span className="text-xs text-ink-muted">
-                            {edge.inferred ? '推断边' : '显式边'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-[1fr_84px_auto_auto] gap-2">
-                          <select
-                            aria-label="编辑边关系类型"
-                            className="rounded-[14px] border border-line-soft bg-paper-base px-3 py-2 text-sm text-ink"
-                            value={draft.relation}
-                            onChange={(event: ChangeEvent<HTMLSelectElement>) =>
-                              setEdgeDrafts((current) => ({
-                                ...current,
-                                [edge.id]: {
-                                  relation: event.target.value as RelationType,
-                                  confidence: current[edge.id]?.confidence ?? edge.confidence,
-                                },
-                              }))
-                            }
-                          >
-                            {RELATION_OPTIONS.map((relation) => (
-                              <option key={relation} value={relation}>
-                                {relation}
-                              </option>
-                            ))}
-                          </select>
-                          <Input
-                            max={1}
-                            min={0}
-                            step={0.05}
-                            type="number"
-                            value={draft.confidence}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                              setEdgeDrafts((current) => ({
-                                ...current,
-                                [edge.id]: {
-                                  relation: current[edge.id]?.relation ?? edge.relation,
-                                  confidence: Number(event.target.value) || 0,
-                                },
-                              }))
-                            }
-                          />
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              updateEdge.mutate({
-                                edgeId: edge.id,
-                                updates: {
-                                  relation: draft.relation,
-                                  confidence: draft.confidence,
-                                  metadata: { ...edge.metadata, userEdited: true },
-                                },
-                              })
-                            }
-                          >
-                            保存
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => deleteEdge.mutate(edge.id)}
-                          >
-                            删除
-                          </Button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {selectedIncidentEdges.length === 0 ? (
-                    <p className="text-sm text-ink-muted">
-                      当前节点还没有关联边，先创建一条关系试试。
-                    </p>
-                  ) : null}
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <DetailStat label="Node type" value={selectedNode.nodeType} />
+                  <DetailStat label="Degree" value={String(selectedNode.degree)} />
                 </div>
               </section>
 
               <section className="rounded-[22px] border border-ink/10 bg-paper-base/78 p-4 shadow-paper">
-                <h3 className="mb-2 text-sm font-semibold text-ink">消歧合并</h3>
-                <div className="grid gap-2">
-                  <select
-                    aria-label="待并入节点"
-                    className="rounded-[16px] border border-line-soft bg-paper-card px-3 py-2 text-sm text-ink"
-                    value={mergeSourceId}
-                    onChange={(event) => setMergeSourceId(event.target.value)}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={handleAskWithGraph}
+                    data-testid="knowledge-graph-ask-question"
                   >
-                    <option value="">选择待并入节点</option>
-                    {nodes
-                      .filter((node) => node.id !== selectedNode.id)
-                      .map((node) => (
-                        <option key={node.id} value={node.id}>
-                          {node.label}
-                        </option>
-                      ))}
-                  </select>
-                  <Button size="sm" onClick={handleMerge}>
-                    合并到当前节点
+                    Ask with graph
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleViewCards}
+                    disabled={selectedSourceDocuments.length === 0}
+                  >
+                    View related cards
                   </Button>
                 </div>
               </section>
+
+              <section className="rounded-[22px] border border-ink/10 bg-paper-base/78 p-4 shadow-paper">
+                <h3 className="text-sm font-semibold text-ink">Source documents</h3>
+                {selectedSourceDocuments.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {selectedSourceDocuments.map((source) => (
+                      <div
+                        key={source.id}
+                        className="rounded-[16px] border border-ink/10 bg-paper-card px-3 py-3 text-sm text-ink"
+                      >
+                        {source.title}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-ink-muted">No source documents are linked yet.</p>
+                )}
+              </section>
+
+              <section className="rounded-[22px] border border-ink/10 bg-paper-base/78 p-4 shadow-paper">
+                <h3 className="text-sm font-semibold text-ink">Relations</h3>
+                {selectedIncidentEdges.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {selectedIncidentEdges.slice(0, 8).map((edge) => {
+                      const otherNodeId =
+                        edge.fromNodeId === selectedNode.id ? edge.toNodeId : edge.fromNodeId
+                      const otherNode = nodes.find((node) => node.id === otherNodeId)
+                      return (
+                        <button
+                          key={edge.id}
+                          type="button"
+                          onClick={() => setSelectedNodeId(otherNodeId)}
+                          className="flex w-full items-center justify-between rounded-[16px] border border-ink/10 bg-paper-card px-3 py-3 text-left"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-ink">
+                              {otherNode?.label ?? otherNodeId}
+                            </p>
+                            <p className="mt-1 text-xs text-ink-muted">
+                              {edge.relation} | confidence {edge.confidence.toFixed(2)}
+                            </p>
+                          </div>
+                          <span className="text-xs text-ink-soft">Open</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-ink-muted">No incident relations for this node yet.</p>
+                )}
+              </section>
             </>
           ) : selectedCommunity ? (
-            <CommunityDetailPanel
-              community={selectedCommunity}
-              summary={communitySummary}
-              onToggle={() => handleToggleCommunity(selectedCommunity)}
-            />
+            <CommunityDetailPanel community={selectedCommunity} summary={communitySummary} />
           ) : (
-            <Panel className="flex h-full items-center justify-center border border-dashed border-ink/15 bg-paper-base/65 text-center text-ink-muted">
+            <Panel className="flex h-full items-center justify-center border border-dashed border-ink/15 bg-paper-base/65 p-4 text-center text-ink-muted">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.32em] text-ink-soft">
-                  Knowledge Map
-                </p>
-                <h2 className="kg-display mt-2 text-2xl text-ink">选择节点或社区</h2>
+                <p className="text-[11px] uppercase tracking-[0.32em] text-ink-soft">Knowledge map</p>
+                <h2 className="kg-display mt-2 text-2xl text-ink">Select a node to continue</h2>
                 <p className="mt-2 max-w-xs text-sm">
-                  画布点击节点可进入编辑，点击折叠后的社区超级节点可查看社区摘要与知识缺口。
+                  Node details, source links, graph-assisted QA, and card hand-off appear here.
                 </p>
               </div>
             </Panel>
@@ -837,14 +539,14 @@ function StatsBar({
 
   return (
     <Panel className="border border-ink/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(245,245,240,0.85))] p-4 shadow-paper backdrop-blur">
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr_1.1fr] lg:grid-cols-1">
+      <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr_1.1fr]">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.34em] text-ink-soft">Stats Bar</p>
+          <p className="text-[11px] uppercase tracking-[0.34em] text-ink-soft">Stats</p>
           <div className="mt-2 grid grid-cols-3 gap-3">
-            <StatPill label="节点" value={stats?.totalNodes ?? 0} accent="kg-stat-accent-blue" />
-            <StatPill label="边" value={stats?.totalEdges ?? 0} accent="kg-stat-accent-amber" />
+            <StatPill label="Nodes" value={stats?.totalNodes ?? 0} accent="kg-stat-accent-blue" />
+            <StatPill label="Edges" value={stats?.totalEdges ?? 0} accent="kg-stat-accent-amber" />
             <StatPill
-              label="社区"
+              label="Communities"
               value={stats?.totalCommunities ?? 0}
               accent="kg-stat-accent-green"
             />
@@ -852,7 +554,7 @@ function StatsBar({
         </div>
         <div>
           <p className="mb-2 text-[11px] uppercase tracking-[0.34em] text-ink-soft">
-            Type Distribution
+            Type distribution
           </p>
           <div className="space-y-2">
             {Object.entries(distribution).map(([nodeType, count]) => (
@@ -863,7 +565,7 @@ function StatsBar({
                 <span className="text-ink-muted">{nodeType}</span>
                 <div className="flex items-center gap-2 rounded-full bg-paper-base px-2 py-1">
                   <span className={`kg-node-dot kg-node-dot-${nodeType}`} aria-hidden="true" />
-                  <span className="text-xs text-ink-soft">知识密度</span>
+                  <span className="text-xs text-ink-soft">distribution</span>
                 </div>
                 <span className="text-right text-ink">{count}</span>
               </div>
@@ -871,7 +573,7 @@ function StatsBar({
           </div>
         </div>
         <div>
-          <p className="mb-2 text-[11px] uppercase tracking-[0.34em] text-ink-soft">Latest Build</p>
+          <p className="mb-2 text-[11px] uppercase tracking-[0.34em] text-ink-soft">Latest build</p>
           {latestRun ? (
             <div className="rounded-[20px] border border-ink/10 bg-paper-base/80 p-3 text-sm text-ink">
               <div className="mb-1 flex items-center justify-between gap-3">
@@ -880,14 +582,11 @@ function StatsBar({
                   {latestRun.status}
                 </span>
               </div>
-              <p className="text-ink-muted">
-                {latestRun.nodesCreated} 节点 · {latestRun.edgesCreated} 边 ·{' '}
-                {latestRun.communitiesDetected} 社区
-              </p>
+              <p className="text-ink-muted">{describeBuildRun(latestRun)}</p>
             </div>
           ) : (
             <div className="rounded-[20px] border border-dashed border-ink/15 bg-paper-base/80 p-3 text-sm text-ink-muted">
-              暂无构建记录
+              No build history yet
             </div>
           )}
         </div>
@@ -908,46 +607,11 @@ function StatPill({ accent, label, value }: { label: string; value: number; acce
   )
 }
 
-function CommunityRailCard({
-  community,
-  isActive,
-  isCollapsed,
-  onSelect,
-  onToggle,
-}: {
-  community: Community
-  isActive: boolean
-  isCollapsed: boolean
-  onSelect: () => void
-  onToggle: () => void
-}) {
+function DetailStat({ label, value }: { label: string; value: string }) {
   return (
-    <div
-      className={`rounded-[18px] border px-3 py-3 transition ${
-        isActive
-          ? 'border-ink/20 bg-paper-card shadow-paper'
-          : 'border-ink/10 bg-paper-card/70 hover:border-ink/18 hover:bg-paper-card'
-      }`}
-    >
-      <button className="w-full text-left" onClick={onSelect}>
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <span className="text-sm font-medium text-ink">{community.title || '未命名社区'}</span>
-          <span className="rounded-full bg-paper-base px-2 py-0.5 text-[11px] text-ink-muted">
-            L{community.level}
-          </span>
-        </div>
-        <p className="text-xs text-ink-muted">
-          {community.nodeCount} 节点 · {community.edgeCount} 边
-        </p>
-      </button>
-      <div className="mt-3 flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-          {isCollapsed ? 'Collapsed' : 'Expanded'}
-        </span>
-        <Button size="sm" variant="outline" onClick={onToggle}>
-          {isCollapsed ? '展开' : '折叠'}
-        </Button>
-      </div>
+    <div className="rounded-[16px] border border-ink/10 bg-paper-base px-3 py-3">
+      <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">{label}</p>
+      <p className="mt-2 text-sm font-medium text-ink">{value}</p>
     </div>
   )
 }
@@ -955,49 +619,35 @@ function CommunityRailCard({
 function CommunityDetailPanel({
   community,
   summary,
-  onToggle,
 }: {
   community: Community
   summary: CommunitySummary | null
-  onToggle: () => void
 }) {
   return (
     <>
       <section className="rounded-[22px] border border-ink/10 bg-[linear-gradient(160deg,rgba(76,175,125,0.1),rgba(255,255,255,0.96))] p-4 shadow-paper">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.3em] text-ink-soft">Community Detail</p>
-            <h2 className="kg-display text-2xl text-ink">{community.title || '未命名社区'}</h2>
-            <p className="text-sm text-ink-muted">
-              Level {community.level} · {community.nodeCount} 节点 · {community.edgeCount} 边
-            </p>
-          </div>
-          <Button size="sm" variant="outline" onClick={onToggle}>
-            {community.collapsed ? '展开社区' : '折叠社区'}
-          </Button>
-        </div>
-        <div className="flex flex-wrap gap-2 text-xs text-ink-muted">
-          {community.memberNodeIds.slice(0, 8).map((memberNodeId) => (
-            <span key={memberNodeId} className="rounded-full bg-paper-base px-3 py-1">
-              {memberNodeId.slice(0, 8)}
-            </span>
-          ))}
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.3em] text-ink-soft">Community</p>
+          <h2 className="kg-display text-2xl text-ink">{community.title || 'Untitled community'}</h2>
+          <p className="text-sm text-ink-muted">
+            Level {community.level} | {community.nodeCount} nodes | {community.edgeCount} edges
+          </p>
         </div>
       </section>
       <section className="rounded-[22px] border border-ink/10 bg-paper-base/78 p-4 shadow-paper">
-        <h3 className="mb-3 text-sm font-semibold text-ink">结构化摘要</h3>
+        <h3 className="mb-3 text-sm font-semibold text-ink">Summary</h3>
         {summary ? (
           <div className="space-y-4 text-sm text-ink">
             <div>
               <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">Overview</p>
               <p className="mt-1 leading-7 text-ink">{summary.summary}</p>
             </div>
-            <SummarySection label="关键实体" values={summary.keyEntities} />
-            <SummarySection label="核心关系" values={summary.coreRelations} />
-            <SummarySection label="知识缺口" values={summary.knowledgeGaps} />
+            <SummarySection label="Key entities" values={summary.keyEntities} />
+            <SummarySection label="Core relations" values={summary.coreRelations} />
+            <SummarySection label="Knowledge gaps" values={summary.knowledgeGaps} />
           </div>
         ) : (
-          <p className="text-sm text-ink-muted">当前社区还没有结构化摘要，下一次构建会补齐。</p>
+          <p className="text-sm text-ink-muted">No community summary has been generated yet.</p>
         )}
       </section>
     </>
@@ -1019,7 +669,7 @@ function SummarySection({ label, values }: { label: string; values: string[] }) 
             </span>
           ))
         ) : (
-          <span className="text-sm text-ink-muted">暂无</span>
+          <span className="text-sm text-ink-muted">None</span>
         )}
       </div>
     </div>
@@ -1165,7 +815,7 @@ function GraphCanvas({
       <div ref={containerRef} className="absolute inset-3 rounded-[28px]" />
       {nodes.length === 0 ? (
         <div className="absolute inset-3 flex items-center justify-center rounded-[28px] border border-dashed border-ink/15 bg-paper-base/75 text-sm text-ink-muted">
-          还没有知识图谱节点，先在左侧选择文档并触发构建。
+          No graph content has been built yet.
         </div>
       ) : null}
     </div>
@@ -1216,6 +866,7 @@ function buildCanvasModel({
     const isMatch = !searchQuery || matchesNode(node, searchQuery)
     const collapsedCommunityId =
       node.communityId && collapsedSet.has(node.communityId) ? node.communityId : null
+
     if (collapsedCommunityId) {
       const collapsedId = `community:${collapsedCommunityId}`
       collapseMap.set(node.id, collapsedId)
@@ -1223,11 +874,9 @@ function buildCanvasModel({
       if (!canvasNodes.has(collapsedId)) {
         canvasNodes.set(collapsedId, {
           id: collapsedId,
-          label: community?.title || '折叠社区',
+          label: community?.title || 'Collapsed community',
           color: selectedCommunityId === collapsedCommunityId ? '#1A1A1A' : '#B6843B',
           size: 18 + Math.log2((community?.nodeCount || 1) + 1) * 4,
-          isCommunity: true,
-          communityId: collapsedCommunityId,
         })
       }
       continue
@@ -1243,7 +892,6 @@ function buildCanvasModel({
             ? NODE_TYPE_COLORS[node.nodeType]
             : '#C9C6BE',
       size: 8 + Math.log2(node.degree + 1) * 4 + (selectedNodeId === node.id ? 4 : 0),
-      isCommunity: false,
     })
   }
 
@@ -1282,13 +930,6 @@ function matchesNode(node: KnowledgeNode, query: string) {
     .includes(lowered)
 }
 
-function parseCommaList(value: string) {
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
 function safeParseSummary(value: string | null): CommunitySummary | null {
   if (!value) return null
   try {
@@ -1296,4 +937,8 @@ function safeParseSummary(value: string | null): CommunitySummary | null {
   } catch {
     return null
   }
+}
+
+function describeBuildRun(run: GraphBuildRun) {
+  return `${run.status} | stage ${run.currentStage} | ${run.nodesCreated} nodes | ${run.edgesCreated} edges | ${run.communitiesDetected} communities`
 }

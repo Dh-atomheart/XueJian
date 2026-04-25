@@ -1,4 +1,4 @@
-import { scheduleCard, previewScheduling, type ReviewRating } from '@/services/learning'
+import { buildDailyReviewQueue, scheduleCard, previewScheduling, type ReviewRating } from '@/services/learning'
 import { cardsGateway } from '@/services/gateway/cards'
 import type { Card } from '@/types'
 
@@ -101,5 +101,29 @@ describe('review page visual focus', () => {
       expect(previews[r]).toHaveProperty('intervalDays')
       expect(typeof previews[r].intervalDays).toBe('number')
     }
+  })
+})
+
+describe('daily review queue generation', () => {
+  it('includes only due cards and respects the daily cap', () => {
+    const now = new Date('2026-04-24T10:00:00.000Z')
+    const dueEarly = makeCard({
+      id: 'due-early',
+      nextReview: new Date('2026-04-23T10:00:00.000Z').toISOString(),
+      createdAt: new Date('2026-04-20T10:00:00.000Z').toISOString(),
+    })
+    const dueLater = makeCard({
+      id: 'due-later',
+      nextReview: new Date('2026-04-24T09:00:00.000Z').toISOString(),
+      createdAt: new Date('2026-04-21T10:00:00.000Z').toISOString(),
+    })
+    const future = makeCard({
+      id: 'future',
+      nextReview: new Date('2026-04-25T10:00:00.000Z').toISOString(),
+    })
+
+    const queue = buildDailyReviewQueue([future, dueLater, dueEarly], { limit: 1, now })
+
+    expect(queue.map((card) => card.id)).toEqual(['due-early'])
   })
 })

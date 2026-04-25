@@ -19,7 +19,6 @@ vi.mock('@/queries', async () => {
     usePodcastEpisodeQuery: vi.fn(),
     usePodcastEpisodesQuery: vi.fn(),
     useRetryPodcastMutation: vi.fn(),
-    useReviewPodcastMutation: vi.fn(),
     useStartPodcastMutation: vi.fn(),
   }
 })
@@ -41,10 +40,8 @@ beforeEach(() => {
     data: {
       reviewTimeLimit: 30,
       podcastTtsProvider: 'auto',
+      podcastGoogleTtsModel: 'gemini-2.5-flash-preview-tts',
       podcastOutputFormat: 'mp3',
-      podcastMaxLlmTokens: 100000,
-      podcastMaxTtsCharacters: 50000,
-      podcastMaxEstimatedCostUsd: 3,
     },
   } as ReturnType<typeof queries.useAppSettingsQuery>)
   mockedQueries.useDocumentsQuery.mockReturnValue({
@@ -56,24 +53,28 @@ beforeEach(() => {
         id: 'episode-1',
         documentIds: ['doc-1'],
         runId: 'run-1',
-        title: '记忆的工作原理',
-        scopeDescription: '基于单篇文档生成复盘节目',
+        title: 'Podcast Episode',
+        scopeDescription: 'overview',
         style: 'lecture',
         language: 'zh-CN',
         durationTier: 'medium',
         ttsProvider: 'auto',
         audioFormat: 'mp3',
         scriptJson:
-          '{"segments":[{"id":"seg-1","speaker":"Host","text":"记忆并不是仓库。","durationMs":12000}]}',
+          '{"segments":[{"id":"seg-1","speaker":"Host","text":"First line","durationMs":12000}]}',
         outlineJson:
-          '{"segments":[{"segmentIndex":0,"topic":"工作记忆","keyPoints":["容量有限"],"targetDurationMs":30000,"speakerAssignments":[{"speakerId":"host","role":"host"}]}],"totalTargetDurationMs":30000}',
+          '{"segments":[{"segmentIndex":0,"topic":"Memory","keyPoints":["Recall"],"targetDurationMs":30000,"speakerAssignments":[{"speakerId":"host","role":"host"}]}],"totalTargetDurationMs":30000}',
         evaluationJson:
           '{"coherence":8.2,"accuracy":8.5,"styleConsistency":7.8,"naturalness":8.0,"overallScore":8.1,"issues":[],"suggestions":[],"revised":false}',
         audioPath: null,
         durationMs: 30000,
         status: 'awaiting_review',
+        stageKey: 'awaiting_review',
         errorMessage: null,
-        currentStage: 3,
+        errorCode: null,
+        errorStage: null,
+        retryable: true,
+        currentStage: 4,
         completedSegments: 1,
         totalSegments: 2,
         createdAt: '2026-04-22T12:00:00.000Z',
@@ -99,10 +100,6 @@ beforeEach(() => {
     isPending: false,
     mutateAsync: vi.fn(),
   } as ReturnType<typeof queries.useDeletePodcastMutation>)
-  mockedQueries.useReviewPodcastMutation.mockReturnValue({
-    isPending: false,
-    mutateAsync: vi.fn(),
-  } as ReturnType<typeof queries.useReviewPodcastMutation>)
   mockedQueries.useRetryPodcastMutation.mockReturnValue({
     isPending: false,
     mutateAsync: vi.fn(),
@@ -110,13 +107,16 @@ beforeEach(() => {
 })
 
 describe('PodcastPage', () => {
-  it('renders the migrated workspace structure and detail rail', () => {
+  it('renders the simplified autonomous workspace', () => {
     renderWithProviders(<PodcastPage />)
 
     expect(screen.getByTestId('podcast-page')).toBeInTheDocument()
     expect(screen.getByTestId('podcast-toolbar')).toBeInTheDocument()
     expect(screen.getByTestId('podcast-main-stage')).toBeInTheDocument()
     expect(screen.getByTestId('podcast-detail-rail')).toBeInTheDocument()
-    expect(screen.getByText('脚本审阅')).toBeInTheDocument()
+    expect(screen.getAllByText('Memory 101')).toHaveLength(2)
+    expect(screen.getAllByRole('button')).not.toHaveLength(0)
+    expect(screen.queryByText(/budget/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/balance/i)).not.toBeInTheDocument()
   })
 })

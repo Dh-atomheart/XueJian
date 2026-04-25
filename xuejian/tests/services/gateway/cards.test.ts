@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { cardsGateway } from '@/services/gateway/cards'
 import { resetMockGatewayState } from '@/services/gateway/mockData'
 import { orchestrationGateway } from '@/services/gateway/orchestration'
+import { getPointsSummary, recordPoints } from '@/services/gateway/points'
 
 const SEEDED_RUN_ID = '11111111-1111-4111-8111-111111111111'
 
@@ -43,6 +44,54 @@ describe('cards gateway mocks', () => {
     expect(result.skippedDuplicates).toBe(0)
     expect(result).toHaveProperty('skippedDuplicates')
     expect(result.run.status).toBe('completed')
+  })
+
+  it('updates due cards, review logs, heatmap, and points after a review is submitted', async () => {
+    const dueBefore = await cardsGateway.listDueCards()
+    expect(dueBefore.some((card) => card.id === '33333333-3333-4333-8333-333333333333')).toBe(true)
+
+    await cardsGateway.updateCardReview('33333333-3333-4333-8333-333333333333', {
+      difficulty: 0.31,
+      stability: 5.2,
+      retrievability: 0.94,
+      state: 'review',
+      nextReview: '2026-04-21T09:00:00.000Z',
+    })
+
+    const reviewLog = await cardsGateway.createReviewLog({
+      cardId: '33333333-3333-4333-8333-333333333333',
+      rating: 'good',
+      state: 'review',
+      difficulty: 0.31,
+      stability: 5.2,
+      retrievability: 0.94,
+      nextReview: '2026-04-21T09:00:00.000Z',
+      intervalDays: 4,
+    })
+
+    expect(reviewLog.cardId).toBe('33333333-3333-4333-8333-333333333333')
+
+    const dueAfter = await cardsGateway.listDueCards()
+    expect(dueAfter.some((card) => card.id === '33333333-3333-4333-8333-333333333333')).toBe(false)
+
+    const reviewLogs = await cardsGateway.listReviewLogs('33333333-3333-4333-8333-333333333333')
+    expect(reviewLogs).toHaveLength(2)
+
+    await recordPoints({
+      reviewLogId: reviewLog.id,
+      cardId: reviewLog.cardId,
+      rating: reviewLog.rating,
+      cardState: reviewLog.state,
+    })
+
+    const dailyStats = await cardsGateway.getDailyStats()
+    expect(dailyStats.reviewCards).toBe(2)
+
+    const heatmap = await cardsGateway.getReviewHeatmap(7)
+    expect(heatmap.some((entry) => entry.date === '2026-04-17' && entry.count === 2)).toBe(true)
+
+    const pointsSummary = await getPointsSummary()
+    expect(pointsSummary.todayPoints).toBe(10)
   })
 })
 

@@ -33,15 +33,19 @@ export function PdfToolbar({
 
   return (
     <div className="flex h-10 items-center justify-between border-b border-line-soft bg-paper-muted px-3">
-      {/* Left: back + title */}
       <div className="flex items-center gap-2 overflow-hidden">
-        <Button variant="ghost" size="sm" onClick={onClose} title="返回文档库">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onClose}
+          title="返回文档库"
+          data-testid="reader-close"
+        >
           <ArrowLeftIcon />
         </Button>
         <span className="truncate font-ui text-sm text-ink">{documentTitle}</span>
       </div>
 
-      {/* Center: page nav */}
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
@@ -66,7 +70,6 @@ export function PdfToolbar({
         </Button>
       </div>
 
-      {/* Right: zoom */}
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
@@ -77,8 +80,8 @@ export function PdfToolbar({
         >
           <MinusIcon />
         </Button>
-        <span className="min-w-[3rem] text-center font-latin text-xs text-ink-muted">
-          {Math.round(scale * 100)}%
+        <span className="min-w-[4.5rem] text-center font-latin text-xs text-ink-muted">
+          适宽 x {Math.round(scale * 100)}%
         </span>
         <Button
           variant="ghost"

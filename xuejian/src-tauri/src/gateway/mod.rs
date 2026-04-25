@@ -22,6 +22,7 @@ pub fn host_gateway_manifest() -> GatewayManifest {
             "update_api_config",
             "set_default_api_config",
             "delete_api_config",
+            "get_api_key",
             "store_api_key",
             "test_api_connection",
         ],

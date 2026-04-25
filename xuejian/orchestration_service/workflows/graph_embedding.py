@@ -77,7 +77,7 @@ def build_entity_embeddings(
         profile = host.get_active_embedding_profile()
         if profile is not None:
             try:
-                vectors = embed_texts(host, profile, texts)
+                vectors = embed_texts(host, profile, texts, task_type="RETRIEVAL_DOCUMENT")
                 resolved_model = profile.get("model") or profile.get("id") or embedding_model
             except Exception as exc:
                 logger.warning(

@@ -6,6 +6,7 @@ import { invokeWithSchema } from './index'
 export interface StartCardAnimationInput {
   cardId: string
   animType?: 'flashcard_reveal' | 'keyword_emphasis'
+  mode?: 'quick_preview' | 'video_render'
 }
 
 export async function startCardAnimation(input: StartCardAnimationInput): Promise<CardAnimation> {

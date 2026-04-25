@@ -177,7 +177,7 @@ export function ReviewPage(props: ReviewPageProps) {
 
   if (props.mode === 'complete') {
     return (
-      <div className="flex h-full flex-col p-6">
+      <div className="flex h-full flex-col p-6" data-testid="review-page-complete">
         <PageHeader todayPoints={props.todayPoints} currentIndex={props.reviewedCount} totalCards={props.totalCards} progressPercent={100} showProgress={false} />
         <div className="flex flex-1 flex-col items-center justify-center gap-6">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-chart-1/30 bg-chart-1/10">
@@ -203,7 +203,7 @@ export function ReviewPage(props: ReviewPageProps) {
 
   if (props.mode === 'intro') {
     return (
-      <div className="flex h-full flex-col p-6">
+      <div className="flex h-full flex-col p-6" data-testid="review-page-intro">
         <PageHeader todayPoints={props.todayPoints} currentIndex={0} totalCards={props.totalCards} progressPercent={0} showProgress={false} />
         <div className="grid flex-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           <Card className="border-border/50 bg-card">
@@ -250,7 +250,7 @@ export function ReviewPage(props: ReviewPageProps) {
   if (!props.currentCard) return null
 
   return (
-    <div className="flex h-full flex-col p-6">
+    <div className="flex h-full flex-col p-6" data-testid="review-page-studying">
       <PageHeader
         todayPoints={props.todayPoints}
         currentIndex={props.currentIndex}

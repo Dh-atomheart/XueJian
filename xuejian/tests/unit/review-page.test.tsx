@@ -5,13 +5,17 @@ import { useAppUiStore } from '@/store'
 import { useLearningSessionStore } from '@/store/learning'
 import type { Card } from '@/types'
 
-const { useDueCardsQueryMock, useDailyStatsQueryMock, useSubmitReviewMutationMock } = vi.hoisted(
-  () => ({
-    useDueCardsQueryMock: vi.fn(),
-    useDailyStatsQueryMock: vi.fn(),
-    useSubmitReviewMutationMock: vi.fn(),
-  })
-)
+const {
+  useDueCardsQueryMock,
+  useDailyStatsQueryMock,
+  useSubmitReviewMutationMock,
+  usePointsSummaryQueryMock,
+} = vi.hoisted(() => ({
+  useDueCardsQueryMock: vi.fn(),
+  useDailyStatsQueryMock: vi.fn(),
+  useSubmitReviewMutationMock: vi.fn(),
+  usePointsSummaryQueryMock: vi.fn(),
+}))
 
 vi.mock('@/queries/learning', async () => {
   const actual = await vi.importActual<typeof import('@/queries/learning')>('@/queries/learning')
@@ -23,6 +27,10 @@ vi.mock('@/queries/learning', async () => {
   }
 })
 
+vi.mock('@/queries/points', () => ({
+  usePointsSummaryQuery: usePointsSummaryQueryMock,
+}))
+
 function makeCard(overrides: Partial<Card> = {}): Card {
   return {
     id: '33333333-3333-4333-8333-333333333333',
@@ -33,8 +41,8 @@ function makeCard(overrides: Partial<Card> = {}): Card {
     exportGuid: null,
     documentId: null,
     anchorId: null,
-    front: '复习问题',
-    back: '复习答案',
+    front: 'Review question',
+    back: 'Review answer',
     sourcePage: null,
     sourceParagraph: null,
     sourceCoordinates: null,
@@ -63,6 +71,9 @@ describe('ReviewPage', () => {
     useDailyStatsQueryMock.mockReturnValue({
       data: { newCards: 1, reviewCards: 1, correctRate: null },
     })
+    usePointsSummaryQueryMock.mockReturnValue({
+      data: { todayPoints: 10 },
+    })
     useSubmitReviewMutationMock.mockReturnValue({
       isPending: false,
       mutate: vi.fn((_payload: unknown, options?: { onSuccess?: () => void }) => {
@@ -75,7 +86,7 @@ describe('ReviewPage', () => {
     render(<ReviewPage />)
 
     expect(screen.getByTestId('review-page-intro')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '开始学习' }))
+    fireEvent.click(screen.getByTestId('review-start-session'))
 
     expect(screen.getByTestId('review-page-studying')).toBeInTheDocument()
 
@@ -94,18 +105,17 @@ describe('ReviewPage', () => {
       data: [
         makeCard({
           cardType: 'choice',
-          front: `?> 正确答案是哪一个？\n- 错误项\n- [x] 正确项`,
-          back: '这是单选题的解析。',
+          front: '?> Which option is correct?\n- Wrong option\n- [x] Correct option',
+          back: 'This is the explanation for the choice card.',
         }),
       ],
       isLoading: false,
     })
 
     render(<ReviewPage />)
-    fireEvent.click(screen.getByRole('button', { name: '开始学习' }))
+    fireEvent.click(screen.getByTestId('review-start-session'))
     fireEvent.click(screen.getByTestId('review-current-card'))
 
-    expect(await screen.findByText('解析')).toBeInTheDocument()
-    expect(screen.getByText('这是单选题的解析。')).toBeInTheDocument()
+    expect(await screen.findByText('This is the explanation for the choice card.')).toBeInTheDocument()
   })
 })

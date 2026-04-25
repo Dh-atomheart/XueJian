@@ -95,6 +95,8 @@ pub struct CreateCardCandidateRequest {
     pub anchor_id: Option<String>,
     pub title: Option<String>,
     pub card_type: Option<String>,
+    pub source_page: Option<i32>,
+    pub source_quote: Option<String>,
     pub front: String,
     pub back: String,
     pub tags: Vec<String>,
@@ -140,6 +142,13 @@ pub struct CardCandidateCounts {
 pub struct PersistCardCandidatesResult {
     pub inserted_count: usize,
     pub duplicate_count: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PersistGeneratedCardsResult {
+    pub created_count: usize,
+    pub skipped_duplicates: usize,
+    pub discarded_low_quality: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -844,10 +853,10 @@ impl<'a> CardRepository<'a> {
             transaction.execute(
                 "INSERT INTO card_candidates (
                     id, workflow_run_id, document_id, section_id, anchor_id, title, card_type,
-                    front, back, tags, confidence, dedupe_key, status,
+                    source_page, source_quote, front, back, tags, confidence, dedupe_key, status,
                     score_overall, score_details, visibility_bucket, generation_mode,
                     fallback_reason, evaluation_summary, source_chunk_ids, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'pending', ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'pending', ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
                 params![
                     Uuid::new_v4().to_string(),
                     request.workflow_run_id,
@@ -856,6 +865,8 @@ impl<'a> CardRepository<'a> {
                     request.anchor_id,
                     request.title,
                     card_type,
+                    request.source_page,
+                    request.source_quote,
                     request.front,
                     request.back,
                     tags_json,
@@ -873,6 +884,102 @@ impl<'a> CardRepository<'a> {
             )?;
 
             result.inserted_count += 1;
+        }
+
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn insert_generated_cards(
+        &self,
+        requests: Vec<CreateCardCandidateRequest>,
+    ) -> Result<PersistGeneratedCardsResult> {
+        let transaction = self.db.connection().unchecked_transaction()?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut result = PersistGeneratedCardsResult::default();
+
+        for request in requests {
+            let front = request.front.trim();
+            let back = request.back.trim();
+            if front.is_empty() || back.is_empty() || request.confidence < 0.65 {
+                result.discarded_low_quality += 1;
+                continue;
+            }
+
+            let card_exists: bool = transaction.query_row(
+                "SELECT EXISTS(
+                    SELECT 1
+                    FROM cards
+                    WHERE document_id = ?1 AND dedupe_key = ?2
+                 )",
+                params![&request.document_id, &request.dedupe_key],
+                |row| row.get(0),
+            )?;
+
+            if card_exists {
+                result.skipped_duplicates += 1;
+                continue;
+            }
+
+            let (source_page, source_paragraph, source_coordinates) =
+                if let Some(anchor_id) = request.anchor_id.as_deref() {
+                    transaction
+                        .query_row(
+                            "SELECT page, paragraph, rects FROM document_anchors WHERE id = ?1",
+                            params![anchor_id],
+                            |row| {
+                                let rects = decode_rectangles(row.get(2)?)?;
+                                let coordinates = merge_rectangles_into_bounding_box(&rects)
+                                    .map(|rect| serde_json::to_string(&rect))
+                                    .transpose()
+                                    .map_err(json_encode_error)?;
+                                Ok((
+                                    row.get::<_, Option<i32>>(0)?,
+                                    row.get::<_, Option<i32>>(1)?,
+                                    coordinates,
+                                ))
+                            },
+                        )
+                        .optional()?
+                        .unwrap_or((request.source_page, None, None))
+                } else {
+                    (request.source_page, None, None)
+                };
+
+            let tags_json = serde_json::to_string(&request.tags).map_err(json_encode_error)?;
+            let new_card_id = Uuid::new_v4().to_string();
+            let export_guid =
+                Uuid::new_v5(&Uuid::NAMESPACE_URL, new_card_id.as_bytes()).to_string();
+            let card_type = request.card_type.unwrap_or_else(|| "qa".to_string());
+
+            transaction.execute(
+                "INSERT INTO cards (
+                    id, group_id, title, card_type, export_guid, document_id, anchor_id,
+                    front, back, source_page, source_paragraph, source_coordinates, tags,
+                    difficulty, stability, retrievability, state, next_review, dedupe_key,
+                    created_at, updated_at
+                 ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0.3, 1.0,
+                           NULL, 'new', NULL, ?13, ?14, ?15)",
+                params![
+                    new_card_id,
+                    request.title,
+                    card_type,
+                    export_guid,
+                    request.document_id,
+                    request.anchor_id,
+                    front,
+                    back,
+                    source_page,
+                    source_paragraph,
+                    source_coordinates,
+                    tags_json,
+                    request.dedupe_key,
+                    &now,
+                    &now,
+                ],
+            )?;
+
+            result.created_count += 1;
         }
 
         transaction.commit()?;
@@ -995,7 +1102,7 @@ impl<'a> CardRepository<'a> {
             let mut stmt = transaction.prepare(
                 "SELECT c.id, c.document_id, c.anchor_id, c.title, c.card_type,
                         c.front, c.back, c.tags,
-                        c.dedupe_key, a.page, a.paragraph, a.rects
+                        c.dedupe_key, COALESCE(c.source_page, a.page), a.paragraph, a.rects
                  FROM card_candidates c
                  LEFT JOIN document_anchors a ON a.id = c.anchor_id
                  WHERE c.workflow_run_id = ?1 AND c.status = 'accepted'
@@ -1601,6 +1708,8 @@ mod tests {
                     anchor_id: Some(anchor_id.clone()),
                     title: None,
                     card_type: None,
+                    source_page: None,
+                    source_quote: None,
                     front: "什么是 FSRS？".to_string(),
                     back: "一种用于间隔重复学习调度的算法。".to_string(),
                     tags: vec!["page-3".to_string()],
@@ -1621,6 +1730,8 @@ mod tests {
                     anchor_id: Some(anchor_id.clone()),
                     title: None,
                     card_type: None,
+                    source_page: None,
+                    source_quote: None,
                     front: "什么是 FSRS？".to_string(),
                     back: "一种用于间隔重复学习调度的算法。".to_string(),
                     tags: vec!["page-3".to_string()],
@@ -1708,6 +1819,8 @@ mod tests {
                     anchor_id: Some(anchor_id.clone()),
                     title: None,
                     card_type: None,
+                    source_page: None,
+                    source_quote: None,
                     front: "Q1".to_string(),
                     back: "A1".to_string(),
                     tags: vec![],
@@ -1728,6 +1841,8 @@ mod tests {
                     anchor_id: Some(anchor_id.clone()),
                     title: None,
                     card_type: None,
+                    source_page: None,
+                    source_quote: None,
                     front: "Q2".to_string(),
                     back: "A2".to_string(),
                     tags: vec![],
@@ -1748,6 +1863,8 @@ mod tests {
                     anchor_id: Some(anchor_id.clone()),
                     title: None,
                     card_type: None,
+                    source_page: None,
+                    source_quote: None,
                     front: "Q3".to_string(),
                     back: "A3".to_string(),
                     tags: vec![],
@@ -1788,6 +1905,76 @@ mod tests {
         assert_eq!(counts.accepted, 2);
         assert_eq!(counts.rejected, 1);
         assert_eq!(counts.pending, 0);
+    }
+
+    #[test]
+    fn generated_cards_are_created_directly_with_quality_filtering() {
+        let db = test_db();
+        let repo = CardRepository::new(&db);
+        let (document_id, anchor_id) = seed_document_and_anchor(&db);
+
+        let result = repo
+            .insert_generated_cards(vec![
+                CreateCardCandidateRequest {
+                    workflow_run_id: Some("run-direct".to_string()),
+                    document_id: document_id.clone(),
+                    section_id: None,
+                    anchor_id: Some(anchor_id.clone()),
+                    title: None,
+                    card_type: Some("qa".to_string()),
+                    source_page: Some(3),
+                    source_quote: None,
+                    front: "What is FSRS?".to_string(),
+                    back: "A scheduling algorithm for spaced repetition.".to_string(),
+                    tags: vec!["memory".to_string()],
+                    confidence: 0.82,
+                    dedupe_key: "direct-1".to_string(),
+                    score_overall: None,
+                    score_details: None,
+                    visibility_bucket: Some("default".to_string()),
+                    generation_mode: Some("llm".to_string()),
+                    fallback_reason: None,
+                    evaluation_summary: None,
+                    source_chunk_ids: None,
+                },
+                CreateCardCandidateRequest {
+                    workflow_run_id: Some("run-direct".to_string()),
+                    document_id: document_id.clone(),
+                    section_id: None,
+                    anchor_id: Some(anchor_id),
+                    title: None,
+                    card_type: Some("qa".to_string()),
+                    source_page: Some(3),
+                    source_quote: None,
+                    front: "Too weak?".to_string(),
+                    back: "Low confidence answer.".to_string(),
+                    tags: vec![],
+                    confidence: 0.2,
+                    dedupe_key: "direct-2".to_string(),
+                    score_overall: None,
+                    score_details: None,
+                    visibility_bucket: Some("hidden_low_quality".to_string()),
+                    generation_mode: Some("llm".to_string()),
+                    fallback_reason: None,
+                    evaluation_summary: None,
+                    source_chunk_ids: None,
+                },
+            ])
+            .expect("insert generated cards");
+
+        assert_eq!(result.created_count, 1);
+        assert_eq!(result.discarded_low_quality, 1);
+
+        let cards = repo
+            .list_cards(CardFilters {
+                document_id: Some(&document_id),
+                anchor_id: None,
+                page_number: None,
+                limit: Some(10),
+            })
+            .expect("list cards");
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].front, "What is FSRS?");
     }
 
     #[test]

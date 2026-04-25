@@ -10,6 +10,7 @@ const DEFAULT_LANGUAGE: &str = "zh-CN";
 const DEFAULT_THEME: &str = "default";
 const DEFAULT_PODCAST_TTS_PROVIDER: &str = "auto";
 const DEFAULT_PODCAST_OPENAI_MODEL: &str = "tts-1";
+const DEFAULT_PODCAST_GOOGLE_TTS_MODEL: &str = "gemini-2.5-flash-preview-tts";
 const DEFAULT_PODCAST_OUTPUT_FORMAT: &str = "mp3";
 const DEFAULT_PODCAST_MAX_LLM_TOKENS: i32 = 100_000;
 const DEFAULT_PODCAST_MAX_TTS_CHARACTERS: i32 = 50_000;
@@ -81,6 +82,10 @@ fn default_reading_mode() -> String {
     DEFAULT_READING_MODE.to_string()
 }
 
+fn default_podcast_google_tts_model() -> String {
+    DEFAULT_PODCAST_GOOGLE_TTS_MODEL.to_string()
+}
+
 fn default_podcast_style() -> String {
     DEFAULT_PODCAST_STYLE.to_string()
 }
@@ -132,9 +137,22 @@ pub struct ApiConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelProfile {
+    pub id: String,
+    pub api_config_id: String,
+    pub model_id: String,
+    pub display_name: Option<String>,
+    pub capabilities_json: Option<String>,
+    pub is_enabled: bool,
+    pub is_default_for_connection: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowModelAssignment {
     pub workflow_type: String,
-    pub api_config_id: String,
+    pub model_profile_id: String,
     pub assigned_at: String,
     pub updated_at: String,
 }
@@ -159,6 +177,25 @@ pub struct CreateApiConfigRequest {
     pub budget_limit: Option<f64>,
     pub is_default: bool,
     pub display_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateModelProfileRequest {
+    pub api_config_id: String,
+    pub model_id: String,
+    pub display_name: Option<String>,
+    pub capabilities_json: Option<String>,
+    pub is_enabled: Option<bool>,
+    pub is_default_for_connection: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateModelProfileRequest {
+    pub model_id: Option<String>,
+    pub display_name: Option<String>,
+    pub capabilities_json: Option<Option<String>>,
+    pub is_enabled: Option<bool>,
+    pub is_default_for_connection: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -194,6 +231,8 @@ pub struct AppSettings {
     pub content_difficulty_preference: String,
     pub podcast_tts_provider: String,
     pub podcast_openai_model: String,
+    #[serde(default = "default_podcast_google_tts_model")]
+    pub podcast_google_tts_model: String,
     pub podcast_fish_audio_endpoint: Option<String>,
     pub podcast_voice_overrides: BTreeMap<String, String>,
     #[serde(default = "default_default_voice")]
@@ -243,6 +282,7 @@ pub struct UpdateAppSettingsRequest {
     pub content_difficulty_preference: Option<String>,
     pub podcast_tts_provider: Option<String>,
     pub podcast_openai_model: Option<String>,
+    pub podcast_google_tts_model: Option<String>,
     pub podcast_fish_audio_endpoint: Option<Option<String>>,
     pub podcast_voice_overrides: Option<BTreeMap<String, String>>,
     pub default_voice: Option<String>,
@@ -274,12 +314,27 @@ impl<'a> SettingsRepository<'a> {
         Self { db }
     }
 
+    fn read_model_profile(&self, row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelProfile> {
+        Ok(ModelProfile {
+            id: row.get(0)?,
+            api_config_id: row.get(1)?,
+            model_id: row.get(2)?,
+            display_name: row.get(3)?,
+            capabilities_json: row.get(4)?,
+            is_enabled: row.get(5)?,
+            is_default_for_connection: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+        })
+    }
+
     pub fn create_api_config(&self, req: CreateApiConfigRequest) -> Result<ApiConfig> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
         let provider = normalize_provider(req.provider);
         let protocol = infer_protocol(&provider);
         let auth_mode = normalize_auth_mode(req.auth_mode);
+        let model = sanitize_optional_text(req.model.clone());
 
         // If this is set as default, clear other defaults
         if req.is_default {
@@ -293,10 +348,21 @@ impl<'a> SettingsRepository<'a> {
             "INSERT INTO api_configs (id, provider, protocol, auth_mode, name, base_url, model, budget_limit, is_default, key_verified_at, key_status, display_name, created_at, user_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 'none', ?10, ?11, 'default')",
             params![
-                &id, &provider, &protocol, &auth_mode, &req.name, req.base_url, req.model,
+                &id, &provider, &protocol, &auth_mode, &req.name, req.base_url, model,
                 req.budget_limit, req.is_default, req.display_name, &now
             ],
         )?;
+
+        if let Some(model_id) = model.clone() {
+            self.create_model_profile(CreateModelProfileRequest {
+                api_config_id: id.clone(),
+                model_id,
+                display_name: req.display_name.clone().or_else(|| Some(req.name.clone())),
+                capabilities_json: Some("[]".to_string()),
+                is_enabled: Some(true),
+                is_default_for_connection: Some(true),
+            })?;
+        }
 
         Ok(ApiConfig {
             id,
@@ -305,7 +371,7 @@ impl<'a> SettingsRepository<'a> {
             auth_mode,
             name: req.name,
             base_url: req.base_url,
-            model: req.model,
+            model,
             budget_limit: req.budget_limit,
             is_enabled: true,
             is_default: req.is_default,
@@ -471,9 +537,168 @@ impl<'a> SettingsRepository<'a> {
         Ok(())
     }
 
+    pub fn list_model_profiles(&self) -> Result<Vec<ModelProfile>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, api_config_id, model_id, display_name, capabilities_json, is_enabled,
+                    is_default_for_connection, created_at, updated_at
+             FROM model_profiles
+             ORDER BY is_default_for_connection DESC, updated_at DESC, created_at DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| self.read_model_profile(row))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn list_model_profiles_by_api_config(
+        &self,
+        api_config_id: &str,
+    ) -> Result<Vec<ModelProfile>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, api_config_id, model_id, display_name, capabilities_json, is_enabled,
+                    is_default_for_connection, created_at, updated_at
+             FROM model_profiles
+             WHERE api_config_id = ?1
+             ORDER BY is_default_for_connection DESC, updated_at DESC, created_at DESC",
+        )?;
+
+        let rows = stmt.query_map(params![api_config_id], |row| self.read_model_profile(row))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn get_model_profile(&self, id: &str) -> Result<Option<ModelProfile>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, api_config_id, model_id, display_name, capabilities_json, is_enabled,
+                    is_default_for_connection, created_at, updated_at
+             FROM model_profiles
+             WHERE id = ?1",
+        )?;
+
+        stmt.query_row(params![id], |row| self.read_model_profile(row))
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn get_default_model_profile_for_api_config(
+        &self,
+        api_config_id: &str,
+    ) -> Result<Option<ModelProfile>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT id, api_config_id, model_id, display_name, capabilities_json, is_enabled,
+                    is_default_for_connection, created_at, updated_at
+             FROM model_profiles
+             WHERE api_config_id = ?1 AND is_default_for_connection = TRUE
+             LIMIT 1",
+        )?;
+
+        stmt.query_row(params![api_config_id], |row| self.read_model_profile(row))
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn create_model_profile(&self, req: CreateModelProfileRequest) -> Result<ModelProfile> {
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let model_id = req.model_id.trim().to_string();
+        let display_name = sanitize_optional_text(req.display_name);
+        let capabilities_json = sanitize_optional_text(req.capabilities_json);
+        let is_enabled = req.is_enabled.unwrap_or(true);
+        let is_default_for_connection = req.is_default_for_connection.unwrap_or(false);
+
+        if is_default_for_connection {
+            self.db.connection().execute(
+                "UPDATE model_profiles SET is_default_for_connection = FALSE WHERE api_config_id = ?1",
+                params![&req.api_config_id],
+            )?;
+        }
+
+        self.db.connection().execute(
+            "INSERT INTO model_profiles (
+                id, api_config_id, model_id, display_name, capabilities_json, is_enabled,
+                is_default_for_connection, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+            params![
+                &id,
+                &req.api_config_id,
+                model_id,
+                display_name,
+                capabilities_json,
+                is_enabled,
+                is_default_for_connection,
+                &now,
+            ],
+        )?;
+
+        self.get_model_profile(&id)
+            .map(|profile| profile.expect("model profile should exist after create"))
+    }
+
+    pub fn update_model_profile(
+        &self,
+        id: &str,
+        req: UpdateModelProfileRequest,
+    ) -> Result<Option<ModelProfile>> {
+        let Some(current) = self.get_model_profile(id)? else {
+            return Ok(None);
+        };
+
+        let model_id = req
+            .model_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or(current.model_id);
+        let display_name = req.display_name.map(Some).unwrap_or(current.display_name);
+        let capabilities_json = match req.capabilities_json {
+            Some(value) => value.and_then(|item| sanitize_optional_text(Some(item))),
+            None => current.capabilities_json,
+        };
+        let is_enabled = req.is_enabled.unwrap_or(current.is_enabled);
+        let is_default_for_connection =
+            req.is_default_for_connection
+                .unwrap_or(current.is_default_for_connection);
+        let updated_at = chrono::Utc::now().to_rfc3339();
+
+        if is_default_for_connection {
+            self.db.connection().execute(
+                "UPDATE model_profiles SET is_default_for_connection = FALSE WHERE api_config_id = ?1 AND id != ?2",
+                params![&current.api_config_id, id],
+            )?;
+        }
+
+        self.db.connection().execute(
+            "UPDATE model_profiles
+             SET model_id = ?1,
+                 display_name = ?2,
+                 capabilities_json = ?3,
+                 is_enabled = ?4,
+                 is_default_for_connection = ?5,
+                 updated_at = ?6
+             WHERE id = ?7",
+            params![
+                model_id,
+                display_name,
+                capabilities_json,
+                is_enabled,
+                is_default_for_connection,
+                &updated_at,
+                id,
+            ],
+        )?;
+
+        self.get_model_profile(id)
+    }
+
+    pub fn delete_model_profile(&self, id: &str) -> Result<()> {
+        self.db
+            .connection()
+            .execute("DELETE FROM model_profiles WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     pub fn list_workflow_assignments(&self) -> Result<Vec<WorkflowModelAssignment>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT workflow_type, api_config_id, assigned_at, updated_at
+            "SELECT workflow_type, model_profile_id, assigned_at, updated_at
              FROM workflow_model_assignments
              ORDER BY workflow_type",
         )?;
@@ -481,7 +706,7 @@ impl<'a> SettingsRepository<'a> {
         let rows = stmt.query_map([], |row| {
             Ok(WorkflowModelAssignment {
                 workflow_type: row.get(0)?,
-                api_config_id: row.get(1)?,
+                model_profile_id: row.get(1)?,
                 assigned_at: row.get(2)?,
                 updated_at: row.get(3)?,
             })
@@ -496,7 +721,7 @@ impl<'a> SettingsRepository<'a> {
         workflow_type: &str,
     ) -> Result<Option<WorkflowModelAssignment>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT workflow_type, api_config_id, assigned_at, updated_at
+            "SELECT workflow_type, model_profile_id, assigned_at, updated_at
              FROM workflow_model_assignments
              WHERE workflow_type = ?1",
         )?;
@@ -504,7 +729,7 @@ impl<'a> SettingsRepository<'a> {
         stmt.query_row(params![workflow_type], |row| {
             Ok(WorkflowModelAssignment {
                 workflow_type: row.get(0)?,
-                api_config_id: row.get(1)?,
+                model_profile_id: row.get(1)?,
                 assigned_at: row.get(2)?,
                 updated_at: row.get(3)?,
             })
@@ -516,16 +741,16 @@ impl<'a> SettingsRepository<'a> {
     pub fn upsert_workflow_assignment(
         &self,
         workflow_type: &str,
-        api_config_id: &str,
+        model_profile_id: &str,
     ) -> Result<WorkflowModelAssignment> {
         let now = chrono::Utc::now().to_rfc3339();
         self.db.connection().execute(
-            "INSERT INTO workflow_model_assignments (workflow_type, api_config_id, assigned_at, updated_at)
+            "INSERT INTO workflow_model_assignments (workflow_type, model_profile_id, assigned_at, updated_at)
              VALUES (?1, ?2, ?3, ?3)
              ON CONFLICT(workflow_type) DO UPDATE SET
-                api_config_id = excluded.api_config_id,
+                model_profile_id = excluded.model_profile_id,
                 updated_at = excluded.updated_at",
-            params![workflow_type, api_config_id, &now],
+            params![workflow_type, model_profile_id, &now],
         )?;
 
         self.get_workflow_assignment(workflow_type)
@@ -540,21 +765,21 @@ impl<'a> SettingsRepository<'a> {
         Ok(())
     }
 
-    pub fn get_assignments_by_config_id(
+    pub fn get_assignments_by_model_profile_id(
         &self,
-        api_config_id: &str,
+        model_profile_id: &str,
     ) -> Result<Vec<WorkflowModelAssignment>> {
         let mut stmt = self.db.connection().prepare(
-            "SELECT workflow_type, api_config_id, assigned_at, updated_at
+            "SELECT workflow_type, model_profile_id, assigned_at, updated_at
              FROM workflow_model_assignments
-             WHERE api_config_id = ?1
+             WHERE model_profile_id = ?1
              ORDER BY workflow_type",
         )?;
 
-        let rows = stmt.query_map(params![api_config_id], |row| {
+        let rows = stmt.query_map(params![model_profile_id], |row| {
             Ok(WorkflowModelAssignment {
                 workflow_type: row.get(0)?,
-                api_config_id: row.get(1)?,
+                model_profile_id: row.get(1)?,
                 assigned_at: row.get(2)?,
                 updated_at: row.get(3)?,
             })
@@ -689,6 +914,9 @@ impl<'a> SettingsRepository<'a> {
             podcast_openai_model: req
                 .podcast_openai_model
                 .unwrap_or(current.podcast_openai_model),
+            podcast_google_tts_model: req
+                .podcast_google_tts_model
+                .unwrap_or(current.podcast_google_tts_model),
             podcast_fish_audio_endpoint: req
                 .podcast_fish_audio_endpoint
                 .unwrap_or(current.podcast_fish_audio_endpoint),
@@ -768,6 +996,7 @@ fn default_app_settings() -> AppSettings {
         content_difficulty_preference: default_content_difficulty_preference(),
         podcast_tts_provider: DEFAULT_PODCAST_TTS_PROVIDER.to_string(),
         podcast_openai_model: DEFAULT_PODCAST_OPENAI_MODEL.to_string(),
+        podcast_google_tts_model: default_podcast_google_tts_model(),
         podcast_fish_audio_endpoint: None,
         podcast_voice_overrides: BTreeMap::new(),
         default_voice: default_default_voice(),
@@ -834,6 +1063,9 @@ fn sanitize_settings(settings: AppSettings) -> AppSettings {
         ),
         podcast_tts_provider: sanitize_podcast_tts_provider(settings.podcast_tts_provider),
         podcast_openai_model: sanitize_podcast_openai_model(settings.podcast_openai_model),
+        podcast_google_tts_model: sanitize_podcast_google_tts_model(
+            settings.podcast_google_tts_model,
+        ),
         podcast_fish_audio_endpoint: sanitize_optional_text(settings.podcast_fish_audio_endpoint),
         podcast_voice_overrides: sanitize_voice_overrides(settings.podcast_voice_overrides),
         default_voice: sanitize_default_voice(settings.default_voice),
@@ -968,7 +1200,7 @@ fn sanitize_content_difficulty_preference(value: String) -> String {
 
 fn sanitize_podcast_tts_provider(provider: String) -> String {
     match provider.as_str() {
-        "auto" | "openai" | "edge_tts" | "elevenlabs" | "fish_audio" => provider,
+        "auto" | "openai" | "edge_tts" | "google" | "elevenlabs" | "fish_audio" => provider,
         _ => DEFAULT_PODCAST_TTS_PROVIDER.to_string(),
     }
 }
@@ -977,6 +1209,15 @@ fn sanitize_podcast_openai_model(model: String) -> String {
     let trimmed = model.trim();
     if trimmed.is_empty() {
         DEFAULT_PODCAST_OPENAI_MODEL.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn sanitize_podcast_google_tts_model(model: String) -> String {
+    let trimmed = model.trim();
+    if trimmed.is_empty() {
+        DEFAULT_PODCAST_GOOGLE_TTS_MODEL.to_string()
     } else {
         trimmed.to_string()
     }
@@ -1160,6 +1401,13 @@ mod tests {
         )
         .expect("insert default user");
 
+        conn.execute_batch(include_str!(
+            "../migrations/V19__card_animation_workflow_assignment.sql"
+        ))
+        .expect("apply v19 migration");
+        conn.execute_batch(include_str!("../migrations/V21__model_profiles.sql"))
+            .expect("apply v21 migration");
+
         Database { conn }
     }
 
@@ -1212,23 +1460,27 @@ mod tests {
                 display_name: None,
             })
             .expect("create config");
+        let profile = repo
+            .get_default_model_profile_for_api_config(&config.id)
+            .expect("load default profile")
+            .expect("default profile exists");
 
         let assignment = repo
-            .upsert_workflow_assignment("knowledge_qa", &config.id)
+            .upsert_workflow_assignment("knowledge_qa", &profile.id)
             .expect("upsert assignment");
 
         assert_eq!(assignment.workflow_type, "knowledge_qa");
-        assert_eq!(assignment.api_config_id, config.id);
+        assert_eq!(assignment.model_profile_id, profile.id);
 
         let loaded = repo
             .get_workflow_assignment("knowledge_qa")
             .expect("load assignment")
             .expect("assignment exists");
-        assert_eq!(loaded.api_config_id, config.id);
+        assert_eq!(loaded.model_profile_id, profile.id);
 
         let related = repo
-            .get_assignments_by_config_id(&config.id)
-            .expect("list by config id");
+            .get_assignments_by_model_profile_id(&profile.id)
+            .expect("list by profile id");
         assert_eq!(related.len(), 1);
 
         repo.delete_workflow_assignment("knowledge_qa")
@@ -1292,8 +1544,12 @@ mod tests {
                 display_name: None,
             })
             .expect("create config");
+        let profile = repo
+            .get_default_model_profile_for_api_config(&config.id)
+            .expect("load default profile")
+            .expect("default profile exists");
 
-        repo.upsert_workflow_assignment("knowledge_qa", &config.id)
+        repo.upsert_workflow_assignment("knowledge_qa", &profile.id)
             .expect("create assignment");
         repo.increment_budget_usage(&config.id, 0.42)
             .expect("create budget usage");
@@ -1363,7 +1619,7 @@ mod tests {
         db.connection()
             .execute(
                 "UPDATE users SET settings = ?1 WHERE id = 'default'",
-                params![r#"{"theme":"default","language":"zh-CN","daily_new_card_limit":20,"review_time_limit":30,"podcast_tts_provider":"auto","podcast_openai_model":"tts-1","podcast_fish_audio_endpoint":null,"podcast_voice_overrides":{},"podcast_output_format":"mp3","podcast_skip_review":true,"podcast_max_llm_tokens":100000,"podcast_max_tts_characters":50000,"podcast_max_estimated_cost_usd":1.0}"#],
+                params![r#"{"theme":"default","language":"zh-CN","daily_new_card_limit":20,"review_time_limit":30,"podcast_tts_provider":"auto","podcast_openai_model":"tts-1","podcast_google_tts_model":"gemini-2.5-flash-preview-tts","podcast_fish_audio_endpoint":null,"podcast_voice_overrides":{},"podcast_output_format":"mp3","podcast_skip_review":true,"podcast_max_llm_tokens":100000,"podcast_max_tts_characters":50000,"podcast_max_estimated_cost_usd":1.0}"#],
             )
             .expect("store legacy settings");
 
@@ -1448,6 +1704,7 @@ mod tests {
                 content_difficulty_preference: Some("impossible".to_string()),
                 podcast_tts_provider: None,
                 podcast_openai_model: None,
+                podcast_google_tts_model: None,
                 podcast_fish_audio_endpoint: None,
                 podcast_voice_overrides: None,
                 default_voice: Some("   ".to_string()),
@@ -1488,6 +1745,10 @@ mod tests {
         assert_eq!(
             settings.content_difficulty_preference,
             DEFAULT_CONTENT_DIFFICULTY_PREFERENCE
+        );
+        assert_eq!(
+            settings.podcast_google_tts_model,
+            DEFAULT_PODCAST_GOOGLE_TTS_MODEL
         );
         assert_eq!(settings.default_voice, DEFAULT_DEFAULT_VOICE);
         assert_eq!(settings.speech_rate, 1.5);

@@ -1,8 +1,7 @@
-import { CheckCircle2, Clock3, Layers, RefreshCcw, Search, Wand2, XCircle } from 'lucide-react'
-import { Badge, Button, Card, CardContent, EmptySearchResults, Input, WorkspaceEmptyState } from '@/components/ui'
+import { Clapperboard, Edit3, FileText, Plus, Search, Sparkles, Trash2 } from 'lucide-react'
+import { Badge, Button, Card as UiCard, CardContent, Input, WorkspaceEmptyState } from '@/components/ui'
 import { cn } from '@/lib/utils'
-
-export type CardStudioTab = 'library' | 'create'
+import type { Card } from '@/types'
 
 export interface CardStudioReadyDocument {
   id: string
@@ -11,15 +10,14 @@ export interface CardStudioReadyDocument {
   cardCountLabel: string
 }
 
-export interface CardStudioCandidateView {
+export interface CardStudioCardView {
   id: string
-  sourceLabel: string
-  sourceQuote: string | null
   front: string
   back: string
   tags: string[]
-  confidenceLabel: string
-  status: 'pending' | 'accepted' | 'rejected'
+  cardType: Card['cardType']
+  sourceLabel: string
+  state: Card['state']
 }
 
 export interface CardStudioRunView {
@@ -31,43 +29,30 @@ export interface CardStudioRunView {
 }
 
 export interface CardStudioPageProps {
-  tab: CardStudioTab
   hasReadyDocuments: boolean
   readyDocuments: CardStudioReadyDocument[]
   selectedDocumentId: string | null
   searchQuery: string
-  candidateLimitInput: string
-  candidates: CardStudioCandidateView[]
+  cardLimitInput: string
+  cards: CardStudioCardView[]
   activeRunLabel: string
   activeRunStatusLabel: string | null
   activeRunStatusTone?: 'neutral' | 'warning' | 'success' | 'danger'
-  pendingCount: number
-  acceptedCount: number
-  rejectedCount: number
   metrics: Array<{ label: string; value: string | number; hint?: string }>
   runs: CardStudioRunView[]
-  checkpoint: Array<{ label: string; value: string | number }>
   events: Array<{ id: string; title: string; time: string; detail?: string | null }>
   isBusy?: boolean
   canGenerate?: boolean
-  canResume?: boolean
-  canFinalize?: boolean
-  onTabChange: (tab: CardStudioTab) => void
   onDocumentSelect: (documentId: string) => void
-  onCandidateLimitChange: (value: string) => void
+  onCardLimitChange: (value: string) => void
   onSearchQueryChange: (value: string) => void
   onGenerate: () => void
-  onResume: () => void
-  onFinalize: () => void
-  onBulkAccept: () => void
-  onBulkReject: () => void
+  onCreateCard: () => void
+  onEditCard: (cardId: string) => void
+  onDeleteCard: (cardId: string) => void
+  onQuickPreviewCard: (cardId: string) => void
+  onRenderVideoCard: (cardId: string) => void
   onOpenLibrary: () => void
-  onOpenSettings: () => void
-  onRunSelect: (runId: string) => void
-  onCandidateUpdate: (
-    candidateId: string,
-    patch: Partial<Pick<CardStudioCandidateView, 'front' | 'back' | 'tags' | 'status'>>
-  ) => void
 }
 
 function toneClass(tone: 'neutral' | 'warning' | 'success' | 'danger') {
@@ -77,442 +62,44 @@ function toneClass(tone: 'neutral' | 'warning' | 'success' | 'danger') {
   return 'bg-muted text-muted-foreground'
 }
 
-function candidateToneClass(status: CardStudioCandidateView['status']) {
-  if (status === 'accepted') return 'bg-chart-1/15 text-chart-1'
-  if (status === 'rejected') return 'bg-destructive/10 text-destructive'
-  return 'bg-chart-5/12 text-chart-5'
+function stateLabel(state: Card['state']) {
+  switch (state) {
+    case 'learning':
+      return '学习中'
+    case 'review':
+      return '复习中'
+    case 'relearning':
+      return '重学中'
+    default:
+      return '新卡'
+  }
 }
 
-function Header({
-  activeRunLabel,
-  activeRunStatusLabel,
-  activeRunStatusTone = 'neutral',
-}: Pick<CardStudioPageProps, 'activeRunLabel' | 'activeRunStatusLabel' | 'activeRunStatusTone'>) {
-  return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-      <div>
-        <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">CARD STUDIO</p>
-        <h1 className="mt-1 text-2xl font-medium text-foreground" data-testid="app-shell-page-title">
-          卡片工坊
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          采用参考编码的双模式骨架，把生成工作台、候选审核、批次轨迹和状态视图收拢到一套页面语义里。
-        </p>
-      </div>
-      <Card className="border-border/50 bg-card">
-        <CardContent className="flex items-center gap-3 p-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted/50">
-            <Layers className="h-4 w-4 text-foreground" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-foreground">{activeRunLabel}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">当前工作流与候选库状态</p>
-          </div>
-          {activeRunStatusLabel ? (
-            <Badge className={cn('ml-2 rounded-md border-0 font-normal', toneClass(activeRunStatusTone))}>
-              {activeRunStatusLabel}
-            </Badge>
-          ) : null}
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-function Tabs({ tab, onTabChange }: Pick<CardStudioPageProps, 'tab' | 'onTabChange'>) {
-  return (
-    <div className="mt-6 flex items-center justify-between gap-4" data-testid="card-studio-toolbar">
-      <div className="flex gap-6 border-b border-border/30">
-        {[
-          { id: 'create' as const, label: '生成卡片' },
-          { id: 'library' as const, label: '候选库' },
-        ].map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onTabChange(item.id)}
-            className={cn(
-              'relative pb-3 text-sm font-medium transition-colors',
-              tab === item.id ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            {item.label}
-            {tab === item.id ? <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-foreground" /> : null}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function Metrics({ metrics }: Pick<CardStudioPageProps, 'metrics'>) {
-  return (
-    <div className="grid gap-3 md:grid-cols-3">
-      {metrics.map((metric) => (
-        <Card key={metric.label} className="border-border/50 bg-card">
-          <CardContent className="p-5">
-            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{metric.label}</p>
-            <p className="mt-2 text-2xl font-semibold text-foreground">{metric.value}</p>
-            {metric.hint ? <p className="mt-1 text-xs text-muted-foreground">{metric.hint}</p> : null}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  )
-}
-
-function DocumentSelector({
-  readyDocuments,
-  selectedDocumentId,
-  onDocumentSelect,
-}: Pick<CardStudioPageProps, 'readyDocuments' | 'selectedDocumentId' | 'onDocumentSelect'>) {
-  return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-foreground">文档选择</h3>
-          <span className="text-xs text-muted-foreground">{readyDocuments.length} 份已就绪文档</span>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {readyDocuments.map((doc) => (
-            <button
-              key={doc.id}
-              type="button"
-              onClick={() => onDocumentSelect(doc.id)}
-              data-testid={`card-studio-document-${doc.id}`}
-              className={cn(
-                'rounded-xl border p-4 text-left transition-all',
-                selectedDocumentId === doc.id
-                  ? 'border-foreground/20 bg-card shadow-sm'
-                  : 'border-border/40 bg-card/50 hover:border-border hover:bg-card'
-              )}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-foreground">{doc.title}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{doc.meta}</p>
-                </div>
-                <Badge variant="secondary" className="rounded-md font-normal">
-                  {doc.cardCountLabel}
-                </Badge>
-              </div>
-            </button>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function CreatePanel({
-  candidateLimitInput,
-  canGenerate,
-  canResume,
-  isBusy,
-  onCandidateLimitChange,
-  onGenerate,
-  onResume,
-}: Pick<
-  CardStudioPageProps,
-  'candidateLimitInput' | 'canGenerate' | 'canResume' | 'isBusy' | 'onCandidateLimitChange' | 'onGenerate' | 'onResume'
->) {
-  return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_260px]">
-        <div>
-          <p className="text-sm font-medium text-foreground">生成工作台</p>
-          <p className="mt-2 text-sm leading-7 text-muted-foreground">
-            这里承接真实的卡片生成工作流。先选定一份已完成解析的文档，再设定候选数量，系统会把文档块转换成可审阅的候选卡片。
-          </p>
-        </div>
-        <div className="space-y-3">
-          <Input
-            value={candidateLimitInput}
-            onChange={(event) => onCandidateLimitChange(event.target.value)}
-            inputMode="numeric"
-            placeholder="候选卡片上限"
-          />
-          <Button
-            className="w-full justify-center rounded-lg"
-            disabled={!canGenerate || isBusy}
-            onClick={onGenerate}
-            data-testid="card-studio-start-generation"
-          >
-            <Wand2 className="h-4 w-4" />
-            生成候选卡片
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full justify-center rounded-lg"
-            disabled={!canResume || isBusy}
-            onClick={onResume}
-            data-testid="card-studio-resume-generation"
-          >
-            <RefreshCcw className="h-4 w-4" />
-            从检查点恢复
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function CandidateCard({
-  candidate,
-  onCandidateUpdate,
-  isBusy,
-}: {
-  candidate: CardStudioCandidateView
-  onCandidateUpdate: CardStudioPageProps['onCandidateUpdate']
-  isBusy?: boolean
-}) {
-  return (
-    <Card data-testid={`card-studio-candidate-${candidate.id}`} className="border-border/50 bg-card">
-      <CardContent className="space-y-4 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{candidate.sourceLabel}</p>
-            <p className="text-sm leading-6 text-muted-foreground">{candidate.sourceQuote ?? '暂无来源摘录。'}</p>
-          </div>
-          <Badge className={cn('rounded-md border-0 font-normal', candidateToneClass(candidate.status))}>
-            {candidate.status}
-          </Badge>
-        </div>
-        <div className="grid gap-3">
-          <label className="grid gap-1.5">
-            <span className="text-xs text-muted-foreground">正面</span>
-            <textarea
-              aria-label="卡片正面"
-              value={candidate.front}
-              onChange={(event) => onCandidateUpdate(candidate.id, { front: event.target.value })}
-              className="min-h-[86px] rounded-xl border border-border/50 bg-background/50 px-3 py-3 text-sm outline-none focus:border-ring"
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <span className="text-xs text-muted-foreground">背面</span>
-            <textarea
-              aria-label="卡片背面"
-              value={candidate.back}
-              onChange={(event) => onCandidateUpdate(candidate.id, { back: event.target.value })}
-              className="min-h-[110px] rounded-xl border border-border/50 bg-background/50 px-3 py-3 text-sm outline-none focus:border-ring"
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <span className="text-xs text-muted-foreground">标签</span>
-            <Input
-              value={candidate.tags.join(', ')}
-              onChange={(event) =>
-                onCandidateUpdate(candidate.id, {
-                  tags: event.target.value
-                    .split(',')
-                    .map((value) => value.trim())
-                    .filter(Boolean),
-                })
-              }
-              placeholder="使用逗号分隔标签"
-            />
-          </label>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" disabled={isBusy} onClick={() => onCandidateUpdate(candidate.id, { status: 'accepted' })}>
-            <CheckCircle2 className="h-4 w-4" />
-            接受
-          </Button>
-          <Button variant="outline" disabled={isBusy} onClick={() => onCandidateUpdate(candidate.id, { status: 'rejected' })}>
-            <XCircle className="h-4 w-4" />
-            拒绝
-          </Button>
-          <Button variant="ghost" disabled={isBusy} onClick={() => onCandidateUpdate(candidate.id, { status: 'pending' })}>
-            <Clock3 className="h-4 w-4" />
-            设为待确认
-          </Button>
-          <div className="ml-auto text-xs text-muted-foreground">{candidate.confidenceLabel}</div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function LibraryPanel({
-  searchQuery,
-  candidates,
-  pendingCount,
-  acceptedCount,
-  rejectedCount,
-  canResume,
-  canFinalize,
-  isBusy,
-  onSearchQueryChange,
-  onResume,
-  onBulkAccept,
-  onBulkReject,
-  onFinalize,
-  onCandidateUpdate,
-}: Pick<
-  CardStudioPageProps,
-  | 'searchQuery'
-  | 'candidates'
-  | 'pendingCount'
-  | 'acceptedCount'
-  | 'rejectedCount'
-  | 'canResume'
-  | 'canFinalize'
-  | 'isBusy'
-  | 'onSearchQueryChange'
-  | 'onResume'
-  | 'onBulkAccept'
-  | 'onBulkReject'
-  | 'onFinalize'
-  | 'onCandidateUpdate'
->) {
-  const filtered = candidates.filter((candidate) => {
-    const haystack = `${candidate.front} ${candidate.back} ${candidate.tags.join(' ')}`.toLowerCase()
-    return haystack.includes(searchQuery.trim().toLowerCase())
-  })
-
-  return (
-    <div className="space-y-4">
-      <Card className="border-border/50 bg-card">
-        <CardContent className="space-y-4 p-5">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(event) => onSearchQueryChange(event.target.value)}
-                placeholder="搜索候选卡片内容或标签"
-                className="h-10 rounded-lg border-border/50 bg-card pl-9"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="rounded-md font-normal">{pendingCount} 待确认</Badge>
-              <Badge variant="secondary" className="rounded-md font-normal">{acceptedCount} 已接受</Badge>
-              <Badge variant="secondary" className="rounded-md font-normal">{rejectedCount} 已拒绝</Badge>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={onResume} disabled={!canResume} data-testid="card-studio-resume-generation">
-              从检查点恢复
-            </Button>
-            <Button variant="outline" onClick={onBulkAccept} disabled={pendingCount === 0} data-testid="card-studio-bulk-accept">
-              接受全部待确认项
-            </Button>
-            <Button variant="outline" onClick={onBulkReject} disabled={pendingCount === 0} data-testid="card-studio-bulk-reject">
-              拒绝全部待确认项
-            </Button>
-            <Button onClick={onFinalize} disabled={!canFinalize} data-testid="card-studio-finalize-generation">
-              确认并入库
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {candidates.length === 0 ? (
-        <WorkspaceEmptyState title="当前还没有候选卡片" description="启动一次真实生成流程后，这里会出现当前批次的候选卡片。" />
-      ) : filtered.length === 0 ? (
-        <EmptySearchResults query={searchQuery} />
-      ) : (
-        <div className="space-y-4" data-testid="card-studio-candidate-list">
-          {filtered.map((candidate) => (
-            <CandidateCard key={candidate.id} candidate={candidate} onCandidateUpdate={onCandidateUpdate} isBusy={isBusy} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SideRail({
-  runs,
-  checkpoint,
-  events,
-  onRunSelect,
-}: Pick<CardStudioPageProps, 'runs' | 'checkpoint' | 'events' | 'onRunSelect'>) {
-  return (
-    <div className="space-y-5">
-      <Card className="border-border/50 bg-card" data-testid="card-studio-run-list">
-        <CardContent className="p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-foreground">批次列表</h3>
-            <span className="text-xs text-muted-foreground">{runs.length} 个批次</span>
-          </div>
-          {runs.length === 0 ? (
-            <WorkspaceEmptyState className="min-h-[220px]" title="还没有可用批次" description="启动一次真实生成后，这里会出现候选批次与回查入口。" />
-          ) : (
-            <div className="space-y-2">
-              {runs.map((run) => (
-                <button
-                  key={run.id}
-                  type="button"
-                  onClick={() => onRunSelect(run.id)}
-                  className="flex w-full items-center justify-between rounded-xl border border-border/40 bg-background/50 px-4 py-3 text-left transition-colors hover:bg-muted/30"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{run.title}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{run.meta}</p>
-                  </div>
-                  <Badge className={cn('rounded-md border-0 font-normal', toneClass(run.statusTone))}>
-                    {run.statusLabel}
-                  </Badge>
-                </button>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="border-border/50 bg-card" data-testid="card-studio-checkpoint-panel">
-        <CardContent className="p-5">
-          <h3 className="mb-4 text-sm font-medium text-foreground">检查点</h3>
-          {checkpoint.length === 0 ? (
-            <WorkspaceEmptyState className="min-h-[180px]" title="暂无检查点" description="工作流运行后，这里会显示最近一次恢复状态。" />
-          ) : (
-            <div className="grid gap-3">
-              {checkpoint.map((item) => (
-                <div key={item.label} className="rounded-lg border border-border/40 bg-background/50 p-3">
-                  <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{item.label}</p>
-                  <p className="mt-1 text-sm font-medium text-foreground">{item.value}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="border-border/50 bg-card" data-testid="card-studio-events-panel">
-        <CardContent className="p-5">
-          <h3 className="mb-4 text-sm font-medium text-foreground">事件流</h3>
-          {events.length === 0 ? (
-            <WorkspaceEmptyState className="min-h-[180px]" title="还没有事件" description="生成启动后，这里会同步记录处理轨迹。" />
-          ) : (
-            <div className="space-y-3">
-              {events.map((event) => (
-                <div key={event.id} className="rounded-lg border border-border/40 bg-background/50 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium text-foreground">{event.title}</span>
-                    <span className="text-xs text-muted-foreground">{event.time}</span>
-                  </div>
-                  {event.detail ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{event.detail}</p> : null}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  )
+function typeLabel(type: Card['cardType']) {
+  switch (type) {
+    case 'cloze':
+      return '填空'
+    case 'fact':
+      return '知识点'
+    case 'choice':
+      return '选择题'
+    case 'image_occlusion':
+      return '图像遮挡'
+    default:
+      return '问答'
+  }
 }
 
 export function CardStudioPage(props: CardStudioPageProps) {
   if (!props.hasReadyDocuments) {
     return (
       <div className="mx-auto w-full max-w-6xl" data-testid="card-studio-page">
-        <Card className="border-border/50 bg-card">
+        <UiCard className="border-border/50 bg-card">
           <CardContent className="p-6">
             <WorkspaceEmptyState
               data-testid="card-studio-empty-state"
-              title="先导入并解析文档，才能开始卡片生产。"
-              description="这里会把稳定的分块和锚点转成可确认的卡片候选。请先在文档库导入文档，再回来启动和确认卡片流程。"
+              title="先导入并解析文档，才能开始生成卡片。"
+              description="Agent 会自动从可用文档中生成正式卡片；生成后你只需要维护卡片内容。"
               action={
                 <Button variant="outline" data-testid="card-studio-open-library" onClick={props.onOpenLibrary}>
                   前往文档库
@@ -520,59 +107,255 @@ export function CardStudioPage(props: CardStudioPageProps) {
               }
             />
           </CardContent>
-        </Card>
+        </UiCard>
       </div>
     )
   }
 
+  const filteredCards = props.cards.filter((card) => {
+    const haystack = `${card.front} ${card.back} ${card.tags.join(' ')}`.toLowerCase()
+    return haystack.includes(props.searchQuery.trim().toLowerCase())
+  })
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6" data-testid="card-studio-page">
-      <Header
-        activeRunLabel={props.activeRunLabel}
-        activeRunStatusLabel={props.activeRunStatusLabel}
-        activeRunStatusTone={props.activeRunStatusTone}
-      />
-      <Tabs tab={props.tab} onTabChange={props.onTabChange} />
-      <Metrics metrics={props.metrics} />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="space-y-5">
-          {props.tab === 'create' ? (
-            <>
-              <DocumentSelector
-                readyDocuments={props.readyDocuments}
-                selectedDocumentId={props.selectedDocumentId}
-                onDocumentSelect={props.onDocumentSelect}
-              />
-              <CreatePanel
-                candidateLimitInput={props.candidateLimitInput}
-                canGenerate={props.canGenerate}
-                canResume={props.canResume}
-                isBusy={props.isBusy}
-                onCandidateLimitChange={props.onCandidateLimitChange}
-                onGenerate={props.onGenerate}
-                onResume={props.onResume}
-              />
-            </>
-          ) : (
-            <LibraryPanel
-              searchQuery={props.searchQuery}
-              candidates={props.candidates}
-              pendingCount={props.pendingCount}
-              acceptedCount={props.acceptedCount}
-              rejectedCount={props.rejectedCount}
-              canResume={props.canResume}
-              canFinalize={props.canFinalize}
-              isBusy={props.isBusy}
-              onSearchQueryChange={props.onSearchQueryChange}
-              onResume={props.onResume}
-              onBulkAccept={props.onBulkAccept}
-              onBulkReject={props.onBulkReject}
-              onFinalize={props.onFinalize}
-              onCandidateUpdate={props.onCandidateUpdate}
-            />
-          )}
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">CARD STUDIO</p>
+          <h1 className="mt-1 text-2xl font-medium text-foreground" data-testid="app-shell-page-title">
+            卡片工作台
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Agent 负责生成与筛选，用户只维护最终进入学习系统的卡片。
+          </p>
         </div>
-        <SideRail runs={props.runs} checkpoint={props.checkpoint} events={props.events} onRunSelect={props.onRunSelect} />
+        <UiCard className="border-border/50 bg-card">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted/50">
+              <Sparkles className="h-4 w-4 text-foreground" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">{props.activeRunLabel}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">最近一次自动生成任务</p>
+            </div>
+            {props.activeRunStatusLabel ? (
+              <Badge className={cn('ml-2 rounded-md border-0 font-normal', toneClass(props.activeRunStatusTone ?? 'neutral'))}>
+                {props.activeRunStatusLabel}
+              </Badge>
+            ) : null}
+          </CardContent>
+        </UiCard>
+      </header>
+
+      <section className="grid gap-3 md:grid-cols-3">
+        {props.metrics.map((metric) => (
+          <UiCard key={metric.label} className="border-border/50 bg-card">
+            <CardContent className="p-5">
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{metric.label}</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{metric.value}</p>
+              {metric.hint ? <p className="mt-1 text-xs text-muted-foreground">{metric.hint}</p> : null}
+            </CardContent>
+          </UiCard>
+        ))}
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <aside className="space-y-5">
+          <UiCard className="border-border/50 bg-card">
+            <CardContent className="p-5">
+              <h2 className="text-sm font-medium text-foreground">生成来源</h2>
+              <div className="mt-4 space-y-2">
+                {props.readyDocuments.map((doc) => (
+                  <button
+                    key={doc.id}
+                    type="button"
+                    onClick={() => props.onDocumentSelect(doc.id)}
+                    className={cn(
+                      'flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors',
+                      props.selectedDocumentId === doc.id
+                        ? 'border-foreground/20 bg-card shadow-sm'
+                        : 'border-border/50 bg-background/50 hover:border-border hover:bg-muted/30'
+                    )}
+                  >
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-foreground">{doc.title}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {doc.meta} · {doc.cardCountLabel}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <label className="mt-5 block">
+                <span className="text-xs text-muted-foreground">目标生成数量</span>
+                <Input
+                  value={props.cardLimitInput}
+                  onChange={(event) => props.onCardLimitChange(event.target.value)}
+                  inputMode="numeric"
+                  className="mt-2 h-9 rounded-lg border-border/50"
+                />
+              </label>
+
+              <Button
+                className="mt-4 w-full gap-2 rounded-lg"
+                onClick={props.onGenerate}
+                disabled={!props.canGenerate || props.isBusy}
+                data-testid="card-studio-start-generation"
+              >
+                <Sparkles className="h-4 w-4" />
+                让 Agent 生成卡片
+              </Button>
+            </CardContent>
+          </UiCard>
+
+          <UiCard className="border-border/50 bg-card">
+            <CardContent className="p-5">
+              <h2 className="text-sm font-medium text-foreground">任务记录</h2>
+              <div className="mt-4 space-y-2" data-testid="card-studio-run-list">
+                {props.runs.length === 0 ? (
+                  <p className="text-xs leading-5 text-muted-foreground">还没有生成任务。</p>
+                ) : (
+                  props.runs.slice(0, 5).map((run) => (
+                    <div key={run.id} className="rounded-lg border border-border/40 bg-background/50 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-foreground">{run.title}</p>
+                        <Badge className={cn('rounded-md border-0 font-normal', toneClass(run.statusTone))}>
+                          {run.statusLabel}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">{run.meta}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </UiCard>
+        </aside>
+
+        <main className="space-y-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={props.searchQuery}
+                onChange={(event) => props.onSearchQueryChange(event.target.value)}
+                placeholder="搜索正式卡片..."
+                className="h-9 rounded-lg border-border/50 bg-card pl-9 text-sm"
+              />
+            </div>
+            <Button className="h-9 gap-2 rounded-lg" onClick={props.onCreateCard} data-testid="card-studio-create-card">
+              <Plus className="h-4 w-4" />
+              新建卡片
+            </Button>
+          </div>
+
+          {props.cards.length === 0 ? (
+            <UiCard className="border-border/50 bg-card">
+              <CardContent className="p-8">
+                <WorkspaceEmptyState
+                  title="还没有正式卡片"
+                  description="启动生成后，Agent 会把通过质量门槛的结果直接写入这里。"
+                />
+              </CardContent>
+            </UiCard>
+          ) : filteredCards.length === 0 ? (
+            <UiCard className="border-border/50 bg-card">
+              <CardContent className="p-8 text-center text-sm text-muted-foreground">
+                没有匹配的卡片。
+              </CardContent>
+            </UiCard>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="card-studio-card-list">
+              {filteredCards.map((card) => (
+                <UiCard key={card.id} data-testid={`card-studio-card-${card.id}`} className="border-border/50 bg-card">
+                  <CardContent className="space-y-4 p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="secondary" className="rounded-md font-normal">{typeLabel(card.cardType)}</Badge>
+                          <Badge variant="secondary" className="rounded-md font-normal">{stateLabel(card.state)}</Badge>
+                          <span className="text-xs text-muted-foreground">{card.sourceLabel}</span>
+                        </div>
+                        <h3 className="mt-3 line-clamp-2 text-sm font-medium leading-6 text-foreground">{card.front}</h3>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => props.onQuickPreviewCard(card.id)}
+                          data-testid={`card-studio-quick-preview-${card.id}`}
+                          title="快速演示"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => props.onRenderVideoCard(card.id)}
+                          data-testid={`card-studio-render-video-${card.id}`}
+                          title="生成高质量视频"
+                        >
+                          <Clapperboard className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => props.onEditCard(card.id)}
+                          data-testid={`card-studio-edit-card-${card.id}`}
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-destructive"
+                          onClick={() => props.onDeleteCard(card.id)}
+                          data-testid={`card-studio-delete-card-${card.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="line-clamp-4 text-sm leading-6 text-muted-foreground">{card.back}</p>
+                    {card.tags.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {card.tags.map((tag) => (
+                          <span key={tag} className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </UiCard>
+              ))}
+            </div>
+          )}
+
+          {props.events.length > 0 ? (
+            <UiCard className="border-border/50 bg-card" data-testid="card-studio-events-panel">
+              <CardContent className="p-5">
+                <h2 className="text-sm font-medium text-foreground">最近事件</h2>
+                <div className="mt-4 grid gap-2">
+                  {props.events.slice(0, 4).map((event) => (
+                    <div key={event.id} className="flex items-start justify-between gap-3 rounded-lg border border-border/40 bg-background/50 p-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{event.title}</p>
+                        {event.detail ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{event.detail}</p> : null}
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground">{event.time}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </UiCard>
+          ) : null}
+        </main>
       </div>
     </div>
   )

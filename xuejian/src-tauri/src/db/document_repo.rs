@@ -505,35 +505,7 @@ impl<'a> DocumentRepository<'a> {
         query: &str,
         limit: Option<i64>,
     ) -> Result<Vec<DocumentChunkSearchResult>> {
-        let limit = limit.unwrap_or(10);
-        let mut stmt = self.db.connection().prepare(
-            "SELECT c.id, c.document_id, c.chunk_index, c.page_start, c.page_end, c.content,
-                    c.section_id, c.anchor_id,
-                    snippet(document_chunks_fts, 0, '[', ']', '...', 12) AS snippet
-             FROM document_chunks_fts
-             JOIN document_chunks c ON c.rowid = document_chunks_fts.rowid
-             WHERE document_chunks_fts MATCH ?1
-             ORDER BY bm25(document_chunks_fts)
-             LIMIT ?2",
-        )?;
-
-        let chunks = stmt.query_map(params![query, limit], |row| {
-            Ok(DocumentChunkSearchResult {
-                id: row.get(0)?,
-                document_id: row.get(1)?,
-                chunk_index: row.get(2)?,
-                page_start: row.get(3)?,
-                page_end: row.get(4)?,
-                content: row.get(5)?,
-                section_id: row.get(6)?,
-                anchor_id: row.get(7)?,
-                snippet: row.get(8)?,
-            })
-        })?;
-
-        chunks
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
+        self.search_chunks_with_fallback(query, None, limit.unwrap_or(10))
     }
 
     /// Search chunks via FTS5, scoped to a set of document IDs.
@@ -547,14 +519,42 @@ impl<'a> DocumentRepository<'a> {
             return self.search_chunks(query, limit);
         }
 
-        let limit = limit.unwrap_or(10);
-        let placeholders: Vec<String> = document_ids
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("?{}", i + 3))
-            .collect();
-        let in_clause = placeholders.join(", ");
+        self.search_chunks_with_fallback(query, Some(document_ids), limit.unwrap_or(10))
+    }
 
+    fn search_chunks_with_fallback(
+        &self,
+        query: &str,
+        document_ids: Option<&[String]>,
+        limit: i64,
+    ) -> Result<Vec<DocumentChunkSearchResult>> {
+        let primary = self.search_chunks_fts(query, document_ids, limit)?;
+        if !primary.is_empty() {
+            return Ok(primary);
+        }
+
+        for fallback_query in build_fts_fallback_queries(query) {
+            let results = self.search_chunks_fts(&fallback_query, document_ids, limit)?;
+            if !results.is_empty() {
+                return Ok(results);
+            }
+        }
+
+        let keywords = extract_keyword_terms(query);
+        if keywords.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        self.search_chunks_like(&keywords, document_ids, limit)
+    }
+
+    fn search_chunks_fts(
+        &self,
+        query: &str,
+        document_ids: Option<&[String]>,
+        limit: i64,
+    ) -> Result<Vec<DocumentChunkSearchResult>> {
+        let (scope_clause, mut param_values) = document_scope_clause(document_ids, 3);
         let sql = format!(
             "SELECT c.id, c.document_id, c.chunk_index, c.page_start, c.page_end, c.content,
                     c.section_id, c.anchor_id,
@@ -562,24 +562,17 @@ impl<'a> DocumentRepository<'a> {
              FROM document_chunks_fts
              JOIN document_chunks c ON c.rowid = document_chunks_fts.rowid
              WHERE document_chunks_fts MATCH ?1
-               AND c.document_id IN ({in_clause})
+               {scope_clause}
              ORDER BY bm25(document_chunks_fts)
              LIMIT ?2"
         );
 
-        let mut stmt = self.db.connection().prepare(&sql)?;
-
-        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-        param_values.push(Box::new(query.to_string()));
-        param_values.push(Box::new(limit));
-        for doc_id in document_ids {
-            param_values.push(Box::new(doc_id.clone()));
-        }
-
+        param_values.insert(0, Box::new(limit));
+        param_values.insert(0, Box::new(query.to_string()));
         let params_ref: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(|p| p.as_ref()).collect();
-
-        let chunks = stmt.query_map(&*params_ref, |row| {
+        let mut stmt = self.db.connection().prepare(&sql)?;
+        let rows = stmt.query_map(&*params_ref, |row| {
             Ok(DocumentChunkSearchResult {
                 id: row.get(0)?,
                 document_id: row.get(1)?,
@@ -593,9 +586,228 @@ impl<'a> DocumentRepository<'a> {
             })
         })?;
 
-        chunks
-            .collect::<std::result::Result<Vec<_>, _>>()
+        rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+    }
+
+    fn search_chunks_like(
+        &self,
+        keywords: &[String],
+        document_ids: Option<&[String]>,
+        limit: i64,
+    ) -> Result<Vec<DocumentChunkSearchResult>> {
+        if keywords.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut conditions = Vec::new();
+        let mut order_terms = Vec::new();
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        for keyword in keywords {
+            let pattern = format!("%{}%", escape_like_pattern(keyword));
+            let where_index = param_values.len() + 1;
+            param_values.push(Box::new(pattern.clone()));
+            conditions.push(format!("c.content LIKE ?{where_index} ESCAPE '\\'"));
+
+            let order_index = param_values.len() + 1;
+            param_values.push(Box::new(pattern));
+            order_terms.push(format!(
+                "CASE WHEN c.content LIKE ?{order_index} ESCAPE '\\' THEN 1 ELSE 0 END"
+            ));
+        }
+
+        let (scope_clause, scope_params) = document_scope_clause(document_ids, param_values.len() + 1);
+        param_values.extend(scope_params);
+        let limit_index = param_values.len() + 1;
+        param_values.push(Box::new(limit));
+
+        let sql = format!(
+            "SELECT c.id, c.document_id, c.chunk_index, c.page_start, c.page_end, c.content,
+                    c.section_id, c.anchor_id
+             FROM document_chunks c
+             WHERE ({conditions})
+               {scope_clause}
+             ORDER BY ({order_terms}) DESC, c.chunk_index ASC
+             LIMIT ?{limit_index}",
+            conditions = conditions.join(" OR "),
+            order_terms = order_terms.join(" + "),
+        );
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.db.connection().prepare(&sql)?;
+        let rows = stmt.query_map(&*params_ref, |row| {
+            let content: String = row.get(5)?;
+            Ok(DocumentChunkSearchResult {
+                id: row.get(0)?,
+                document_id: row.get(1)?,
+                chunk_index: row.get(2)?,
+                page_start: row.get(3)?,
+                page_end: row.get(4)?,
+                snippet: build_like_snippet(&content, keywords),
+                content,
+                section_id: row.get(6)?,
+                anchor_id: row.get(7)?,
+            })
+        })?;
+
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+}
+
+fn document_scope_clause(
+    document_ids: Option<&[String]>,
+    start_index: usize,
+) -> (String, Vec<Box<dyn rusqlite::types::ToSql>>) {
+    let Some(document_ids) = document_ids else {
+        return (String::new(), Vec::new());
+    };
+
+    if document_ids.is_empty() {
+        return (String::new(), Vec::new());
+    }
+
+    let placeholders: Vec<String> = document_ids
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("?{}", start_index + index))
+        .collect();
+    let params = document_ids
+        .iter()
+        .cloned()
+        .map(|document_id| Box::new(document_id) as Box<dyn rusqlite::types::ToSql>)
+        .collect();
+
+    (
+        format!("AND c.document_id IN ({})", placeholders.join(", ")),
+        params,
+    )
+}
+
+fn build_fts_fallback_queries(query: &str) -> Vec<String> {
+    let keywords = extract_keyword_terms(query);
+    let mut fallbacks = Vec::new();
+
+    if !keywords.is_empty() {
+        fallbacks.push(keywords.join(" OR "));
+        if keywords.len() > 1 {
+            fallbacks.push(keywords.join(" "));
+        }
+    }
+
+    fallbacks
+}
+
+fn extract_keyword_terms(query: &str) -> Vec<String> {
+    let mut normalized = query.to_lowercase();
+    for phrase in [
+        "这篇文章",
+        "这个文章",
+        "这个文档",
+        "当前文档",
+        "当前选定文档",
+        "请问",
+        "一下",
+        "是什么",
+        "什么是",
+        "什么",
+        "如何",
+        "为什么",
+        "哪些",
+        "哪个",
+        "哪种",
+        "吗",
+        "呢",
+        "呀",
+        "的",
+        "了",
+        "么",
+    ] {
+        normalized = normalized.replace(phrase, " ");
+    }
+
+    let sanitized: String = normalized
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || is_cjk(character) {
+                character
+            } else {
+                ' '
+            }
+        })
+        .collect();
+
+    let mut keywords = Vec::new();
+    for token in sanitized.split_whitespace() {
+        if token.len() >= 2 {
+            push_unique(&mut keywords, token.to_string());
+        }
+
+        if token.chars().all(is_cjk) && token.chars().count() > 4 {
+            let chars: Vec<char> = token.chars().collect();
+            for width in 2..=4 {
+                if chars.len() < width {
+                    continue;
+                }
+                for start in 0..=chars.len() - width {
+                    let term: String = chars[start..start + width].iter().collect();
+                    push_unique(&mut keywords, term);
+                    if keywords.len() >= 12 {
+                        break;
+                    }
+                }
+                if keywords.len() >= 12 {
+                    break;
+                }
+            }
+        }
+
+        if keywords.len() >= 12 {
+            break;
+        }
+    }
+
+    keywords
+}
+
+fn push_unique(items: &mut Vec<String>, candidate: String) {
+    if candidate.len() < 2 || items.iter().any(|item| item == &candidate) {
+        return;
+    }
+    items.push(candidate);
+}
+
+fn is_cjk(character: char) -> bool {
+    matches!(character as u32, 0x4E00..=0x9FFF | 0x3400..=0x4DBF | 0xF900..=0xFAFF)
+}
+
+fn escape_like_pattern(keyword: &str) -> String {
+    keyword
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn build_like_snippet(content: &str, keywords: &[String]) -> String {
+    let best_keyword = keywords
+        .iter()
+        .filter_map(|keyword| content.find(keyword).map(|index| (index, keyword)))
+        .min_by_key(|(index, _)| *index)
+        .map(|(_, keyword)| keyword.as_str());
+
+    let Some(keyword) = best_keyword else {
+        return content.chars().take(120).collect();
+    };
+
+    let prefix = &content[..content.find(keyword).unwrap_or(0)];
+    let char_start = prefix.chars().count().saturating_sub(18);
+    let snippet: String = content.chars().skip(char_start).take(120).collect();
+    if char_start == 0 {
+        snippet
+    } else {
+        format!("...{snippet}")
     }
 }
 
@@ -830,5 +1042,51 @@ mod tests {
             .search_chunks("checkpoint", Some(10))
             .expect("search after delete");
         assert!(deleted_results.is_empty());
+    }
+
+    #[test]
+    fn scoped_search_falls_back_for_natural_language_queries() {
+        let db = test_db();
+        let repo = DocumentRepository::new(&db);
+
+        let document = repo
+            .create(CreateDocumentRequest {
+                title: "Memory Notes".to_string(),
+                file_path: "E:/docs/memory-notes.pdf".to_string(),
+                file_type: "pdf".to_string(),
+                file_size: None,
+                page_count: Some(5),
+                content_hash: None,
+            })
+            .expect("create document");
+
+        db.connection()
+            .execute(
+                "INSERT INTO document_chunks (
+                    id, document_id, page_start, page_end, chunk_index, content, token_count, metadata
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    document.id,
+                    1,
+                    1,
+                    0,
+                    "本文的核心观点是，工作记忆容量有限，需要通过分块与重复降低认知负荷。",
+                    24,
+                    serde_json::Value::Null,
+                ],
+            )
+            .expect("insert chunk");
+
+        let results = repo
+            .search_chunks_scoped(
+                "这个文章的核心观点是什么？",
+                &[document.id.clone()],
+                Some(10),
+            )
+            .expect("natural language search succeeds");
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].snippet.contains("核心观点"));
     }
 }

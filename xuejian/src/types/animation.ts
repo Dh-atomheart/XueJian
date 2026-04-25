@@ -5,6 +5,7 @@ import { z } from 'zod'
 export type AnimType = 'flashcard_reveal' | 'keyword_emphasis'
 export type AnimStatus = 'queued' | 'generating' | 'ready' | 'failed'
 export type AnimPalette = 'default' | 'warm' | 'cool'
+export type AnimMode = 'quick_preview' | 'video_render'
 
 export interface AnimationStep {
   id: string
@@ -26,9 +27,15 @@ export interface CardAnimation {
   cardId: string
   runId: string | null
   animType: AnimType
+  mode: AnimMode
   scriptJson: string
+  videoPath: string | null
+  posterPath: string | null
+  renderLogPath: string | null
   status: AnimStatus
+  errorCode: string | null
   errorMessage: string | null
+  retryable: boolean
   createdAt: string
   updatedAt: string
 }
@@ -55,9 +62,15 @@ export const CardAnimationSchema = z.object({
   cardId: z.string(),
   runId: z.string().nullable(),
   animType: z.enum(['flashcard_reveal', 'keyword_emphasis']),
+  mode: z.enum(['quick_preview', 'video_render']).catch('quick_preview').default('quick_preview'),
   scriptJson: z.string(),
+  videoPath: z.string().nullable().catch(null),
+  posterPath: z.string().nullable().catch(null),
+  renderLogPath: z.string().nullable().catch(null),
   status: z.enum(['queued', 'generating', 'ready', 'failed']),
+  errorCode: z.string().nullable().catch(null),
   errorMessage: z.string().nullable(),
+  retryable: z.boolean().catch(true).default(true),
   createdAt: z.string(),
   updatedAt: z.string(),
-})
+}) as unknown as z.ZodType<CardAnimation>

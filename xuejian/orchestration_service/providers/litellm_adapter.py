@@ -86,6 +86,19 @@ def litellm_embedding(
     texts: list[str],
 ) -> list[list[float]]:
     """Call litellm.embedding() and return embedding vectors in order."""
+    from ..providers.runtime import normalize_provider, resolve_model_runtime
+
+    provider = normalize_provider(config.get("provider", "openai"))
+    _, model_name, base_url = resolve_model_runtime(config)
+
+    if provider == "google" and not base_url:
+        return _google_native_embedding(
+            api_key=api_key,
+            model_name=model_name,
+            texts=texts,
+            task_type=str(config.get("taskType") or "").strip() or None,
+        )
+
     try:
         import litellm  # type: ignore[import]
     except ImportError as exc:
@@ -93,10 +106,6 @@ def litellm_embedding(
             "litellm is not installed. Add 'litellm' to requirements.txt."
         ) from exc
 
-    from ..providers.runtime import normalize_provider, resolve_model_runtime
-
-    provider = normalize_provider(config.get("provider", "openai"))
-    _, model_name, base_url = resolve_model_runtime(config)
     model_str = _build_litellm_model_str(provider, model_name, base_url)
 
     kwargs: dict[str, Any] = {
@@ -115,3 +124,40 @@ def litellm_embedding(
     response = litellm.embedding(**kwargs)
     items = getattr(response, "data", None) or response.get("data", [])
     return [list(item["embedding"]) for item in items]
+
+
+def _google_native_embedding(
+    *,
+    api_key: str,
+    model_name: str,
+    texts: list[str],
+    task_type: str | None,
+) -> list[list[float]]:
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError as exc:
+        raise ImportError(
+            "google-genai is not installed. Add 'google-genai' to requirements.txt."
+        ) from exc
+
+    client = genai.Client(api_key=api_key)
+    config = None
+    if task_type:
+        config = types.EmbedContentConfig(task_type=task_type)
+
+    response = client.models.embed_content(
+        model=model_name,
+        contents=texts,
+        config=config,
+    )
+    embeddings = getattr(response, "embeddings", None) or []
+    vectors: list[list[float]] = []
+    for item in embeddings:
+        values = getattr(item, "values", None)
+        if values is None and isinstance(item, dict):
+            values = item.get("values")
+        if values is None:
+            raise RuntimeError("Google embedding response did not include vector values")
+        vectors.append(list(values))
+    return vectors

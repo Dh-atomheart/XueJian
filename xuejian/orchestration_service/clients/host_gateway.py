@@ -40,14 +40,14 @@ class HostGatewayClient:
             logger.error("Host gateway %s unreachable: %s", path, exc)
             raise
 
-    def _post(self, path: str, payload: dict) -> dict:
+    def _post(self, path: str, payload: dict, timeout: int = 10) -> dict:
         url = f"{self._base}{path}"
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             url, data=data, headers={"Content-Type": "application/json"}
         )
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
@@ -117,6 +117,9 @@ class HostGatewayClient:
         )
 
         for config in candidates:
+            if config.get("authMode") == "adc":
+                self._ensure_budget_available(config)
+                return config, ""
             api_key = self.get_api_key(config["id"])
             if api_key:
                 self._ensure_budget_available(config)
@@ -138,6 +141,9 @@ class HostGatewayClient:
         )
         if config is None:
             return None
+        if config.get("authMode") == "adc":
+            self._ensure_budget_available(config)
+            return config, ""
         api_key = self.get_api_key(config["id"])
         if not api_key:
             return None
@@ -159,19 +165,29 @@ class HostGatewayClient:
     def get_config_for_workflow(self, workflow_type: str) -> tuple[dict, str] | None:
         assignment = self.get_workflow_assignment(workflow_type)
         if not assignment:
-            return self.get_default_config_with_key()
+            return None
 
-        config_id = assignment.get("apiConfigId")
+        model_profile = assignment.get("modelProfile") or {}
+        config_payload = assignment.get("apiConfig") or {}
+        config_id = config_payload.get("id") or model_profile.get("apiConfigId")
         if not config_id:
-            return self.get_default_config_with_key()
+            return None
 
-        config = self.get_api_config(config_id)
+        config = self.get_api_config(config_id) or config_payload
         if not config or not config.get("isEnabled"):
-            return self.get_default_config_with_key()
+            return None
+
+        model_id = model_profile.get("modelId")
+        if model_id:
+            config["model"] = model_id
+
+        if config.get("authMode") == "adc":
+            self._ensure_budget_available(config)
+            return config, ""
 
         api_key = self.get_api_key(config_id)
         if not api_key:
-            return self.get_default_config_with_key()
+            return None
 
         self._ensure_budget_available(config)
         return config, api_key
@@ -226,6 +242,13 @@ class HostGatewayClient:
             "documentId": document_id,
             "candidates": candidates,
         })
+
+    def persist_cards(self, run_id: str, document_id: str, cards: list[dict]) -> dict:
+        return self._post("/tool-gateway/cards", {
+            "runId": run_id,
+            "documentId": document_id,
+            "cards": cards,
+        }, timeout=60)
 
     def count_candidates(self, run_id: str) -> dict:
         return self._get(f"/tool-gateway/candidates/count?runId={run_id}")

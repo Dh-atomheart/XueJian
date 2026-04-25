@@ -1,14 +1,12 @@
 import type { ZodType } from 'zod'
 import { getErrorMessage, reportFeedback } from '@/lib/appFeedback'
+import { appLogger, createRequestId } from '@/lib/logger'
 import { getMockGatewayResponse } from './mockData'
 
 const globalScope = globalThis as typeof globalThis & {
   isTauri?: boolean
 }
 
-/**
- * Gateway 错误类型
- */
 export class GatewayError extends Error {
   constructor(
     message: string,
@@ -20,9 +18,6 @@ export class GatewayError extends Error {
   }
 }
 
-/**
- * 检查是否在 Tauri 环境中运行
- */
 export function isTauriEnvironment(): boolean {
   if (globalScope.isTauri === true) {
     return true
@@ -43,26 +38,59 @@ export function isTauriEnvironment(): boolean {
   )
 }
 
-/**
- * 调用 Tauri 命令的统一封装
- * 在非 Tauri 环境中返回模拟数据或抛出错误
- */
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const requestId = createRequestId('ipc')
+  const startedAt = performance.now()
+
   if (!isTauriEnvironment()) {
     console.warn(`[Gateway] Tauri not available, command "${cmd}" will return mock data`)
+    appLogger.warn('IPC', 'Tauri unavailable, returning mock data', {
+      requestId,
+      command: cmd,
+    })
     return getMockResponse<T>(cmd, args)
   }
 
   try {
     const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
-    return await tauriInvoke<T>(cmd, args)
+    const result = await tauriInvoke<T>(cmd, args)
+    const durationMs = performance.now() - startedAt
+
+    if (durationMs >= 500) {
+      appLogger.event({
+        level: 'info',
+        scope: 'IPC',
+        message: 'Slow command completed',
+        requestId,
+        command: cmd,
+        durationMs,
+      })
+    }
+
+    return result
   } catch (error) {
-    const detail = getErrorMessage(error, '未返回更具体的底层错误信息')
-    const gatewayError = new GatewayError(`调用命令失败：${cmd}。${detail}`, 'INVOKE_ERROR', error)
+    const durationMs = performance.now() - startedAt
+    const detail = getErrorMessage(error, 'No lower-level error detail was returned')
+    const gatewayError = new GatewayError(
+      `Command invocation failed: ${cmd}. ${detail}`,
+      'INVOKE_ERROR',
+      error
+    )
+
+    appLogger.event({
+      level: 'error',
+      scope: 'IPC',
+      message: 'Command failed',
+      requestId,
+      command: cmd,
+      durationMs,
+      errorCode: 'INVOKE_ERROR',
+      details: { detail },
+    })
 
     reportFeedback({
       scope: 'IPC',
-      title: `命令调用失败：${cmd}`,
+      title: `Command invocation failed: ${cmd}`,
       detail,
       level: 'error',
       showToast: false,
@@ -72,9 +100,6 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   }
 }
 
-/**
- * 调用 Tauri 命令并使用 Zod 在 IPC 边界做运行时校验。
- */
 export async function invokeWithSchema<T>(
   cmd: string,
   schema: ZodType<T>,
@@ -84,9 +109,6 @@ export async function invokeWithSchema<T>(
   return schema.parse(result)
 }
 
-/**
- * 非 Tauri 环境的模拟响应
- */
 function getMockResponse<T>(cmd: string, args?: Record<string, unknown>): T {
   return getMockGatewayResponse<T>(cmd, args)
 }

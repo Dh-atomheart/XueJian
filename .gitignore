@@ -42,6 +42,22 @@ lerna-debug.log*
 # ----------------------------------------
 node_modules/
 .pnpm-store/
+.venv/
+venv/
+env/
+ENV/
+xuejian/.venv-orchestration/
+xuejian/.venv*/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+pip-wheel-metadata/
+*.egg-info/
 
 # ----------------------------------------
 # Build Outputs

@@ -1,8 +1,7 @@
+import { Button } from '@/components/ui'
 import { getAnnotationColor, getAnnotationSwatchClass } from '@/lib/annotationPalette'
 import { cn } from '@/lib/utils'
 import type { Card, Highlight } from '@/types'
-import { Button } from '@/components/ui'
-import { UnlinkedCardNotice } from './UnlinkedCardNotice'
 
 interface StickyNoteCardProps {
   card: Card
@@ -16,7 +15,6 @@ interface StickyNoteCardProps {
   onEdit: () => void
   onDelete: () => void
   onLink: () => void
-  onOpenCandidates: () => void
 }
 
 export function StickyNoteCard({
@@ -31,7 +29,6 @@ export function StickyNoteCard({
   onEdit,
   onDelete,
   onLink,
-  onOpenCandidates,
 }: StickyNoteCardProps) {
   const color = highlight?.color ?? getAnnotationColor(highlight?.pageCardIndex ?? index)
 
@@ -40,15 +37,15 @@ export function StickyNoteCard({
       id={`sticky-card-${card.id}`}
       data-selected={isSelected ? 'true' : 'false'}
       className={cn(
-        'relative overflow-hidden rounded-[24px] border bg-white/92 px-4 py-4 text-left shadow-[0_12px_34px_rgba(34,30,25,0.08)] transition-all duration-200',
+        'relative overflow-visible rounded-[24px] border bg-white/92 px-4 pb-4 pt-5 text-left shadow-[0_18px_42px_rgba(34,30,25,0.09)] transition-all duration-200 before:absolute before:left-1/2 before:top-0 before:h-4 before:w-16 before:-translate-x-1/2 before:-translate-y-1/2 before:rotate-[-4deg] before:rounded-sm before:bg-highlight-yellow/40 before:ring-1 before:ring-ink/5',
         isSelected
-          ? 'border-ink/25 ring-1 ring-ink/10'
+          ? 'border-ink/25 shadow-[0_20px_48px_rgba(34,30,25,0.13)] ring-1 ring-ink/10'
           : 'border-line-soft hover:-translate-y-0.5 hover:border-ink/15'
       )}
     >
       <span
         aria-hidden
-        className={cn('absolute inset-x-0 top-0 h-2', getAnnotationSwatchClass(color))}
+        className={cn('absolute inset-x-0 top-0 h-2 rounded-t-[24px]', getAnnotationSwatchClass(color))}
       />
 
       <button
@@ -57,48 +54,41 @@ export function StickyNoteCard({
         className="block w-full text-left"
         data-testid={`sticky-card-${card.id}`}
       >
-        <div className="flex items-start justify-between gap-3 pt-2">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-paper-base/70 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-ink-soft">
-              <span>卡片</span>
-              <span className="font-latin tabular-nums">{String(index + 1).padStart(2, '0')}</span>
-            </div>
-            <h3 className="mt-3 font-ui text-sm leading-6 text-ink">
-              {card.title?.trim() || card.front}
-            </h3>
-          </div>
+        <div className="flex items-start justify-between gap-3 pt-1">
+          <span className="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-paper-base/70 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-ink-soft">
+            <span>卡片</span>
+            <span className="font-latin tabular-nums">{String(index + 1).padStart(2, '0')}</span>
+          </span>
           <span className="shrink-0 font-latin text-[11px] text-ink-soft">
-            P.{card.sourcePage ?? '--'}
+            P.{highlight?.pageNumber ?? card.sourcePage ?? '--'}
           </span>
         </div>
       </button>
 
-      <div className="mt-3 rounded-[18px] bg-paper-muted/75 px-3 py-3 text-sm leading-6 text-ink-muted">
-        {highlight?.textContent || card.front}
-      </div>
-
-      {card.tags.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {card.tags.map((tag) => (
-            <span
-              key={`${card.id}-${tag}`}
-              className="rounded-full border border-ink/10 bg-paper-base/70 px-2 py-1 text-[11px] text-ink-soft"
-            >
-              #{tag}
-            </span>
-          ))}
+      <div className="mt-4 space-y-3">
+        <div className="rounded-[18px] border border-line-soft bg-paper-base/80 px-3 py-3">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">Front</p>
+          <p className="mt-2 text-sm leading-6 text-ink">{card.front}</p>
         </div>
-      ) : null}
+
+        <div className="rounded-[18px] border border-line-soft bg-paper-base/80 px-3 py-3">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">Back</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-muted">{card.back}</p>
+        </div>
+      </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button variant="ghost" size="sm" onClick={onLocate}>
           定位原文
         </Button>
-        <Button variant="ghost" size="sm" onClick={onToggleExpand}>
-          {isExpanded ? '收起' : '展开'}
-        </Button>
         <Button variant="ghost" size="sm" onClick={onEdit}>
           编辑
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onLink}>
+          {highlight ? '编辑关联高亮' : '关联高亮'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onToggleExpand}>
+          {isExpanded ? '收起说明' : '说明'}
         </Button>
         <Button variant="ghost" size="sm" onClick={onDelete}>
           删除
@@ -106,25 +96,10 @@ export function StickyNoteCard({
       </div>
 
       {isExpanded ? (
-        <div className="mt-4 space-y-3 border-t border-line-soft pt-4">
-          <div className="rounded-[18px] border border-line-soft bg-paper-base/80 px-3 py-3">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">Front</p>
-            <p className="mt-2 text-sm leading-6 text-ink">{card.front}</p>
-          </div>
-
-          <div className="rounded-[18px] border border-line-soft bg-paper-base/80 px-3 py-3">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">Back</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink">{card.back}</p>
-          </div>
-
-          {highlight ? (
-            <div className="rounded-[18px] border border-line-soft bg-paper-base/80 px-3 py-3">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">原文高亮</p>
-              <p className="mt-2 text-sm leading-6 text-ink">{highlight.textContent}</p>
-            </div>
-          ) : (
-            <UnlinkedCardNotice onLink={onLink} onOpenCandidates={onOpenCandidates} />
-          )}
+        <div className="mt-3 rounded-[16px] border border-line-soft bg-paper-muted/65 px-3 py-2 text-xs leading-5 text-ink-soft">
+          {highlight
+            ? '这张贴笺已关联正文高亮，可点击“编辑关联高亮”重新在 PDF 正文中圈选。'
+            : '这张贴笺还未关联正文高亮，可点击“关联高亮”到 PDF 正文中圈选。'}
         </div>
       ) : null}
     </article>

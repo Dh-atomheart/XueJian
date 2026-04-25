@@ -16,13 +16,21 @@ vi.mock('@/queries', async () => {
   return {
     ...actual,
     useApiConfigsQuery: vi.fn(),
+    useActiveEmbeddingProfileQuery: vi.fn(),
     useCreateApiConfigMutation: vi.fn(),
+    useCreateEmbeddingProfileMutation: vi.fn(),
     useDeleteApiConfigMutation: vi.fn(),
     useDeleteApiKeyMutation: vi.fn(),
+    useDeleteModelProfileMutation: vi.fn(),
+    useEmbeddingProfilesQuery: vi.fn(),
     useFetchProviderModelsMutation: vi.fn(),
+    useGetApiKeyMutation: vi.fn(),
+    useModelProfilesQuery: vi.fn(),
     useProviderBudgetUsageQuery: vi.fn(),
     useResetProviderBudgetUsageMutation: vi.fn(),
+    useCreateModelProfileMutation: vi.fn(),
     useSetDefaultApiConfigMutation: vi.fn(),
+    useSetActiveEmbeddingProfileMutation: vi.fn(),
     useSetAllWorkflowAssignmentsMutation: vi.fn(),
     useSetWorkflowAssignmentMutation: vi.fn(),
     useStoreApiKeyMutation: vi.fn(),
@@ -30,6 +38,7 @@ vi.mock('@/queries', async () => {
     useAppSettingsQuery: vi.fn(),
     useUpdateApiConfigMutation: vi.fn(),
     useUpdateAppSettingsMutation: vi.fn(),
+    useUpdateModelProfileMutation: vi.fn(),
     useWorkflowAssignmentsQuery: vi.fn(),
   }
 })
@@ -41,6 +50,7 @@ const appSettings: AppSettings = {
   reviewTimeLimit: 30,
   podcastTtsProvider: 'auto',
   podcastOpenaiModel: 'tts-1',
+  podcastGoogleTtsModel: 'gemini-2.5-flash-preview-tts',
   podcastFishAudioEndpoint: null,
   podcastVoiceOverrides: {},
   podcastOutputFormat: 'mp3',
@@ -84,10 +94,35 @@ function setupDefaultMocks(configs: ApiConfig[]) {
     data: configs,
     isLoading: false,
   } as ReturnType<typeof queries.useApiConfigsQuery>)
+  mockedQueries.useEmbeddingProfilesQuery.mockReturnValue({
+    data: [],
+    isLoading: false,
+  } as ReturnType<typeof queries.useEmbeddingProfilesQuery>)
+  mockedQueries.useActiveEmbeddingProfileQuery.mockReturnValue({
+    data: null,
+    isLoading: false,
+  } as ReturnType<typeof queries.useActiveEmbeddingProfileQuery>)
   mockedQueries.useWorkflowAssignmentsQuery.mockReturnValue({
     data: [],
     isLoading: false,
   } as ReturnType<typeof queries.useWorkflowAssignmentsQuery>)
+  mockedQueries.useModelProfilesQuery.mockReturnValue({
+    data: configs
+      .filter((config) => config.model)
+      .map((config) => ({
+        id: `profile-${config.id}`,
+        apiConfigId: config.id,
+        modelId: config.model ?? 'unknown',
+        displayName: config.displayName ?? config.name,
+        capabilitiesJson: '[]',
+        isEnabled: true,
+        isDefaultForConnection: true,
+        createdAt: new Date('2026-04-18T10:00:00.000Z'),
+        updatedAt: new Date('2026-04-18T10:00:00.000Z'),
+        apiConfig: config,
+      })),
+    isLoading: false,
+  } as ReturnType<typeof queries.useModelProfilesQuery>)
   mockedQueries.useAppSettingsQuery.mockReturnValue({
     data: appSettings,
   } as ReturnType<typeof queries.useAppSettingsQuery>)
@@ -121,6 +156,25 @@ function setupDefaultMocks(configs: ApiConfig[]) {
     isPending: false,
     mutateAsync: vi.fn(),
   } as ReturnType<typeof queries.useDeleteApiKeyMutation>)
+  mockedQueries.useCreateModelProfileMutation.mockReturnValue({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  } as ReturnType<typeof queries.useCreateModelProfileMutation>)
+  mockedQueries.useCreateEmbeddingProfileMutation.mockReturnValue({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  } as ReturnType<typeof queries.useCreateEmbeddingProfileMutation>)
+  mockedQueries.useUpdateModelProfileMutation.mockReturnValue({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  } as ReturnType<typeof queries.useUpdateModelProfileMutation>)
+  mockedQueries.useDeleteModelProfileMutation.mockReturnValue({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  } as ReturnType<typeof queries.useDeleteModelProfileMutation>)
+  mockedQueries.useGetApiKeyMutation.mockReturnValue({
+    mutateAsync: vi.fn().mockResolvedValue('stored-api-key'),
+  } as ReturnType<typeof queries.useGetApiKeyMutation>)
   mockedQueries.useFetchProviderModelsMutation.mockReturnValue({
     isPending: false,
     mutateAsync: vi.fn().mockResolvedValue([]),
@@ -135,8 +189,12 @@ function setupDefaultMocks(configs: ApiConfig[]) {
   mockedQueries.useSetDefaultApiConfigMutation.mockReturnValue({
     mutate: vi.fn(),
   } as ReturnType<typeof queries.useSetDefaultApiConfigMutation>)
+  mockedQueries.useSetActiveEmbeddingProfileMutation.mockReturnValue({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  } as ReturnType<typeof queries.useSetActiveEmbeddingProfileMutation>)
   mockedQueries.useSetWorkflowAssignmentMutation.mockReturnValue({
-    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
   } as ReturnType<typeof queries.useSetWorkflowAssignmentMutation>)
   mockedQueries.useSetAllWorkflowAssignmentsMutation.mockReturnValue({
     mutate: vi.fn(),
@@ -300,23 +358,118 @@ describe('settings onboarding flow', () => {
     expect(storeKey).not.toHaveBeenCalled()
   })
 
-  it('lets users delete a stored key without deleting the config', async () => {
-    const deleteKey = vi.fn().mockResolvedValue(undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it('closes the add provider form without waiting for key storage', async () => {
+    const createdConfig: ApiConfig = {
+      ...storedKeyConfig,
+      id: 'cfg-created-google',
+      provider: 'google',
+      name: 'Google Primary',
+      displayName: 'Google Primary',
+      hasStoredCredential: false,
+      hasStoredKey: false,
+      keyStatus: 'none',
+    }
+    const createConfig = vi.fn().mockResolvedValue(createdConfig)
+    const storeKey = vi.fn(
+      () =>
+        new Promise<void>(() => {
+          // Keep storage pending to prove provider creation is not blocked by Stronghold.
+        })
+    )
+
+    setupDefaultMocks([])
+    mockedQueries.useCreateApiConfigMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: createConfig,
+    } as ReturnType<typeof queries.useCreateApiConfigMutation>)
+    mockedQueries.useStoreApiKeyMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: storeKey,
+    } as ReturnType<typeof queries.useStoreApiKeyMutation>)
+
+    renderWithProviders(<SettingsPage />)
+
+    fireEvent.click(screen.getByTestId('settings-toggle-add-config'))
+    fireEvent.click(screen.getByText('Google').closest('button')!)
+    fireEvent.change(screen.getByTestId('settings-add-config-key'), {
+      target: { value: 'google-key' },
+    })
+    fireEvent.click(screen.getByTestId('settings-save-config'))
+
+    await waitFor(() => {
+      expect(createConfig).toHaveBeenCalled()
+      expect(storeKey).toHaveBeenCalledWith({ configId: createdConfig.id, apiKey: 'google-key' })
+      expect(screen.queryByTestId('settings-add-config-form')).not.toBeInTheDocument()
+    })
+  })
+
+  it('tests a stored provider from the provider card without exposing the api key', async () => {
+    const testConnection = vi.fn()
+    setupDefaultMocks([storedKeyConfig])
+    mockedQueries.useTestApiConnectionMutation.mockReturnValue({
+      isPending: false,
+      mutate: testConnection,
+    } as ReturnType<typeof queries.useTestApiConnectionMutation>)
+
+    renderWithProviders(<SettingsPage />)
+
+    fireEvent.click(screen.getByTestId(`settings-test-config-${storedKeyConfig.id}`))
+
+    expect(testConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configId: storedKeyConfig.id,
+        provider: storedKeyConfig.provider,
+        apiKey: null,
+      }),
+      expect.any(Object)
+    )
+  })
+
+  it('blocks duplicate model ids before calling create_model_profile', async () => {
+    const createModelProfile = vi.fn()
 
     setupDefaultMocks([storedKeyConfig])
-    mockedQueries.useDeleteApiKeyMutation.mockReturnValue({
+    mockedQueries.useCreateModelProfileMutation.mockReturnValue({
       isPending: false,
-      mutateAsync: deleteKey,
-    } as ReturnType<typeof queries.useDeleteApiKeyMutation>)
+      mutateAsync: createModelProfile,
+    } as ReturnType<typeof queries.useCreateModelProfileMutation>)
+
+    renderWithProviders(<SettingsPage />)
+
+    fireEvent.change(screen.getByPlaceholderText('模型 ID，例如 gpt-4.1'), {
+      target: { value: storedKeyConfig.model },
+    })
+    fireEvent.click(screen.getByTestId('settings-create-model-profile'))
+
+    await waitFor(() => {
+      expect(createModelProfile).not.toHaveBeenCalled()
+      expect(screen.getByText(/该连接下已存在模型档案/)).toBeInTheDocument()
+    })
+  })
+
+  it('no longer shows a separate embedding panel', () => {
+    setupDefaultMocks([storedKeyConfig])
+
+    renderWithProviders(<SettingsPage />)
+
+    expect(screen.queryByTestId('settings-embedding-panel')).not.toBeInTheDocument()
+  })
+
+  it('loads the stored api key when users edit a provider card', async () => {
+    const getApiKey = vi.fn().mockResolvedValue('stored-api-key')
+
+    setupDefaultMocks([storedKeyConfig])
+    mockedQueries.useGetApiKeyMutation.mockReturnValue({
+      mutateAsync: getApiKey,
+    } as ReturnType<typeof queries.useGetApiKeyMutation>)
 
     renderWithProviders(<SettingsPage />)
 
     fireEvent.click(screen.getByTestId(`settings-manage-key-${storedKeyConfig.id}`))
-    fireEvent.click(screen.getByTestId('settings-delete-key'))
 
     await waitFor(() => {
-      expect(deleteKey).toHaveBeenCalledWith(storedKeyConfig.id)
+      expect(getApiKey).toHaveBeenCalledWith(storedKeyConfig.id)
+      expect(screen.getByTestId(`settings-edit-config-key-${storedKeyConfig.id}`)).toHaveValue('stored-api-key')
     })
   })
 
@@ -344,10 +497,33 @@ describe('settings onboarding flow', () => {
           isLoading: false,
         }) as ReturnType<typeof queries.useApiConfigsQuery>
     )
+    mockedQueries.useEmbeddingProfilesQuery.mockReturnValue({
+      data: [],
+      isLoading: false,
+    } as ReturnType<typeof queries.useEmbeddingProfilesQuery>)
+    mockedQueries.useActiveEmbeddingProfileQuery.mockReturnValue({
+      data: null,
+      isLoading: false,
+    } as ReturnType<typeof queries.useActiveEmbeddingProfileQuery>)
     mockedQueries.useWorkflowAssignmentsQuery.mockReturnValue({
       data: [],
       isLoading: false,
     } as ReturnType<typeof queries.useWorkflowAssignmentsQuery>)
+    mockedQueries.useModelProfilesQuery.mockReturnValue({
+      data: configsState.map((config) => ({
+        id: `profile-${config.id}`,
+        apiConfigId: config.id,
+        modelId: config.model ?? 'unknown',
+        displayName: config.displayName ?? config.name,
+        capabilitiesJson: '[]',
+        isEnabled: true,
+        isDefaultForConnection: true,
+        createdAt: new Date('2026-04-18T10:00:00.000Z'),
+        updatedAt: new Date('2026-04-18T10:00:00.000Z'),
+        apiConfig: config,
+      })),
+      isLoading: false,
+    } as ReturnType<typeof queries.useModelProfilesQuery>)
     mockedQueries.useAppSettingsQuery.mockReturnValue({
       data: appSettings,
     } as ReturnType<typeof queries.useAppSettingsQuery>)
@@ -368,6 +544,25 @@ describe('settings onboarding flow', () => {
       isPending: false,
       mutateAsync: vi.fn(),
     } as ReturnType<typeof queries.useDeleteApiKeyMutation>)
+    mockedQueries.useCreateModelProfileMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as ReturnType<typeof queries.useCreateModelProfileMutation>)
+    mockedQueries.useCreateEmbeddingProfileMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as ReturnType<typeof queries.useCreateEmbeddingProfileMutation>)
+    mockedQueries.useUpdateModelProfileMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as ReturnType<typeof queries.useUpdateModelProfileMutation>)
+    mockedQueries.useDeleteModelProfileMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as ReturnType<typeof queries.useDeleteModelProfileMutation>)
+    mockedQueries.useGetApiKeyMutation.mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue('stored-api-key'),
+    } as ReturnType<typeof queries.useGetApiKeyMutation>)
     mockedQueries.useFetchProviderModelsMutation.mockReturnValue({
       isPending: false,
       mutateAsync: vi.fn().mockResolvedValue([]),
@@ -382,8 +577,12 @@ describe('settings onboarding flow', () => {
     mockedQueries.useSetDefaultApiConfigMutation.mockReturnValue({
       mutate: vi.fn(),
     } as ReturnType<typeof queries.useSetDefaultApiConfigMutation>)
+    mockedQueries.useSetActiveEmbeddingProfileMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as ReturnType<typeof queries.useSetActiveEmbeddingProfileMutation>)
     mockedQueries.useSetWorkflowAssignmentMutation.mockReturnValue({
-      mutate: vi.fn(),
+      mutateAsync: vi.fn(),
     } as ReturnType<typeof queries.useSetWorkflowAssignmentMutation>)
     mockedQueries.useSetAllWorkflowAssignmentsMutation.mockReturnValue({
       mutate: vi.fn(),
@@ -411,7 +610,7 @@ describe('settings onboarding flow', () => {
     )
 
     fireEvent.click(screen.getByTestId(`settings-manage-key-${storedKeyConfig.id}`))
-    expect(screen.getByTestId('settings-update-config-form')).toBeInTheDocument()
+    expect(screen.getByTestId(`settings-edit-config-key-${storedKeyConfig.id}`)).toBeInTheDocument()
 
     configsState = []
     view.rerender(
@@ -421,15 +620,20 @@ describe('settings onboarding flow', () => {
     )
 
     await waitFor(() => {
-      expect(screen.queryByTestId('settings-update-config-form')).not.toBeInTheDocument()
+      expect(screen.queryByTestId(`settings-edit-config-key-${storedKeyConfig.id}`)).not.toBeInTheDocument()
     })
   })
 
   // @acceptance:v4-4-a1
   it('lets forced onboarding repair a config that exists but is still missing a stored key', async () => {
+    const updateConfig = vi.fn().mockResolvedValue(missingKeyConfig)
     const storeKey = vi.fn().mockResolvedValue(undefined)
 
     setupDefaultMocks([missingKeyConfig])
+    mockedQueries.useUpdateApiConfigMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: updateConfig,
+    } as ReturnType<typeof queries.useUpdateApiConfigMutation>)
     mockedQueries.useStoreApiKeyMutation.mockReturnValue({
       isPending: false,
       mutateAsync: storeKey,
@@ -438,12 +642,21 @@ describe('settings onboarding flow', () => {
     renderWithProviders(<SettingsPage forcedOnboarding />)
 
     fireEvent.click(screen.getByTestId(`settings-manage-key-${missingKeyConfig.id}`))
-    fireEvent.change(screen.getByTestId('settings-update-config-key'), {
+    fireEvent.change(screen.getByTestId(`settings-edit-config-key-${missingKeyConfig.id}`), {
       target: { value: 'sk-repaired-key' },
     })
-    fireEvent.click(screen.getByTestId('settings-update-save-key'))
+    fireEvent.click(screen.getByTestId(`settings-edit-save-${missingKeyConfig.id}`))
 
     await waitFor(() => {
+      expect(updateConfig).toHaveBeenCalledWith({
+        id: missingKeyConfig.id,
+        data: expect.objectContaining({
+          name: missingKeyConfig.name,
+          displayName: missingKeyConfig.displayName,
+          model: missingKeyConfig.model,
+          baseUrl: missingKeyConfig.baseUrl,
+        }),
+      })
       expect(storeKey).toHaveBeenCalledWith({
         configId: missingKeyConfig.id,
         apiKey: 'sk-repaired-key',

@@ -37,7 +37,11 @@ pub struct PodcastEpisodeDto {
     pub audio_path: Option<String>,
     pub duration_ms: i64,
     pub status: String,
+    pub stage_key: String,
     pub error_message: Option<String>,
+    pub error_code: Option<String>,
+    pub error_stage: Option<String>,
+    pub retryable: bool,
     pub current_stage: i64,
     pub completed_segments: i64,
     pub total_segments: i64,
@@ -47,6 +51,10 @@ pub struct PodcastEpisodeDto {
 
 impl From<PodcastEpisode> for PodcastEpisodeDto {
     fn from(episode: PodcastEpisode) -> Self {
+        let stage_key = derive_stage_key(&episode.status, episode.current_stage).to_string();
+        let error_message = episode.error_message.clone();
+        let error_code = derive_error_code(&stage_key, error_message.as_deref()).map(str::to_string);
+        let error_stage = derive_error_stage(&stage_key).map(str::to_string);
         Self {
             id: episode.id,
             document_ids: episode.document_ids,
@@ -64,13 +72,72 @@ impl From<PodcastEpisode> for PodcastEpisodeDto {
             audio_path: episode.audio_path,
             duration_ms: episode.duration_ms,
             status: episode.status,
-            error_message: episode.error_message,
+            stage_key: stage_key.clone(),
+            error_message,
+            error_code,
+            error_stage,
+            retryable: stage_key != "ready",
             current_stage: episode.current_stage,
             completed_segments: episode.completed_segments,
             total_segments: episode.total_segments,
             created_at: episode.created_at,
             updated_at: episode.updated_at,
         }
+    }
+}
+
+fn derive_stage_key(status: &str, current_stage: i64) -> &'static str {
+    match status {
+        "ready" => "ready",
+        "failed" => "failed",
+        "cancelled" => "cancelled",
+        "awaiting_review" => "awaiting_review",
+        "queued" | "retrieving" => "retrieval",
+        "generating_outline" => "outline",
+        "generating_script" => "script",
+        "evaluating" => "evaluation",
+        "generating_audio" | "stitching" => "audio",
+        _ => match current_stage {
+            0 | 1 => "retrieval",
+            2 => "outline",
+            3 => "script",
+            4 => "evaluation",
+            5 | 6 => "audio",
+            _ => "retrieval",
+        },
+    }
+}
+
+fn derive_error_code(stage_key: &str, error_message: Option<&str>) -> Option<&'static str> {
+    if !matches!(stage_key, "failed" | "cancelled") {
+        return None;
+    }
+
+    if let Some(message) = error_message {
+        let lowered = message.to_lowercase();
+        if lowered.contains("budget") {
+            return Some("budget_exceeded");
+        }
+        if lowered.contains("tts") {
+            return Some("tts_failed");
+        }
+        if lowered.contains("review") {
+            return Some("review_rejected");
+        }
+    }
+
+    Some(if stage_key == "cancelled" {
+        "cancelled"
+    } else {
+        "workflow_failed"
+    })
+}
+
+fn derive_error_stage(stage_key: &str) -> Option<&'static str> {
+    match stage_key {
+        "failed" => Some("audio"),
+        "cancelled" => Some("retrieval"),
+        _ => None,
     }
 }
 
@@ -1089,8 +1156,6 @@ fn auto_accept_review_if_due(
     state: &AppState,
     episode_id: &str,
 ) -> CommandResult<Option<PodcastEpisode>> {
-    let review_timeout_minutes = load_review_timeout_minutes(state)?;
-
     let episode = {
         let db = state.lock_db()?;
         let repo = PodcastRepository::new(&db);
@@ -1100,6 +1165,19 @@ fn auto_accept_review_if_due(
     let Some(episode) = episode else {
         return Ok(None);
     };
+
+    if episode.status == "awaiting_review" {
+        return Ok(Some(apply_review_action(
+            app_handle,
+            state,
+            episode_id,
+            "accept",
+            None,
+            Some("Review skipped, resuming podcast audio generation"),
+        )?));
+    }
+
+    let review_timeout_minutes = load_review_timeout_minutes(state)?;
 
     if !has_review_timed_out(&episode, review_timeout_minutes) {
         return Ok(Some(episode));

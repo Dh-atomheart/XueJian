@@ -12,6 +12,7 @@ beforeEach(async () => {
     reviewTimeLimit: 30,
     podcastTtsProvider: 'auto',
     podcastOpenaiModel: 'tts-1',
+    podcastGoogleTtsModel: 'gemini-2.5-flash-preview-tts',
     podcastFishAudioEndpoint: null,
     podcastVoiceOverrides: {},
     podcastOutputFormat: 'mp3',
@@ -30,6 +31,7 @@ describe('gateway mocks', () => {
     expect(settings.language).toBe('zh-CN')
     expect(settings.dailyNewCardLimit).toBe(20)
     expect(settings.podcastTtsProvider).toBe('auto')
+    expect(settings.podcastGoogleTtsModel).toBe('gemini-2.5-flash-preview-tts')
     expect(settings.podcastOutputFormat).toBe('mp3')
     expect(settings.podcastSkipReview).toBe(true)
     expect(settings.podcastMaxLlmTokens).toBe(100000)
@@ -56,6 +58,7 @@ describe('gateway mocks', () => {
       learningGoal: 'exam_preparation',
       studyTimePreferences: ['morning', 'evening'],
       podcastTtsProvider: 'edge_tts',
+      podcastGoogleTtsModel: 'gemini-2.5-flash-preview-tts',
       podcastOutputFormat: 'wav',
       podcastSkipReview: false,
       podcastMaxLlmTokens: 25000,
@@ -68,6 +71,7 @@ describe('gateway mocks', () => {
     expect(updated.learningGoal).toBe('exam_preparation')
     expect(updated.studyTimePreferences).toEqual(['morning', 'evening'])
     expect(updated.podcastTtsProvider).toBe('edge_tts')
+    expect(updated.podcastGoogleTtsModel).toBe('gemini-2.5-flash-preview-tts')
     expect(updated.podcastOutputFormat).toBe('wav')
     expect(updated.podcastSkipReview).toBe(false)
     expect(updated.podcastMaxEstimatedCostUsd).toBe(0.35)
@@ -78,6 +82,7 @@ describe('gateway mocks', () => {
     expect(persisted.learningGoal).toBe('exam_preparation')
     expect(persisted.studyTimePreferences).toEqual(['morning', 'evening'])
     expect(persisted.podcastTtsProvider).toBe('edge_tts')
+    expect(persisted.podcastGoogleTtsModel).toBe('gemini-2.5-flash-preview-tts')
     expect(persisted.podcastOutputFormat).toBe('wav')
     expect(persisted.podcastSkipReview).toBe(false)
     expect(persisted.podcastMaxTtsCharacters).toBe(12000)

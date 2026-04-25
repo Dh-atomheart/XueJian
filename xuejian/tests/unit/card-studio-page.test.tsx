@@ -1,27 +1,29 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CardStudioPage } from '@/features/cards/CardStudioPage'
 import { cardsGateway } from '@/services/gateway/cards'
 import { useAppUiStore } from '@/store'
-import type { CardCandidate, Document, WorkflowRun } from '@/types'
+import type { Card, Document, WorkflowRun } from '@/types'
 
 const {
   useDocumentsQueryMock,
-  useRecentWorkflowRunsQueryMock,
-  useDocumentAnchorsQueryMock,
-  useDocumentChunksQueryMock,
+  useCardsQueryMock,
   useCardCandidatesQueryMock,
-  useWorkflowCheckpointQueryMock,
+  useRecentWorkflowRunsQueryMock,
   useWorkflowEventsQueryMock,
+  useUpdateCardCandidateMutationMock,
+  useBulkUpdateCardCandidateStatusesMutationMock,
+  useFinalizeCardGenerationMutationMock,
 } = vi.hoisted(() => ({
   useDocumentsQueryMock: vi.fn(),
-  useRecentWorkflowRunsQueryMock: vi.fn(),
-  useDocumentAnchorsQueryMock: vi.fn(),
-  useDocumentChunksQueryMock: vi.fn(),
+  useCardsQueryMock: vi.fn(),
   useCardCandidatesQueryMock: vi.fn(),
-  useWorkflowCheckpointQueryMock: vi.fn(),
+  useRecentWorkflowRunsQueryMock: vi.fn(),
   useWorkflowEventsQueryMock: vi.fn(),
+  useUpdateCardCandidateMutationMock: vi.fn(),
+  useBulkUpdateCardCandidateStatusesMutationMock: vi.fn(),
+  useFinalizeCardGenerationMutationMock: vi.fn(),
 }))
 
 vi.mock('@/queries', () => ({
@@ -29,12 +31,13 @@ vi.mock('@/queries', () => ({
   documentsQueryKeys: { all: ['documents'] },
   orchestrationQueryKeys: { all: ['orchestration'] },
   useDocumentsQuery: useDocumentsQueryMock,
-  useRecentWorkflowRunsQuery: useRecentWorkflowRunsQueryMock,
-  useDocumentAnchorsQuery: useDocumentAnchorsQueryMock,
-  useDocumentChunksQuery: useDocumentChunksQueryMock,
+  useCardsQuery: useCardsQueryMock,
   useCardCandidatesQuery: useCardCandidatesQueryMock,
-  useWorkflowCheckpointQuery: useWorkflowCheckpointQueryMock,
+  useRecentWorkflowRunsQuery: useRecentWorkflowRunsQueryMock,
   useWorkflowEventsQuery: useWorkflowEventsQueryMock,
+  useUpdateCardCandidateMutation: useUpdateCardCandidateMutationMock,
+  useBulkUpdateCardCandidateStatusesMutation: useBulkUpdateCardCandidateStatusesMutationMock,
+  useFinalizeCardGenerationMutation: useFinalizeCardGenerationMutationMock,
 }))
 
 vi.mock('@/services/gateway/cards', async () => {
@@ -46,10 +49,12 @@ vi.mock('@/services/gateway/cards', async () => {
     cardsGateway: {
       ...actual.cardsGateway,
       startGeneration: vi.fn(),
-      resumeGeneration: vi.fn(),
-      finalizeGeneration: vi.fn(),
-      updateCandidate: vi.fn(),
-      bulkUpdateCandidateStatuses: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      listCardMedia: vi.fn(),
+      uploadCardMedia: vi.fn(),
+      deleteCardMedia: vi.fn(),
     },
   }
 })
@@ -75,59 +80,48 @@ function makeWorkflowRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     id: '99999999-9999-4999-8999-999999999999',
     workflowType: 'card_generation',
     presetId: 'm3-card-production-line',
-    status: 'waiting_confirmation',
+    status: 'completed',
     threadId: 'card-generation:mock',
-    checkpointRef: 'waiting_confirmation',
+    checkpointRef: 'completed',
     approvalPayload: {
       documentId: '22222222-2222-4222-8222-222222222222',
       documentTitle: 'Mock Notes.pdf',
-      phase: 'waiting_confirmation',
-      generationMode: 'llm',
-      fallbackReason: null,
-      chunkCursor: 4,
-      totalChunks: 4,
+      phase: 'completed',
       generatedCount: 2,
-      duplicateCount: 0,
-      pendingCount: 1,
-      acceptedCount: 0,
-      rejectedCount: 0,
     },
     costUsd: null,
     errorMessage: null,
     startedAt: new Date('2026-04-21T00:00:00.000Z'),
-    finishedAt: null,
+    finishedAt: new Date('2026-04-21T00:01:00.000Z'),
     createdAt: new Date('2026-04-21T00:00:00.000Z'),
-    updatedAt: new Date('2026-04-21T00:00:00.000Z'),
+    updatedAt: new Date('2026-04-21T00:01:00.000Z'),
     ...overrides,
   }
 }
 
-function makeCandidate(overrides: Partial<CardCandidate> = {}): CardCandidate {
+function makeCard(overrides: Partial<Card> = {}): Card {
   return {
     id: '88888888-8888-4888-8888-888888888888',
-    workflowRunId: '99999999-9999-4999-8999-999999999999',
-    documentId: '22222222-2222-4222-8222-222222222222',
-    sectionId: null,
-    anchorId: null,
+    groupId: null,
     title: null,
     cardType: 'qa',
+    clusterId: null,
+    exportGuid: null,
+    documentId: '22222222-2222-4222-8222-222222222222',
+    anchorId: null,
+    front: 'What is FSRS?',
+    back: 'A scheduling algorithm for spaced repetition.',
     sourcePage: 1,
     sourceParagraph: 1,
-    sourceQuote: '候选原文',
-    front: '候选问题',
-    back: '候选答案',
-    tags: ['候选'],
-    confidence: 0.92,
-    dedupeKey: 'candidate-dedupe',
-    status: 'pending',
-    scoreOverall: 92,
-    scoreDetails: { clarity: 0.9 },
-    visibilityBucket: 'default',
-    generationMode: 'llm',
-    fallbackReason: null,
-    evaluationSummary: '结构完整，适合直接复习。',
-    sourceChunkIds: null,
+    sourceCoordinates: null,
+    tags: ['memory'],
+    difficulty: 0.3,
+    stability: 1,
+    retrievability: null,
+    state: 'new',
+    nextReview: null,
     createdAt: new Date('2026-04-21T00:00:00.000Z'),
+    updatedAt: new Date('2026-04-21T00:00:00.000Z'),
     ...overrides,
   }
 }
@@ -164,7 +158,6 @@ function resetUiState() {
       hoveredHighlightId: null,
       selectedCardId: null,
       annotationScope: 'page',
-      annotationFilterTags: [],
       isLinkingMode: false,
       linkingCardId: null,
     },
@@ -177,49 +170,59 @@ describe('CardStudioPage', () => {
     resetUiState()
 
     useDocumentsQueryMock.mockReturnValue({ data: [], isLoading: false })
-    useRecentWorkflowRunsQueryMock.mockReturnValue({ data: [], isLoading: false })
-    useDocumentAnchorsQueryMock.mockReturnValue({ data: [], isLoading: false })
-    useDocumentChunksQueryMock.mockReturnValue({ data: [], isLoading: false })
+    useCardsQueryMock.mockReturnValue({ data: [], isLoading: false })
     useCardCandidatesQueryMock.mockReturnValue({ data: [], isLoading: false })
-    useWorkflowCheckpointQueryMock.mockReturnValue({ data: null, isLoading: false })
+    useRecentWorkflowRunsQueryMock.mockReturnValue({ data: [], isLoading: false })
     useWorkflowEventsQueryMock.mockReturnValue({ data: [], isLoading: false })
+    useUpdateCardCandidateMutationMock.mockReturnValue({
+      isPending: false,
+      mutate: vi.fn(),
+      mutateAsync: vi.fn(),
+    })
+    useBulkUpdateCardCandidateStatusesMutationMock.mockReturnValue({
+      isPending: false,
+      mutate: vi.fn(),
+      mutateAsync: vi.fn(),
+    })
+    useFinalizeCardGenerationMutationMock.mockReturnValue({
+      isPending: false,
+      mutate: vi.fn(),
+      mutateAsync: vi.fn(),
+    })
 
     vi.mocked(cardsGateway.startGeneration).mockResolvedValue(makeWorkflowRun({ status: 'queued' }))
-    vi.mocked(cardsGateway.resumeGeneration).mockResolvedValue(makeWorkflowRun({ status: 'running' }))
-    vi.mocked(cardsGateway.finalizeGeneration).mockResolvedValue({
-      createdCount: 1,
-      skippedDuplicates: 0,
-      rejectedCount: 0,
-      run: makeWorkflowRun({ status: 'completed', checkpointRef: 'completed' }),
+    vi.mocked(cardsGateway.create).mockResolvedValue(makeCard({ id: '77777777-7777-4777-8777-777777777777' }))
+    vi.mocked(cardsGateway.update).mockResolvedValue(makeCard({ front: 'Updated front' }))
+    vi.mocked(cardsGateway.delete).mockResolvedValue(undefined)
+    vi.mocked(cardsGateway.listCardMedia).mockResolvedValue([])
+    vi.mocked(cardsGateway.uploadCardMedia).mockResolvedValue({
+      id: 'media-1',
+      cardId: '77777777-7777-4777-8777-777777777777',
+      fileName: 'image.png',
+      mimeType: 'image/png',
+      fileSize: 100,
+      storageKey: 'image.png',
+      createdAt: '2026-04-21T00:00:00.000Z',
     })
-    vi.mocked(cardsGateway.updateCandidate).mockResolvedValue(makeCandidate({ status: 'accepted' }))
-    vi.mocked(cardsGateway.bulkUpdateCandidateStatuses).mockResolvedValue(1)
+    vi.mocked(cardsGateway.deleteCardMedia).mockResolvedValue(undefined)
   })
 
   it('shows the document-import empty state when no ready documents exist', () => {
     renderCardStudioPage()
 
-    expect(screen.getByText('先导入并解析文档，才能开始卡片生产。')).toBeInTheDocument()
+    expect(screen.getByText('先导入并解析文档，才能开始生成卡片。')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '前往文档库' }))
     expect(useAppUiStore.getState().activeNavItem).toBe('library')
   })
 
   it('starts generation for the selected ready document', async () => {
-    useDocumentsQueryMock.mockReturnValue({
-      data: [makeDocument()],
-      isLoading: false,
-    })
-    useDocumentAnchorsQueryMock.mockReturnValue({ data: [{ id: 'a1' }, { id: 'a2' }], isLoading: false })
-    useDocumentChunksQueryMock.mockReturnValue({
-      data: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
-      isLoading: false,
-    })
+    useDocumentsQueryMock.mockReturnValue({ data: [makeDocument()], isLoading: false })
 
     renderCardStudioPage()
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '18' } })
-    fireEvent.click(screen.getByRole('button', { name: '生成候选卡片' }))
+    fireEvent.change(screen.getByDisplayValue('24'), { target: { value: '18' } })
+    fireEvent.click(screen.getByRole('button', { name: '让 Agent 生成卡片' }))
 
     await waitFor(() => {
       expect(cardsGateway.startGeneration).toHaveBeenCalledWith(
@@ -229,43 +232,53 @@ describe('CardStudioPage', () => {
     })
   })
 
-  it('updates a candidate, resumes the workflow, and finalizes the batch', async () => {
-    useDocumentsQueryMock.mockReturnValue({
-      data: [makeDocument()],
-      isLoading: false,
-    })
-    useRecentWorkflowRunsQueryMock.mockReturnValue({
-      data: [makeWorkflowRun({ status: 'running' })],
-      isLoading: false,
-    })
-    useDocumentAnchorsQueryMock.mockReturnValue({ data: [{ id: 'a1' }], isLoading: false })
-    useDocumentChunksQueryMock.mockReturnValue({ data: [{ id: 'c1' }], isLoading: false })
-    useCardCandidatesQueryMock.mockReturnValue({
-      data: [makeCandidate()],
-      isLoading: false,
-    })
-    useWorkflowCheckpointQueryMock.mockReturnValue({
-      data: { id: 'cp-1', runId: '99999999-9999-4999-8999-999999999999', checkpointRef: 'waiting_confirmation', stepKey: null, payload: { phase: 'waiting_confirmation' }, createdAt: new Date('2026-04-21T00:00:00.000Z'), updatedAt: new Date('2026-04-21T00:00:00.000Z') },
-      isLoading: false,
-    })
+  it('creates, edits, and deletes formal cards', async () => {
+    useDocumentsQueryMock.mockReturnValue({ data: [makeDocument()], isLoading: false })
+    useCardsQueryMock.mockReturnValue({ data: [makeCard()], isLoading: false })
+    useRecentWorkflowRunsQueryMock.mockReturnValue({ data: [makeWorkflowRun()], isLoading: false })
 
     renderCardStudioPage()
 
-    fireEvent.click(screen.getByRole('button', { name: '接受' }))
-    fireEvent.click(screen.getByRole('button', { name: '从检查点恢复' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认并入库' }))
+    expect(screen.getByText('What is FSRS?')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '新建卡片' }))
+    const createModal = screen.getByTestId('card-editor-modal')
+    const createTextareas = within(createModal).getAllByRole('textbox')
+    fireEvent.change(createTextareas[0], { target: { value: 'New question?' } })
+    fireEvent.change(createTextareas[1], { target: { value: 'New answer.' } })
+    fireEvent.click(within(createModal).getByRole('button', { name: /创建|鍒涘缓/ }))
 
     await waitFor(() => {
-      expect(cardsGateway.updateCandidate).toHaveBeenCalledWith(
+      expect(cardsGateway.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          front: 'New question?',
+          back: 'New answer.',
+          documentId: '22222222-2222-4222-8222-222222222222',
+        })
+      )
+    })
+
+    fireEvent.click(
+      screen.getByTestId('card-studio-edit-card-88888888-8888-4888-8888-888888888888')
+    )
+    const editModal = screen.getByTestId('card-editor-modal')
+    const editTextareas = within(editModal).getAllByRole('textbox')
+    fireEvent.change(editTextareas[0], { target: { value: 'Updated front' } })
+    fireEvent.click(within(editModal).getByRole('button', { name: /保存|淇濆瓨/ }))
+
+    await waitFor(() => {
+      expect(cardsGateway.update).toHaveBeenCalledWith(
         '88888888-8888-4888-8888-888888888888',
-        { status: 'accepted' }
+        expect.objectContaining({ front: 'Updated front' })
       )
-      expect(cardsGateway.resumeGeneration).toHaveBeenCalledWith(
-        '99999999-9999-4999-8999-999999999999'
-      )
-      expect(cardsGateway.finalizeGeneration).toHaveBeenCalledWith(
-        '99999999-9999-4999-8999-999999999999'
-      )
+    })
+
+    fireEvent.click(
+      screen.getByTestId('card-studio-delete-card-88888888-8888-4888-8888-888888888888')
+    )
+
+    await waitFor(() => {
+      expect(cardsGateway.delete).toHaveBeenCalledWith('88888888-8888-4888-8888-888888888888')
     })
   })
 })

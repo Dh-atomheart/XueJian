@@ -103,9 +103,20 @@ pub struct OrchestrationService {
 impl OrchestrationService {
     pub fn new(app_handle: &AppHandle, host_gateway_port: Option<u16>) -> Result<Self> {
         let script_path = resolve_script_path(app_handle)?;
+        let log_dir = resolve_log_dir(app_handle);
+        if let Some(log_dir) = &log_dir {
+            if let Err(error) = std::fs::create_dir_all(log_dir) {
+                log::warn!(
+                    "Failed to create app log directory {:?}: {}",
+                    log_dir,
+                    error
+                );
+            }
+        }
         Ok(Self {
             inner: Mutex::new(OrchestrationServiceManager::new(
                 script_path,
+                log_dir,
                 host_gateway_port,
             )),
         })
@@ -130,6 +141,7 @@ impl OrchestrationService {
 
 struct OrchestrationServiceManager {
     script_path: PathBuf,
+    log_dir: Option<PathBuf>,
     host_gateway_port: Option<u16>,
     process: Option<Child>,
     endpoint: Option<String>,
@@ -138,9 +150,10 @@ struct OrchestrationServiceManager {
 }
 
 impl OrchestrationServiceManager {
-    fn new(script_path: PathBuf, host_gateway_port: Option<u16>) -> Self {
+    fn new(script_path: PathBuf, log_dir: Option<PathBuf>, host_gateway_port: Option<u16>) -> Self {
         Self {
             script_path,
+            log_dir,
             host_gateway_port,
             process: None,
             endpoint: None,
@@ -170,6 +183,10 @@ impl OrchestrationServiceManager {
 
         if let Some(host_port) = self.host_gateway_port {
             command.arg("--host-port").arg(host_port.to_string());
+        }
+
+        if let Some(log_dir) = &self.log_dir {
+            command.env("XUEJIAN_LOG_DIR", log_dir);
         }
 
         command
@@ -376,6 +393,22 @@ fn resolve_script_path(app_handle: &AppHandle) -> Result<PathBuf> {
     Err(ServiceError::ScriptMissing(dev_path))
 }
 
+fn resolve_log_dir(_app_handle: &AppHandle) -> Option<PathBuf> {
+    if let Ok(active_log_dir) = std::env::var("XUEJIAN_ACTIVE_LOG_DIR") {
+        return Some(PathBuf::from(active_log_dir));
+    }
+
+    Some(
+        std::env::var("XUEJIAN_LOG_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../..")
+                    .join("logs")
+            }),
+    )
+}
+
 fn detect_python_command() -> Result<PythonCommandSpec> {
     let mut candidates = Vec::new();
 
@@ -418,7 +451,7 @@ mod tests {
     async fn health_roundtrip_succeeds() {
         let script_path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../orchestration_service/main.py");
-        let mut manager = OrchestrationServiceManager::new(script_path, None);
+        let mut manager = OrchestrationServiceManager::new(script_path, None, None);
 
         let health = manager.start().await.expect("start service");
         assert_eq!(health.status, "healthy");

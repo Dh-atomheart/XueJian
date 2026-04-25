@@ -18,6 +18,29 @@ function Shimmer({ className }: { className?: string }) {
   return <div className={cn('animate-pulse rounded-md bg-muted/60', className)} />
 }
 
+export function SkeletonLine({ width = 'w-full', className }: { width?: string; className?: string }) {
+  return <Shimmer className={cn('h-3.5', width, className)} />
+}
+
+export function SkeletonBlock({ className }: { className?: string }) {
+  return <Shimmer className={cn('h-24 w-full', className)} />
+}
+
+export function SkeletonCard({ className }: { className?: string }) {
+  return (
+    <div className={cn('rounded-xl border border-border/50 bg-card p-4 space-y-3', className)}>
+      <Shimmer className="h-4 w-3/4" />
+      <Shimmer className="h-3 w-full" />
+      <Shimmer className="h-3 w-5/6" />
+      <Shimmer className="h-3 w-2/3" />
+      <div className="flex items-center justify-between pt-2">
+        <Shimmer className="h-5 w-16 rounded-full" />
+        <Shimmer className="h-5 w-5 rounded" />
+      </div>
+    </div>
+  )
+}
+
 export function SkeletonDocRow({ className }: { className?: string }) {
   return (
     <div className={cn('flex items-center gap-3 rounded-xl border border-border/50 bg-card/50 p-4', className)}>
@@ -244,6 +267,45 @@ export function ParsingBanner({
         <div className="h-full rounded-full bg-chart-2/60 transition-all duration-500" style={{ width: `${progress}%` }} />
       </div>
       <p className="mt-2 text-right text-[11px] text-muted-foreground">{Math.round(progress)}%</p>
+    </div>
+  )
+}
+
+export function TaskProgress({
+  label,
+  subLabel,
+  progress,
+  onCancel,
+  className,
+}: {
+  label: string
+  subLabel?: string
+  progress: number
+  onCancel?: () => void
+  className?: string
+}) {
+  return (
+    <div className={cn('space-y-2', className)}>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-foreground">{label}</p>
+          {subLabel ? <p className="text-xs text-muted-foreground">{subLabel}</p> : null}
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="tabular-nums text-sm text-muted-foreground">{Math.round(progress)}%</span>
+          {onCancel ? (
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={onCancel}>
+              取消
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-foreground/70 transition-all duration-300"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
     </div>
   )
 }

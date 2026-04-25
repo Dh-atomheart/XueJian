@@ -4,6 +4,7 @@ import {
   apiConnectionTestResultSchema,
   discoveredModelSchema,
   embeddingProfileSchema,
+  modelProfileSchema,
   providerBudgetUsageSchema,
   workflowModelAssignmentSchema,
 } from '@/types'
@@ -30,6 +31,8 @@ type ApiConfigUpdate = Partial<
     'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey' | 'keyVerifiedAt' | 'keyStatus'
   >
 >
+type ModelProfileDraft = Omit<ModelProfile, 'id' | 'createdAt' | 'updatedAt' | 'apiConfig'>
+type ModelProfileUpdate = Partial<ModelProfileDraft>
 
 /**
  * API 配置相关命令。
@@ -56,15 +59,41 @@ export const apiConfigGateway = {
     return invoke<void>('delete_api_config', { id })
   },
 
+  async listModelProfiles(): Promise<ModelProfile[]> {
+    return invokeWithSchema('list_model_profiles', z.array(modelProfileSchema))
+  },
+
+  async listModelProfilesByApiConfig(apiConfigId: string): Promise<ModelProfile[]> {
+    return invokeWithSchema('list_model_profiles_by_api_config', z.array(modelProfileSchema), {
+      apiConfigId,
+    })
+  },
+
+  async createModelProfile(data: ModelProfileDraft): Promise<ModelProfile> {
+    return invokeWithSchema('create_model_profile', modelProfileSchema, { data })
+  },
+
+  async updateModelProfile(id: string, data: ModelProfileUpdate): Promise<ModelProfile> {
+    return invokeWithSchema('update_model_profile', modelProfileSchema, { id, data })
+  },
+
+  async deleteModelProfile(id: string): Promise<void> {
+    return invoke<void>('delete_model_profile', { id })
+  },
+
   async deleteApiKey(configId: string): Promise<void> {
     return invoke<void>('delete_api_key', { configId })
+  },
+
+  async getApiKey(configId: string): Promise<string> {
+    return invokeWithSchema('get_api_key', z.string(), { configId })
   },
 
   async testConnection(data: {
     configId?: string | null
     provider: ApiConfig['provider']
     authMode: ApiAuthMode
-    apiKey: string
+    apiKey?: string | null
     baseUrl?: string | null
     model?: string | null
   }): Promise<ApiConnectionTestResult> {
@@ -99,19 +128,19 @@ export const apiConfigGateway = {
 
   async setWorkflowAssignment(
     workflowType: WorkflowType,
-    apiConfigId: string
+    modelProfileId: string
   ): Promise<WorkflowModelAssignment> {
     return invokeWithSchema('set_workflow_assignment', workflowModelAssignmentSchema, {
-      data: { workflowType, apiConfigId },
+      data: { workflowType, modelProfileId },
     })
   },
 
-  async setAllWorkflowAssignments(apiConfigId: string): Promise<WorkflowModelAssignment[]> {
+  async setAllWorkflowAssignments(modelProfileId: string): Promise<WorkflowModelAssignment[]> {
     return invokeWithSchema(
       'set_all_workflow_assignments',
       z.array(workflowModelAssignmentSchema),
       {
-        apiConfigId,
+        modelProfileId,
       }
     )
   },
@@ -169,15 +198,16 @@ export const embeddingProfileGateway = {
 export const modelGateway: {
   list: () => Promise<ModelProfile[]>
   get: (id: string) => Promise<ModelProfile | null>
-  create: (data: ApiConfigDraft) => Promise<ModelProfile>
-  update: (id: string, data: ApiConfigUpdate) => Promise<ModelProfile>
+  create: (data: ModelProfileDraft) => Promise<ModelProfile>
+  update: (id: string, data: ModelProfileUpdate) => Promise<ModelProfile>
   delete: (id: string) => Promise<void>
   deleteApiKey: (configId: string) => Promise<void>
+  getApiKey: (configId: string) => Promise<string>
   testConnection: (data: {
     configId?: string | null
     provider: ApiConfig['provider']
     authMode: ApiAuthMode
-    apiKey: string
+    apiKey?: string | null
     baseUrl?: string | null
     model?: string | null
   }) => Promise<ApiConnectionTestResult>
@@ -192,9 +222,9 @@ export const modelGateway: {
   getWorkflowAssignment: (workflowType: WorkflowType) => Promise<WorkflowModelAssignment | null>
   setWorkflowAssignment: (
     workflowType: WorkflowType,
-    apiConfigId: string
+    modelProfileId: string
   ) => Promise<WorkflowModelAssignment>
-  setAllWorkflowAssignments: (apiConfigId: string) => Promise<WorkflowModelAssignment[]>
+  setAllWorkflowAssignments: (modelProfileId: string) => Promise<WorkflowModelAssignment[]>
   deleteWorkflowAssignment: (workflowType: WorkflowType) => Promise<void>
   getProviderBudgetUsage: (
     apiConfigId: string,
@@ -202,4 +232,27 @@ export const modelGateway: {
   ) => Promise<ProviderBudgetUsage | null>
   resetProviderBudgetUsage: (apiConfigId: string) => Promise<void>
   recordWorkflowCost: (apiConfigId: string, estimatedCostUsd: number) => Promise<void>
-} = apiConfigGateway
+} = {
+  list: apiConfigGateway.listModelProfiles,
+  get: async (id: string) => {
+    const profiles = await apiConfigGateway.listModelProfiles()
+    return profiles.find((profile) => profile.id === id) ?? null
+  },
+  create: apiConfigGateway.createModelProfile,
+  update: apiConfigGateway.updateModelProfile,
+  delete: apiConfigGateway.deleteModelProfile,
+  deleteApiKey: apiConfigGateway.deleteApiKey,
+  getApiKey: apiConfigGateway.getApiKey,
+  testConnection: apiConfigGateway.testConnection,
+  setDefault: apiConfigGateway.setDefault,
+  storeApiKey: apiConfigGateway.storeApiKey,
+  fetchProviderModels: apiConfigGateway.fetchProviderModels,
+  listWorkflowAssignments: apiConfigGateway.listWorkflowAssignments,
+  getWorkflowAssignment: apiConfigGateway.getWorkflowAssignment,
+  setWorkflowAssignment: apiConfigGateway.setWorkflowAssignment,
+  setAllWorkflowAssignments: apiConfigGateway.setAllWorkflowAssignments,
+  deleteWorkflowAssignment: apiConfigGateway.deleteWorkflowAssignment,
+  getProviderBudgetUsage: apiConfigGateway.getProviderBudgetUsage,
+  resetProviderBudgetUsage: apiConfigGateway.resetProviderBudgetUsage,
+  recordWorkflowCost: apiConfigGateway.recordWorkflowCost,
+}

@@ -13,10 +13,11 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173',
+    command:
+      'npm.cmd run build && node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173',
     cwd: appRoot,
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: true,
-    timeout: 120_000,
+    timeout: 180_000,
   },
 })

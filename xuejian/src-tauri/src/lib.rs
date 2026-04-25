@@ -5,22 +5,70 @@ mod gateway;
 mod secrets;
 mod tasks;
 
+use std::path::PathBuf;
+
 use app_state::AppState;
 use tauri::{Manager, RunEvent};
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
+
+const ACTIVE_LOG_DIR_ENV: &str = "XUEJIAN_ACTIVE_LOG_DIR";
+
+fn log_base_dir() -> PathBuf {
+    std::env::var("XUEJIAN_LOG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join("logs")
+        })
+}
+
+fn create_session_log_dir() -> PathBuf {
+    let session_name = chrono::Local::now()
+        .format("%Y-%m-%d[%H-%M-%S]")
+        .to_string();
+    log_base_dir().join(session_name)
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let session_log_dir = create_session_log_dir();
+    if let Err(error) = std::fs::create_dir_all(&session_log_dir) {
+        eprintln!(
+            "Failed to create XueJian session log directory {:?}: {}",
+            session_log_dir, error
+        );
+    }
+    std::env::set_var(ACTIVE_LOG_DIR_ENV, &session_log_dir);
+
+    std::panic::set_hook(Box::new(|panic_info| {
+        let location = panic_info
+            .location()
+            .map(|location| format!("{}:{}", location.file(), location.line()))
+            .unwrap_or_else(|| "unknown".to_string());
+        log::error!(target: "panic", "Application panic at {location}: {panic_info}");
+    }));
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .rotation_strategy(RotationStrategy::KeepSome(10))
+                .timezone_strategy(TimezoneStrategy::UseLocal)
+                .max_file_size(2_000_000)
+                .targets([
+                    Target::new(TargetKind::Folder {
+                        path: session_log_dir.clone(),
+                        file_name: Some("xuejian".to_string()),
+                    }),
+                    Target::new(TargetKind::Stdout),
+                ])
+                .build(),
+        )
+        .setup(move |app| {
+            log::info!("Session log directory: {:?}", session_log_dir);
 
             let db = match db::init_db(app.handle()) {
                 Ok(db) => {
@@ -49,6 +97,37 @@ pub fn run() {
                     )));
                 }
             };
+
+            if secrets.recovered_from_corrupt_vault() {
+                log::warn!(
+                    "Secret vault was recreated after a corrupt Stronghold file was detected; stored API keys must be re-entered"
+                );
+                let repo = db::SettingsRepository::new(&db);
+                match repo.list_api_configs() {
+                    Ok(configs) => {
+                        for config in configs
+                            .iter()
+                            .filter(|config| config.key_status != "none")
+                        {
+                            if let Err(error) =
+                                repo.update_api_key_status(&config.id, "none", None)
+                            {
+                                log::warn!(
+                                    "Failed to reset API key status after vault recovery for config {}: {}",
+                                    config.id,
+                                    error
+                                );
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "Failed to inspect API key statuses after vault recovery: {}",
+                            error
+                        );
+                    }
+                }
+            }
 
             let host_gateway = match gateway::host_http::HostHttpGateway::new(app.handle().clone())
             {
@@ -159,9 +238,18 @@ pub fn run() {
             commands::settings::update_api_config,
             commands::settings::set_default_api_config,
             commands::settings::delete_api_config,
+            commands::settings::list_model_profiles,
+            commands::settings::list_model_profiles_by_api_config,
+            commands::settings::create_model_profile,
+            commands::settings::update_model_profile,
+            commands::settings::delete_model_profile,
             commands::settings::delete_api_key,
+            commands::settings::get_api_key,
+            commands::settings::get_secret_vault_status,
+            commands::settings::lock_secret_vault,
             commands::settings::store_api_key,
             commands::settings::test_api_connection,
+            commands::settings::unlock_secret_vault,
             commands::settings::fetch_provider_models,
             commands::settings::list_workflow_assignments,
             commands::settings::get_workflow_assignment,
@@ -219,6 +307,7 @@ pub fn run() {
             commands::knowledge_graph::list_graph_build_runs,
             commands::knowledge_graph::cancel_graph_build,
             commands::knowledge_graph::get_graph_stats,
+            commands::logging::log_frontend_event,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

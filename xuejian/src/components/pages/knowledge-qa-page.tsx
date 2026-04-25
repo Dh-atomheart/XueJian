@@ -1,10 +1,29 @@
-import { AlertCircle, ArrowUpRight, BookOpen, RefreshCcw, Send } from 'lucide-react'
-import { Button, Card, CardContent, Input, InlineError, UnconfiguredState, WorkspaceEmptyState } from '@/components/ui'
+import { useState } from 'react'
+import {
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  FileText,
+  Loader2,
+  MessageSquare,
+  RefreshCcw,
+  Send,
+} from 'lucide-react'
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  InlineError,
+  Input,
+  UnconfiguredState,
+} from '@/components/ui'
 import { cn } from '@/lib/utils'
 
 export interface KnowledgeQaDocumentScope {
   id: string
   title: string
+  status: 'ready' | 'embedding_stale'
 }
 
 export interface KnowledgeQaCitationView {
@@ -19,6 +38,10 @@ export interface KnowledgeQaTurnView {
   id: string
   question: string
   answer: string | null
+  answerMode?: 'grounded' | 'no_relevant_content' | 'excerpt_fallback' | null
+  retrievalStatus?: 'ready' | 'embedding_missing' | 'embedding_stale' | 'embedding_failed' | 'no_hits' | null
+  graphEnhanced?: boolean | null
+  graphContextSummary?: string | null
   status: 'pending' | 'answered' | 'error'
   errorMessage?: string | null
   citations: KnowledgeQaCitationView[]
@@ -56,31 +79,32 @@ export interface KnowledgeQaPageProps {
 }
 
 const EXAMPLE_PROMPTS = [
-  '这份资料的核心论点是什么？',
-  '第 3 节与第 5 节之间是什么关系？',
-  '帮我比较两篇文档里相似的概念。',
+  '这篇文章的核心观点是什么？',
+  '作者如何解释这个概念？',
+  '文中提到的关键步骤有哪些？',
+  '这份材料的结论和依据分别是什么？',
 ]
 
-function Header({ scopedCount }: { scopedCount: number }) {
+function PageHeader({ scopedCount }: { scopedCount: number }) {
   return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="flex items-center justify-between">
       <div>
-        <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">KNOWLEDGE QA</p>
+        <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">AI ASSISTANT</p>
         <h1 className="mt-1 text-2xl font-medium text-foreground" data-testid="app-shell-page-title">
           知识问答
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          采用参考编码的问答工作台结构，把对话主区、建议问题、引文侧栏和输入区统一到一套轻量骨架里。
+          基于已就绪文档回答问题，并附带可回溯的引用片段。
         </p>
       </div>
       <Card className="border-border/50 bg-card">
-        <CardContent className="flex items-center gap-3 p-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted/50">
-            <BookOpen className="h-4 w-4 text-foreground" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-foreground">{scopedCount > 0 ? `已限定 ${scopedCount} 份文档` : '当前为全库范围'}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">真实搜索与 workflow 事件仍走现有链路</p>
+        <CardContent className="flex items-center gap-2 p-3">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          <div className="text-xs">
+            <span className="text-muted-foreground">文档范围</span>
+            <span className="ml-2 font-medium text-foreground">
+              {scopedCount > 0 ? `已限定 ${scopedCount} 份` : '全部可用文档'}
+            </span>
           </div>
         </CardContent>
       </Card>
@@ -94,6 +118,16 @@ function ScopeBar({
   onToggleDocument,
   onClearDocuments,
 }: Pick<KnowledgeQaPageProps, 'documents' | 'selectedDocumentIds' | 'onToggleDocument' | 'onClearDocuments'>) {
+  if (documents.length === 0) {
+    return (
+      <Card className="mt-6 border-dashed border-border/60 bg-card/50">
+        <CardContent className="p-4 text-sm text-muted-foreground">
+          当前没有可限定的文档。只有状态为“可用”或“待更新”的文档会出现在这里。
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between" data-testid="knowledge-qa-toolbar">
       <div className="flex flex-wrap gap-2">
@@ -105,13 +139,18 @@ function ScopeBar({
               type="button"
               onClick={() => onToggleDocument(doc.id)}
               className={cn(
-                'rounded-full border px-3 py-1.5 text-xs transition-colors',
+                'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors',
                 active
                   ? 'border-foreground/20 bg-foreground/[0.06] text-foreground'
                   : 'border-border/50 bg-card/70 text-muted-foreground hover:text-foreground'
               )}
             >
-              {doc.title}
+              <span>{doc.title}</span>
+              {doc.status === 'embedding_stale' ? (
+                <Badge variant="secondary" className="rounded-md text-[10px]">
+                  待更新
+                </Badge>
+              ) : null}
             </button>
           )
         })}
@@ -140,8 +179,8 @@ function WarningBanner({
     <Card className="border-border/50 bg-card">
       <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10">
-            <AlertCircle className="h-4 w-4 text-destructive" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
+            <FileText className="h-4 w-4 text-amber-600" />
           </div>
           <div>
             <p className="text-sm font-medium text-foreground">{title}</p>
@@ -150,29 +189,213 @@ function WarningBanner({
         </div>
         <Button variant="outline" onClick={onRestartService} disabled={isRestartingService} className="rounded-lg">
           <RefreshCcw className="h-4 w-4" />
-          {isRestartingService ? '正在重启服务' : '重启问答服务'}
+          {isRestartingService ? '正在重启服务' : '重启服务'}
         </Button>
       </CardContent>
     </Card>
   )
 }
 
+function UserMessage({ content }: { content: string }) {
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-lg">
+        <Card className="border-border/50 bg-chart-2/10">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">你</p>
+            <p className="mt-2 text-sm text-foreground">{content}</p>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+function CitationCard({
+  citation,
+  onOpenCitation,
+}: {
+  citation: KnowledgeQaCitationView
+  onOpenCitation: KnowledgeQaPageProps['onOpenCitation']
+}) {
+  return (
+    <Card className="cursor-pointer border-border/50 bg-card transition-colors hover:bg-muted/30">
+      <CardContent className="p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <FileText className="h-3 w-3 text-muted-foreground" />
+              <span className="text-xs font-medium text-foreground">{citation.documentTitle}</span>
+              <span className="text-xs text-muted-foreground">{citation.pageLabel}</span>
+            </div>
+            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{citation.snippet}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 shrink-0 gap-1 text-xs text-muted-foreground"
+            onClick={() => onOpenCitation(citation.documentId)}
+          >
+            查看 <ExternalLink className="h-3 w-3" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function AnswerMeta({
+  answerMode,
+  retrievalStatus,
+  graphEnhanced,
+  graphContextSummary,
+}: {
+  answerMode?: KnowledgeQaTurnView['answerMode']
+  retrievalStatus?: KnowledgeQaTurnView['retrievalStatus']
+  graphEnhanced?: KnowledgeQaTurnView['graphEnhanced']
+  graphContextSummary?: KnowledgeQaTurnView['graphContextSummary']
+}) {
+  const isPlainGrounded =
+    !graphEnhanced && !graphContextSummary && (!answerMode || (answerMode === 'grounded' && retrievalStatus === 'ready'))
+
+  if (isPlainGrounded) {
+    return null
+  }
+
+  let label = '结果已降级'
+  if (retrievalStatus === 'embedding_missing') {
+    label = '未配置嵌入模型，当前结果依赖词法检索'
+  } else if (retrievalStatus === 'embedding_stale') {
+    label = '向量索引已过期，结果可能不稳定'
+  } else if (retrievalStatus === 'embedding_failed') {
+    label = '向量索引失败，当前结果依赖回退检索'
+  } else if (retrievalStatus === 'no_hits') {
+    label = '当前范围内没有命中片段'
+  } else if (answerMode === 'excerpt_fallback') {
+    label = '未生成归纳答案，已回退为原文摘录'
+  }
+
+  return (
+    <div className="mb-3 space-y-2" data-testid="knowledge-qa-answer-meta">
+      {graphEnhanced ? (
+        <Badge variant="secondary" className="mr-2 rounded-md" data-testid="knowledge-qa-graph-badge">
+          图谱增强
+        </Badge>
+      ) : null}
+      <Badge variant="secondary" className="rounded-md">
+        {label}
+      </Badge>
+      {graphContextSummary ? (
+        <p
+          className="rounded-lg border border-border/40 bg-background/50 px-3 py-2 text-xs leading-5 text-muted-foreground"
+          data-testid="knowledge-qa-graph-summary"
+        >
+          {graphContextSummary}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function AssistantMessage({
+  content,
+  citations,
+  answerMode,
+  retrievalStatus,
+  graphEnhanced,
+  graphContextSummary,
+  onOpenCitation,
+}: {
+  content: string
+  citations: KnowledgeQaCitationView[]
+  answerMode?: KnowledgeQaTurnView['answerMode']
+  retrievalStatus?: KnowledgeQaTurnView['retrievalStatus']
+  graphEnhanced?: KnowledgeQaTurnView['graphEnhanced']
+  graphContextSummary?: KnowledgeQaTurnView['graphContextSummary']
+  onOpenCitation: KnowledgeQaPageProps['onOpenCitation']
+}) {
+  const [showAllCitations, setShowAllCitations] = useState(false)
+  const displayCitations = showAllCitations ? citations : citations.slice(0, 2)
+
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-2xl">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-foreground/5 text-foreground">
+            <span className="text-xs">AI</span>
+          </div>
+        </div>
+        <Card className="mt-2 border-border/50 bg-card">
+          <CardContent className="p-4">
+            <AnswerMeta
+              answerMode={answerMode}
+              retrievalStatus={retrievalStatus}
+              graphEnhanced={graphEnhanced}
+              graphContextSummary={graphContextSummary}
+            />
+            <div className="prose prose-sm max-w-none text-foreground">
+              {content.split('\n\n').map((paragraph, idx) => (
+                <p key={idx} className="mb-3 text-sm leading-relaxed last:mb-0">
+                  {paragraph}
+                </p>
+              ))}
+            </div>
+
+            {citations.length > 0 ? (
+              <div className="mt-4 border-t border-border/30 pt-4">
+                <button
+                  onClick={() => setShowAllCitations(!showAllCitations)}
+                  className="mb-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  引用来源 ({citations.length})
+                  {showAllCitations ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  {displayCitations.map((citation) => (
+                    <CitationCard key={citation.id} citation={citation} onOpenCitation={onOpenCitation} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+function StreamingIndicator() {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-foreground/5">
+        <span className="text-xs">AI</span>
+      </div>
+      <Card className="border-border/50 bg-card">
+        <CardContent className="flex items-center gap-2 p-3">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">正在检索文档并生成回答…</span>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 function EmptyChatState({ onUsePrompt }: Pick<KnowledgeQaPageProps, 'onUsePrompt'>) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 px-6 py-14 text-center">
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">从你的文档里问一个问题</p>
-        <p className="max-w-xl text-sm leading-7 text-muted-foreground">
-          输入问题后，系统会先检索相关文档块，再返回带引用的回答。你可以从右侧直接跳回原文继续阅读。
-        </p>
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 py-12 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border-2 border-dashed border-border/50">
+        <MessageSquare className="h-6 w-6 text-muted-foreground/40" />
       </div>
-      <div className="grid w-full max-w-3xl gap-3 md:grid-cols-3">
+      <div>
+        <p className="text-base font-medium text-foreground">基于文档发起对话</p>
+        <p className="mt-1 text-sm text-muted-foreground">可限定到已就绪文档，也可以直接对全部可用文档提问。</p>
+      </div>
+      <div className="grid w-full max-w-lg grid-cols-2 gap-2">
         {EXAMPLE_PROMPTS.map((prompt) => (
           <button
             key={prompt}
-            type="button"
             onClick={() => onUsePrompt(prompt)}
-            className="rounded-xl border border-border/50 bg-card/70 p-4 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
+            className="rounded-xl border border-border/50 bg-card/80 p-3 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
           >
             {prompt}
           </button>
@@ -182,187 +405,227 @@ function EmptyChatState({ onUsePrompt }: Pick<KnowledgeQaPageProps, 'onUsePrompt
   )
 }
 
-function TurnCard({
-  turn,
-  onRetryQuestion,
-}: {
-  turn: KnowledgeQaTurnView
-  onRetryQuestion: KnowledgeQaPageProps['onRetryQuestion']
-}) {
-  return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="space-y-4 p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">QUESTION</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{turn.question}</p>
-          </div>
-          {turn.status === 'pending' ? <span className="rounded-md bg-chart-5/12 px-2 py-1 text-xs text-chart-5">处理中</span> : null}
-          {turn.status === 'answered' ? <span className="rounded-md bg-chart-1/15 px-2 py-1 text-xs text-chart-1">已回答</span> : null}
-          {turn.status === 'error' ? <span className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">失败</span> : null}
-        </div>
-        {turn.status === 'error' ? (
-          <InlineError message={turn.errorMessage ?? '问答工作流失败。'} onRetry={() => onRetryQuestion(turn.id)} />
-        ) : turn.status === 'pending' ? (
-          <div className="rounded-xl border border-border/50 bg-background/50 p-4 text-sm text-muted-foreground">
-            正在等待 workflow 返回结果与引用片段……
-          </div>
-        ) : (
-          <div className="rounded-xl border border-border/50 bg-background/50 p-4">
-            <p className="whitespace-pre-wrap text-sm leading-7 text-foreground">{turn.answer}</p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function Rail({
-  title,
-  emptyTitle,
-  emptyDescription,
-  items,
+function CitationsSidebar({
+  citations,
   onOpenCitation,
 }: {
-  title: string
-  emptyTitle: string
-  emptyDescription: string
-  items: Array<{ id: string; documentId: string; documentTitle: string; pageLabel: string; snippet: string }>
+  citations: KnowledgeQaCitationView[]
   onOpenCitation: KnowledgeQaPageProps['onOpenCitation']
 }) {
   return (
     <Card className="border-border/50 bg-card">
-      <CardContent className="p-5">
-        <h3 className="mb-4 text-sm font-medium text-foreground">{title}</h3>
-        {items.length === 0 ? (
-          <WorkspaceEmptyState className="min-h-[220px]" title={emptyTitle} description={emptyDescription} />
-        ) : (
-          <div className="space-y-3">
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onOpenCitation(item.documentId)}
-                className="w-full rounded-xl border border-border/40 bg-background/50 p-4 text-left transition-colors hover:bg-muted/30"
+      <CardContent className="p-4">
+        <h4 className="mb-3 text-sm font-medium text-foreground">引用来源</h4>
+        <div className="space-y-3">
+          {citations.map((citation) => (
+            <div key={citation.id} className="rounded-lg border border-border/40 bg-background/50 p-3">
+              <div className="flex items-center gap-2">
+                <FileText className="h-3 w-3 text-muted-foreground" />
+                <span className="text-xs font-medium text-foreground">{citation.documentTitle}</span>
+                <span className="text-xs text-muted-foreground">{citation.pageLabel}</span>
+              </div>
+              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{citation.snippet}</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2 h-6 gap-1 px-0 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => onOpenCitation(citation.documentId)}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{item.documentTitle}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{item.pageLabel}</p>
-                  </div>
-                  <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <p className="mt-3 line-clamp-4 text-xs leading-5 text-muted-foreground">{item.snippet}</p>
-              </button>
-            ))}
-          </div>
-        )}
+                在文档中查看 <ExternalLink className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   )
 }
 
-function Composer({
+function ChatInput({
   question,
   isSubmitting,
   onQuestionChange,
   onSubmit,
-}: Pick<KnowledgeQaPageProps, 'question' | 'isSubmitting' | 'onQuestionChange' | 'onSubmit'>) {
+  selectedDocumentIds,
+}: Pick<KnowledgeQaPageProps, 'question' | 'isSubmitting' | 'onQuestionChange' | 'onSubmit' | 'selectedDocumentIds'>) {
   return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="p-5">
-        <div className="flex flex-col gap-3 lg:flex-row">
-          <Input
-            value={question}
-            onChange={(event) => onQuestionChange(event.target.value)}
-            placeholder="输入你的问题，按 Enter 或点击发送"
-            className="h-11 flex-1 rounded-xl border-border/50 bg-card px-4"
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                onSubmit()
-              }
-            }}
-          />
-          <Button onClick={onSubmit} disabled={!question.trim() || isSubmitting} className="h-11 rounded-xl px-6">
-            <Send className="h-4 w-4" />
-            {isSubmitting ? '处理中' : '提问'}
+    <div className="border-t border-border/30 bg-background p-4">
+      <div className="flex items-center gap-3">
+        <Input
+          value={question}
+          onChange={(event) => onQuestionChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              onSubmit()
+            }
+          }}
+          placeholder="请输入你的问题..."
+          className="h-11 flex-1 rounded-xl border-border/50 bg-card px-4"
+          disabled={isSubmitting}
+        />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="h-9 gap-2 rounded-lg border-border/50" disabled>
+            <FileText className="h-4 w-4" />
+            已选文档
+            {selectedDocumentIds.length > 0 ? (
+              <Badge variant="secondary" className="ml-1 rounded-md">
+                {selectedDocumentIds.length}
+              </Badge>
+            ) : null}
+            <ChevronDown className="h-3 w-3" />
+          </Button>
+          <Button
+            className="h-11 w-11 rounded-xl p-0"
+            onClick={onSubmit}
+            disabled={isSubmitting || !question.trim()}
+          >
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-5 w-5" />}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+      <p className="mt-2 text-center text-xs text-muted-foreground">
+        回答会优先基于命中的文档片段生成；请结合原文引用自行判断。
+      </p>
+    </div>
   )
 }
 
 export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
   if (!props.hasConfiguration) {
     return (
-      <div className="mx-auto w-full max-w-6xl" data-testid="knowledge-qa-page">
-        <Card className="border-border/50 bg-card">
-          <CardContent className="p-6">
-            <UnconfiguredState feature="知识问答" onConfigure={props.onOpenSettings} />
-          </CardContent>
-        </Card>
+      <div className="flex h-full flex-col" data-testid="knowledge-qa-page">
+        <div className="p-6 pb-0">
+          <PageHeader scopedCount={props.selectedDocumentIds.length} />
+        </div>
+        <div className="flex flex-1 items-center justify-center p-6">
+          <UnconfiguredState feature="知识问答" onConfigure={props.onOpenSettings} />
+        </div>
+        <ChatInput
+          question={props.question}
+          isSubmitting={props.isSubmitting}
+          onQuestionChange={props.onQuestionChange}
+          onSubmit={props.onSubmit}
+          selectedDocumentIds={props.selectedDocumentIds}
+        />
       </div>
     )
   }
 
+  const allCitations = props.citations
+  const isEmpty = props.turns.length === 0
+
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6" data-testid="knowledge-qa-page">
-      <Header scopedCount={props.selectedDocumentIds.length} />
-      <ScopeBar
-        documents={props.documents}
-        selectedDocumentIds={props.selectedDocumentIds}
-        onToggleDocument={props.onToggleDocument}
-        onClearDocuments={props.onClearDocuments}
-      />
-      {props.serviceWarningTitle ? (
-        <WarningBanner
-          title={props.serviceWarningTitle}
-          message={props.serviceWarningMessage}
-          isRestartingService={props.isRestartingService}
-          onRestartService={props.onRestartService}
+    <div className="flex h-full flex-col" data-testid="knowledge-qa-page">
+      <div className="p-6 pb-0">
+        <PageHeader scopedCount={props.selectedDocumentIds.length} />
+        <ScopeBar
+          documents={props.documents}
+          selectedDocumentIds={props.selectedDocumentIds}
+          onToggleDocument={props.onToggleDocument}
+          onClearDocuments={props.onClearDocuments}
         />
-      ) : null}
-      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="flex min-h-0 flex-col gap-5">
-          <Card className="border-border/50 bg-card" data-testid="knowledge-qa-chat">
-            <CardContent className="min-h-[560px] p-0">
-              {props.turns.length === 0 ? (
-                <EmptyChatState onUsePrompt={props.onUsePrompt} />
-              ) : (
-                <div className="space-y-4 p-5">
-                  {props.turns.map((turn) => (
-                    <TurnCard key={turn.id} turn={turn} onRetryQuestion={props.onRetryQuestion} />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          <Composer
-            question={props.question}
-            isSubmitting={props.isSubmitting}
-            onQuestionChange={props.onQuestionChange}
-            onSubmit={props.onSubmit}
-          />
-        </div>
-        <div className="space-y-5" data-testid="knowledge-qa-sidebar">
-          <Rail
-            title="引用侧栏"
-            emptyTitle="等待第一条引用"
-            emptyDescription="问答返回后，这里会集中显示最近回答引用的原文片段。"
-            items={props.citations}
-            onOpenCitation={props.onOpenCitation}
-          />
-          <Rail
-            title="相关搜索片段"
-            emptyTitle="等待搜索结果"
-            emptyDescription="发送问题后，这里会展示当前问题命中的文档片段。"
-            items={props.searchResults}
-            onOpenCitation={props.onOpenCitation}
-          />
-        </div>
+        {props.serviceWarningTitle ? (
+          <div className="mt-4">
+            <WarningBanner
+              title={props.serviceWarningTitle}
+              message={props.serviceWarningMessage}
+              isRestartingService={props.isRestartingService}
+              onRestartService={props.onRestartService}
+            />
+          </div>
+        ) : null}
       </div>
+
+      <div className="flex flex-1 gap-6 overflow-hidden px-6 pb-0">
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto py-4">
+            {isEmpty ? (
+              <EmptyChatState onUsePrompt={props.onUsePrompt} />
+            ) : (
+              <div className="space-y-6">
+                {props.turns.map((turn) =>
+                  turn.status === 'pending' ? (
+                    <div key={turn.id}>
+                      <UserMessage content={turn.question} />
+                      <div className="mt-4">
+                        <StreamingIndicator />
+                      </div>
+                    </div>
+                  ) : turn.status === 'error' ? (
+                    <div key={turn.id}>
+                      <UserMessage content={turn.question} />
+                      <div className="mt-4">
+                        <InlineError
+                          message={turn.errorMessage ?? '回答生成失败，请检查服务和配置后重试。'}
+                          onRetry={() => props.onRetryQuestion(turn.id)}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={turn.id}>
+                      <UserMessage content={turn.question} />
+                      <div className="mt-4">
+                        <AssistantMessage
+                          content={turn.answer ?? ''}
+                          answerMode={turn.answerMode}
+                          retrievalStatus={turn.retrievalStatus}
+                          graphEnhanced={turn.graphEnhanced}
+                          graphContextSummary={turn.graphContextSummary}
+                          citations={turn.citations}
+                          onOpenCitation={props.onOpenCitation}
+                        />
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {!isEmpty && allCitations.length > 0 ? (
+          <div className="w-80 shrink-0 overflow-y-auto pb-4">
+            <CitationsSidebar citations={allCitations} onOpenCitation={props.onOpenCitation} />
+            {props.searchResults.length > 0 ? (
+              <div className="mt-4">
+                <Card className="border-border/50 bg-card">
+                  <CardContent className="p-4">
+                    <h4 className="mb-3 text-sm font-medium text-foreground">相关检索片段</h4>
+                    <div className="space-y-3">
+                      {props.searchResults.slice(0, 5).map((result) => (
+                        <button
+                          key={result.id}
+                          type="button"
+                          onClick={() => props.onOpenCitation(result.documentId)}
+                          className="w-full rounded-lg border border-border/40 bg-background/50 p-3 text-left transition-colors hover:bg-muted/30"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-foreground">{result.documentTitle}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{result.pageLabel}</p>
+                            </div>
+                            <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          </div>
+                          <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">{result.snippet}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <ChatInput
+        question={props.question}
+        isSubmitting={props.isSubmitting}
+        onQuestionChange={props.onQuestionChange}
+        onSubmit={props.onSubmit}
+        selectedDocumentIds={props.selectedDocumentIds}
+      />
     </div>
   )
 }

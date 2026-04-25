@@ -46,7 +46,7 @@ def run_document_embedding_workflow(
     stored_count = 0
     for batch in _batched(child_chunks, EMBEDDING_BATCH_SIZE):
         texts = [chunk.get("content", "") for chunk in batch]
-        vectors = embed_texts(host, profile, texts)
+        vectors = embed_texts(host, profile, texts, task_type="RETRIEVAL_DOCUMENT")
         payload = [
             {
                 "chunkId": chunk["id"],

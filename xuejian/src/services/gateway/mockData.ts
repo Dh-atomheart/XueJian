@@ -3,6 +3,7 @@
   AudioSegment,
   AppSettings,
   Card,
+  CardAnimation,
   CardCandidate,
   CardMedia,
   Document,
@@ -10,8 +11,11 @@
   DocumentChunk,
   DiscoveredModel,
   Highlight,
+  ModelProfile,
   PodcastEpisode,
+  PointsEntry,
   ProviderBudgetUsage,
+  ReviewLog,
   WorkflowEvent,
   WorkflowModelAssignment,
   WorkflowType,
@@ -98,6 +102,8 @@ function createMockPodcastEpisode(overrides: Partial<PodcastEpisode> = {}): Podc
   const scriptJson = overrides.scriptJson ?? JSON.stringify(createMockPodcastScript(title))
   const outlineJson = overrides.outlineJson ?? JSON.stringify(createMockPodcastOutline(title))
   const evaluationJson = overrides.evaluationJson ?? JSON.stringify(createMockPodcastEvaluation())
+  const status = overrides.status ?? 'ready'
+  const currentStage = overrides.currentStage ?? 6
 
   return {
     id: MOCK_PODCAST_EPISODE_ID,
@@ -115,11 +121,78 @@ function createMockPodcastEpisode(overrides: Partial<PodcastEpisode> = {}): Podc
     evaluationJson,
     audioPath: null,
     durationMs: 11000,
-    status: 'ready',
+    status,
+    stageKey: deriveMockPodcastStageKey(status, currentStage),
     errorMessage: null,
-    currentStage: 6,
+    errorCode: null,
+    errorStage: null,
+    retryable: true,
+    currentStage,
     completedSegments: 2,
     totalSegments: 2,
+    createdAt: new Date(MOCK_NOW).toISOString(),
+    updatedAt: new Date(MOCK_NOW).toISOString(),
+    ...overrides,
+  }
+}
+
+function deriveMockPodcastStageKey(
+  status: PodcastEpisode['status'],
+  currentStage: number
+): PodcastEpisode['stageKey'] {
+  if (status === 'ready' || status === 'failed' || status === 'cancelled') {
+    return status
+  }
+  if (status === 'awaiting_review') {
+    return 'awaiting_review'
+  }
+  if (status === 'generating_audio' || status === 'stitching' || currentStage >= 5) {
+    return 'audio'
+  }
+  if (status === 'generating_outline' || currentStage === 2) {
+    return 'outline'
+  }
+  if (status === 'generating_script' || currentStage === 3) {
+    return 'script'
+  }
+  if (status === 'evaluating' || currentStage === 4) {
+    return 'evaluation'
+  }
+  return 'retrieval'
+}
+
+function createMockCardAnimation(overrides: Partial<CardAnimation> = {}): CardAnimation {
+  const mode = overrides.mode ?? 'quick_preview'
+  const isVideo = mode === 'video_render'
+
+  return {
+    id: 'anim-mock-0001',
+    cardId: MOCK_CARD_IDS[0],
+    runId: 'run-anim-0001',
+    animType: 'flashcard_reveal',
+    mode,
+    scriptJson: JSON.stringify({
+      type: 'flashcard_reveal',
+      title: '什么是光合作用?',
+      palette: 'default',
+      steps: [
+        { id: 's1', type: 'text', content: '什么是光合作用?', emphasis: [], delay_ms: 0 },
+        {
+          id: 's2',
+          type: 'reveal',
+          content: '植物利用光能将二氧化碳和水转化为葡萄糖和氧气的过程',
+          emphasis: [],
+          delay_ms: 600,
+        },
+      ],
+    }),
+    videoPath: isVideo ? 'mock://animations/anim-mock-0001/video.mp4' : null,
+    posterPath: isVideo ? 'mock://animations/anim-mock-0001/poster.png' : null,
+    renderLogPath: isVideo ? 'mock://animations/anim-mock-0001/render.log' : null,
+    status: 'ready',
+    errorCode: null,
+    errorMessage: null,
+    retryable: true,
     createdAt: new Date(MOCK_NOW).toISOString(),
     updatedAt: new Date(MOCK_NOW).toISOString(),
     ...overrides,
@@ -333,6 +406,7 @@ function createInitialMockWorkflowRun(): WorkflowRun {
     threadId: 'card-generation:mock',
     checkpointRef: 'waiting_confirmation',
     approvalPayload: {
+      documentId: MOCK_DOCUMENT_ID,
       documentTitle: mockDocument.title,
       phase: 'waiting_confirmation',
       generationMode: 'llm',
@@ -367,11 +441,34 @@ function createInitialMockWorkflowEvents(): WorkflowEvent[] {
   ]
 }
 
+function createInitialMockReviewLogs(): ReviewLog[] {
+  return [
+    {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      cardId: MOCK_CARD_IDS[0],
+      rating: 'good',
+      reviewedAt: new Date(MOCK_NOW),
+      state: 'review',
+      difficulty: 0.28,
+      stability: 4.2,
+      retrievability: 0.9,
+      nextReview: new Date(new Date(MOCK_NOW).getTime() + 4 * 86_400_000),
+      intervalDays: 4,
+    },
+  ]
+}
+
+function createInitialMockPointsLedger(): PointsEntry[] {
+  return []
+}
+
 const mockCards: Card[] = createInitialMockCards()
 const mockCardMedia: CardMedia[] = []
 const mockCardCandidates: CardCandidate[] = createInitialMockCardCandidates()
 const mockWorkflowRuns: WorkflowRun[] = [createInitialMockWorkflowRun()]
 const mockWorkflowEvents: WorkflowEvent[] = createInitialMockWorkflowEvents()
+const mockReviewLogs: ReviewLog[] = createInitialMockReviewLogs()
+const mockPointsLedger: PointsEntry[] = createInitialMockPointsLedger()
 const mockPodcastEpisodes: PodcastEpisode[] = [createMockPodcastEpisode()]
 const mockPodcastAudioSegments: AudioSegment[] =
   createMockPodcastAudioSegments(MOCK_PODCAST_EPISODE_ID)
@@ -418,6 +515,7 @@ const defaultMockAppSettings: AppSettings = {
   contentDifficultyPreference: 'intermediate',
   podcastTtsProvider: 'auto',
   podcastOpenaiModel: 'tts-1',
+  podcastGoogleTtsModel: 'gemini-2.5-flash-preview-tts',
   podcastFishAudioEndpoint: null,
   podcastVoiceOverrides: {},
   defaultVoice: 'gentle_female_xiaoxiao',
@@ -442,7 +540,9 @@ const defaultMockAppSettings: AppSettings = {
 
 let mockAppSettings: AppSettings = { ...defaultMockAppSettings }
 let mockApiConfigCounter = 1
+let mockModelProfileCounter = 1
 let mockApiConfigs: ApiConfig[] = []
+let mockModelProfiles: ModelProfile[] = []
 let mockWorkflowAssignments: WorkflowModelAssignment[] = []
 let mockProviderBudgetUsage: ProviderBudgetUsage[] = []
 
@@ -512,6 +612,18 @@ function getMockProviderModels(provider: ApiConfig['provider']): DiscoveredModel
           capabilities: createMockModelCapabilities({ maxContext: 1048576 }),
           isRecommended: true,
         },
+        {
+          id: 'gemini-embedding-001',
+          displayName: 'Gemini Embedding 001',
+          source: 'fetched',
+          capabilities: createMockModelCapabilities({
+            vision: false,
+            functionCalling: false,
+            maxContext: 8192,
+            jsonMode: false,
+          }),
+          isRecommended: false,
+        },
       ]
     case 'deepseek':
       return [
@@ -554,17 +666,47 @@ function currentMockBudgetPeriod() {
   return MOCK_NOW.slice(0, 7)
 }
 
+function nextMockModelProfileId() {
+  const suffix = mockModelProfileCounter.toString(16).padStart(12, '0')
+  mockModelProfileCounter += 1
+  return `aaaaaaaa-aaaa-4aaa-8aaa-${suffix}`
+}
+
+function buildMockModelProfile(
+  apiConfigId: string,
+  modelId: string,
+  displayName?: string | null,
+  isDefaultForConnection = true,
+  createdAt = new Date(MOCK_NOW)
+): ModelProfile {
+  return {
+    id: nextMockModelProfileId(),
+    apiConfigId,
+    modelId,
+    displayName: displayName ?? modelId,
+    capabilitiesJson: '[]',
+    isEnabled: true,
+    isDefaultForConnection,
+    createdAt,
+    updatedAt: createdAt,
+    apiConfig: mockApiConfigs.find((config) => config.id === apiConfigId) ?? null,
+  }
+}
+
 function buildMockWorkflowAssignment(
   workflowType: WorkflowType,
-  apiConfigId: string,
+  modelProfileId: string,
   assignedAt = new Date(MOCK_NOW)
 ): WorkflowModelAssignment {
+  const modelProfile = mockModelProfiles.find((profile) => profile.id === modelProfileId) ?? null
   return {
     workflowType,
-    apiConfigId,
+    modelProfileId,
     assignedAt,
     updatedAt: assignedAt,
-    apiConfig: mockApiConfigs.find((config) => config.id === apiConfigId) ?? null,
+    modelProfile,
+    apiConfig:
+      mockApiConfigs.find((config) => config.id === modelProfile?.apiConfigId) ?? null,
   }
 }
 
@@ -601,7 +743,9 @@ function inferMockProtocol(provider: ApiConfig['provider']): ApiConfig['protocol
 export function resetMockGatewayState() {
   mockAppSettings = { ...defaultMockAppSettings }
   mockApiConfigCounter = 1
+  mockModelProfileCounter = 1
   mockApiConfigs = []
+  mockModelProfiles = []
   mockWorkflowAssignments = []
   mockProviderBudgetUsage = []
   mockCards.splice(0, mockCards.length, ...createInitialMockCards())
@@ -609,6 +753,8 @@ export function resetMockGatewayState() {
   mockCardCandidates.splice(0, mockCardCandidates.length, ...createInitialMockCardCandidates())
   mockWorkflowRuns.splice(0, mockWorkflowRuns.length, createInitialMockWorkflowRun())
   mockWorkflowEvents.splice(0, mockWorkflowEvents.length, ...createInitialMockWorkflowEvents())
+  mockReviewLogs.splice(0, mockReviewLogs.length, ...createInitialMockReviewLogs())
+  mockPointsLedger.splice(0, mockPointsLedger.length, ...createInitialMockPointsLedger())
   mockPodcastEpisodes.splice(0, mockPodcastEpisodes.length, createMockPodcastEpisode())
   mockPodcastAudioSegments.splice(
     0,
@@ -668,6 +814,39 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   const pointsData = getRecord(args?.data)
   const reviewLogId = getString(pointsData?.reviewLogId)
 
+  if (cmd === 'start_card_animation_workflow') {
+    const data = getRecord(args?.data)
+    const mode =
+      data?.mode === 'video_render' || data?.mode === 'quick_preview'
+        ? data.mode
+        : 'quick_preview'
+    const animType =
+      data?.animType === 'keyword_emphasis' || data?.animType === 'flashcard_reveal'
+        ? data.animType
+        : 'flashcard_reveal'
+    const cardId = getString(data?.cardId) ?? MOCK_CARD_IDS[0]
+
+    return createMockCardAnimation({
+      id: `anim-${crypto.randomUUID()}`,
+      runId: `run-${crypto.randomUUID()}`,
+      cardId,
+      animType,
+      mode,
+      videoPath: mode === 'video_render' ? `mock://animations/${cardId}/video.mp4` : null,
+      posterPath: mode === 'video_render' ? `mock://animations/${cardId}/poster.png` : null,
+      renderLogPath: mode === 'video_render' ? `mock://animations/${cardId}/render.log` : null,
+    }) as T
+  }
+
+  if (cmd === 'get_card_animation') {
+    const requestedCardId = getString(args?.cardId) ?? MOCK_CARD_IDS[0]
+    return createMockCardAnimation({ cardId: requestedCardId }) as T
+  }
+
+  if (cmd === 'delete_card_animation') {
+    return undefined as T
+  }
+
   if (cmd === 'start_podcast_workflow') {
     const data = getRecord(args?.data)
     const documentIds = Array.isArray(data?.documentIds)
@@ -693,6 +872,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       durationTier,
       ttsProvider,
       audioFormat,
+      stageKey: 'ready',
     })
 
     mockPodcastEpisodes.unshift(episode)
@@ -717,7 +897,11 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     const episode = episodeId ? mockPodcastEpisodes.find((item) => item.id === episodeId) : null
     if (episode) {
       episode.status = 'cancelled'
+      episode.stageKey = 'cancelled'
       episode.errorMessage = 'User cancelled'
+      episode.errorCode = 'USER_CANCELLED'
+      episode.errorStage = episode.currentStage >= 5 ? 'audio' : 'retrieval'
+      episode.retryable = true
       episode.updatedAt = new Date(MOCK_NOW).toISOString()
     }
     return undefined as T
@@ -755,6 +939,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       durationTier: original?.durationTier ?? 'medium',
       ttsProvider: original?.ttsProvider ?? 'auto',
       audioFormat: original?.audioFormat ?? 'mp3',
+      stageKey: 'ready',
     })
     mockPodcastEpisodes.unshift(retried)
     mockPodcastAudioSegments.push(...createMockPodcastAudioSegments(retried.id))
@@ -772,10 +957,17 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
 
     if (action === 'reject') {
       episode.status = 'cancelled'
+      episode.stageKey = 'cancelled'
       episode.errorMessage = 'Review rejected'
+      episode.errorCode = 'REVIEW_REJECTED'
+      episode.errorStage = 'awaiting_review'
     } else {
       episode.status = 'ready'
+      episode.stageKey = 'ready'
       episode.currentStage = 6
+      episode.errorCode = null
+      episode.errorStage = null
+      episode.retryable = true
       if (action === 'edit' && editedScriptJson) {
         episode.scriptJson = editedScriptJson
       }
@@ -1430,6 +1622,9 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       ...(data?.podcastOpenaiModel
         ? { podcastOpenaiModel: data.podcastOpenaiModel as string }
         : {}),
+      ...(data?.podcastGoogleTtsModel
+        ? { podcastGoogleTtsModel: data.podcastGoogleTtsModel as string }
+        : {}),
       ...(Object.prototype.hasOwnProperty.call(data ?? {}, 'podcastFishAudioEndpoint')
         ? { podcastFishAudioEndpoint: getNullableString(data?.podcastFishAudioEndpoint) }
         : {}),
@@ -1538,6 +1733,16 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     }
 
     mockApiConfigs = [nextConfig, ...mockApiConfigs]
+    if (nextConfig.model) {
+      mockModelProfiles = [
+        buildMockModelProfile(
+          nextConfig.id,
+          nextConfig.model,
+          nextConfig.displayName ?? nextConfig.name
+        ),
+        ...mockModelProfiles,
+      ]
+    }
     return serializeApiConfig(nextConfig) as T
   }
 
@@ -1590,6 +1795,17 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       return nextConfig
     })
 
+    if (updatedConfig) {
+      mockModelProfiles = mockModelProfiles.map((profile) =>
+        profile.apiConfigId === updatedConfig!.id
+          ? {
+              ...profile,
+              apiConfig: updatedConfig,
+            }
+          : profile
+      )
+    }
+
     return (updatedConfig ? serializeApiConfig(updatedConfig) : null) as T
   }
 
@@ -1611,14 +1827,112 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
 
     if (configId) {
       mockApiConfigs = mockApiConfigs.filter((config) => config.id !== configId)
+      const deletedProfileIds = mockModelProfiles
+        .filter((profile) => profile.apiConfigId === configId)
+        .map((profile) => profile.id)
+      mockModelProfiles = mockModelProfiles.filter((profile) => profile.apiConfigId !== configId)
       mockWorkflowAssignments = mockWorkflowAssignments.filter(
-        (assignment) => assignment.apiConfigId !== configId
+        (assignment) => !deletedProfileIds.includes(assignment.modelProfileId)
       )
       mockProviderBudgetUsage = mockProviderBudgetUsage.filter(
         (usage) => usage.apiConfigId !== configId
       )
     }
 
+    return undefined as T
+  }
+
+  if (cmd === 'list_model_profiles') {
+    return mockModelProfiles.map(serializeModelProfile) as T
+  }
+
+  if (cmd === 'list_model_profiles_by_api_config') {
+    const apiConfigId = getString(args?.apiConfigId)
+    return mockModelProfiles
+      .filter((profile) => !apiConfigId || profile.apiConfigId === apiConfigId)
+      .map(serializeModelProfile) as T
+  }
+
+  if (cmd === 'create_model_profile') {
+    const data = getRecord(args?.data)
+    const apiConfigId = getString(data?.apiConfigId)
+    const modelId = getString(data?.modelId)
+    if (!apiConfigId || !modelId) {
+      throw new Error('Mock create_model_profile requires apiConfigId and modelId')
+    }
+
+    const isDefaultForConnection = getBoolean(data?.isDefaultForConnection) ?? false
+    if (isDefaultForConnection) {
+      mockModelProfiles = mockModelProfiles.map((profile) =>
+        profile.apiConfigId === apiConfigId
+          ? { ...profile, isDefaultForConnection: false }
+          : profile
+      )
+    }
+
+    const created = buildMockModelProfile(
+      apiConfigId,
+      modelId,
+      getNullableString(data?.displayName) ?? modelId,
+      isDefaultForConnection,
+      new Date()
+    )
+    created.capabilitiesJson = getNullableString(data?.capabilitiesJson) ?? '[]'
+    created.isEnabled = getBoolean(data?.isEnabled) ?? true
+    mockModelProfiles = [created, ...mockModelProfiles]
+    return serializeModelProfile(created) as T
+  }
+
+  if (cmd === 'update_model_profile') {
+    const id = getString(args?.id)
+    const data = getRecord(args?.data)
+    if (!id || !data) {
+      return null as T
+    }
+
+    mockModelProfiles = mockModelProfiles.map((profile) => {
+      if (profile.id !== id) {
+        return profile
+      }
+
+      const next: ModelProfile = {
+        ...profile,
+        modelId: getString(data.modelId) ?? profile.modelId,
+        displayName:
+          data.displayName === undefined ? profile.displayName : getNullableString(data.displayName),
+        capabilitiesJson:
+          data.capabilitiesJson === undefined
+            ? profile.capabilitiesJson
+            : getNullableString(data.capabilitiesJson),
+        isEnabled: getBoolean(data.isEnabled) ?? profile.isEnabled,
+        isDefaultForConnection:
+          getBoolean(data.isDefaultForConnection) ?? profile.isDefaultForConnection,
+        updatedAt: new Date(),
+      }
+      return next
+    })
+
+    const resolvedUpdated =
+      mockModelProfiles.find((profile): profile is ModelProfile => profile.id === id) ?? null
+    if (resolvedUpdated?.isDefaultForConnection) {
+      mockModelProfiles = mockModelProfiles.map((profile) =>
+        profile.apiConfigId === resolvedUpdated.apiConfigId && profile.id !== resolvedUpdated.id
+          ? { ...profile, isDefaultForConnection: false }
+          : profile
+      )
+    }
+
+    return (resolvedUpdated ? serializeModelProfile(resolvedUpdated) : null) as T
+  }
+
+  if (cmd === 'delete_model_profile') {
+    const id = getString(args?.id)
+    if (id) {
+      mockModelProfiles = mockModelProfiles.filter((profile) => profile.id !== id)
+      mockWorkflowAssignments = mockWorkflowAssignments.filter(
+        (assignment) => assignment.modelProfileId !== id
+      )
+    }
     return undefined as T
   }
 
@@ -1719,45 +2033,53 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   if (cmd === 'set_workflow_assignment') {
     const data = getRecord(args?.data)
     const workflowType = getWorkflowType(data?.workflowType)
-    const apiConfigId = getString(data?.apiConfigId)
+    const modelProfileId = getString(data?.modelProfileId)
 
-    if (!workflowType || !apiConfigId) {
-      throw new Error('Mock set_workflow_assignment requires workflowType and apiConfigId')
+    if (!workflowType || !modelProfileId) {
+      throw new Error('Mock set_workflow_assignment requires workflowType and modelProfileId')
     }
 
     const now = new Date()
     const existing = mockWorkflowAssignments.find((item) => item.workflowType === workflowType)
 
     if (existing) {
-      existing.apiConfigId = apiConfigId
+      existing.modelProfileId = modelProfileId
       existing.updatedAt = now
-      existing.apiConfig = mockApiConfigs.find((config) => config.id === apiConfigId) ?? null
+      existing.modelProfile =
+        mockModelProfiles.find((profile) => profile.id === modelProfileId) ?? null
+      existing.apiConfig =
+        mockApiConfigs.find((config) => config.id === existing.modelProfile?.apiConfigId) ?? null
       return serializeWorkflowAssignment(existing) as T
     }
 
-    const created = buildMockWorkflowAssignment(workflowType, apiConfigId, now)
+    const created = buildMockWorkflowAssignment(workflowType, modelProfileId, now)
     mockWorkflowAssignments = [created, ...mockWorkflowAssignments]
     return serializeWorkflowAssignment(created) as T
   }
 
   if (cmd === 'set_all_workflow_assignments') {
-    const apiConfigId = getString(args?.apiConfigId)
+    const modelProfileId = getString(args?.modelProfileId)
 
-    if (!apiConfigId) {
+    if (!modelProfileId) {
       return [] as T
     }
 
     const now = new Date()
     mockWorkflowAssignments = MOCK_WORKFLOW_TYPES.map((workflowType) => {
       const existing = mockWorkflowAssignments.find((item) => item.workflowType === workflowType)
+      const modelProfile =
+        mockModelProfiles.find((profile) => profile.id === modelProfileId) ?? null
+      const apiConfig =
+        mockApiConfigs.find((config) => config.id === modelProfile?.apiConfigId) ?? null
       return existing
         ? {
             ...existing,
-            apiConfigId,
+            modelProfileId,
             updatedAt: now,
-            apiConfig: mockApiConfigs.find((config) => config.id === apiConfigId) ?? null,
+            modelProfile,
+            apiConfig,
           }
-        : buildMockWorkflowAssignment(workflowType, apiConfigId, now)
+        : buildMockWorkflowAssignment(workflowType, modelProfileId, now)
     })
 
     return mockWorkflowAssignments.map(serializeWorkflowAssignment) as T
@@ -1831,21 +2153,121 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     return undefined as T
   }
 
-  if (cmd === 'record_points') {
-    if (reviewLogId === 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') {
-      return {
-        id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
-        reviewLogId,
-        cardId: MOCK_CARD_IDS[0],
-        points: 10,
-        transactionType: 'daily_first_review',
-        rating: 'good',
-        reason: 'Daily first review bonus for 2026-04-17',
-        createdAt: new Date(MOCK_NOW).toISOString(),
-      } as T
+  if (cmd === 'list_due_cards') {
+    return limitItems(
+      mockCards.filter((card) => isDueCard(card)).map(serializeCard),
+      limit
+    ) as T
+  }
+
+  if (cmd === 'update_card_review') {
+    const id = getString(args?.id)
+    const data = getRecord(args?.data)
+    const target = id ? mockCards.find((item) => item.id === id) : null
+    if (!target || !data) {
+      return undefined as T
     }
 
-    return null as T
+    const difficulty = getNumber(data.difficulty)
+    const stability = getNumber(data.stability)
+    const retrievability = getNullableNumber(data.retrievability)
+    const nextReview = getDate(data.nextReview)
+    const nextState = getReviewState(data.state)
+
+    if (typeof difficulty === 'number') target.difficulty = difficulty
+    if (typeof stability === 'number') target.stability = stability
+    if (typeof retrievability === 'number' || data.retrievability === null) {
+      target.retrievability = retrievability
+    }
+    if (nextState) target.state = nextState
+    if (nextReview || data.nextReview === null) {
+      target.nextReview = nextReview
+    }
+    target.updatedAt = currentMockNow()
+
+    return undefined as T
+  }
+
+  if (cmd === 'create_review_log') {
+    const data = getRecord(args?.data)
+    const rating = getReviewRating(data?.rating) ?? 'good'
+    const reviewLog: ReviewLog = {
+      id: crypto.randomUUID(),
+      cardId: getString(data?.cardId) ?? MOCK_CARD_IDS[0],
+      rating,
+      reviewedAt: currentMockNow(),
+      state: getReviewState(data?.state) ?? 'review',
+      difficulty: getNumber(data?.difficulty) ?? 0.3,
+      stability: getNumber(data?.stability) ?? 1,
+      retrievability: getNullableNumber(data?.retrievability),
+      nextReview: getDate(data?.nextReview),
+      intervalDays: getNullableNumber(data?.intervalDays),
+    }
+
+    mockReviewLogs.unshift(reviewLog)
+    return serializeReviewLog(reviewLog) as T
+  }
+
+  if (cmd === 'list_review_logs') {
+    return limitItems(
+      mockReviewLogs
+        .filter((reviewLog) => (cardId ? reviewLog.cardId === cardId : true))
+        .map(serializeReviewLog),
+      limit
+    ) as T
+  }
+
+  if (cmd === 'get_daily_stats') {
+    return buildDailyStats() as T
+  }
+
+  if (cmd === 'get_review_heatmap') {
+    const days = getNumber(args?.days) ?? 112
+    return buildReviewHeatmap(days) as T
+  }
+
+  if (cmd === 'record_points') {
+    if (!reviewLogId) {
+      return null as T
+    }
+
+    const existing = mockPointsLedger.find((entry) => entry.reviewLogId === reviewLogId)
+    if (existing) {
+      return serializePointsEntry(existing) as T
+    }
+
+    const rating = getReviewRating(pointsData?.rating) ?? 'good'
+    const firstReviewToday = buildPointsSummary().todayPoints === 0
+    if (!firstReviewToday) {
+      return null as T
+    }
+
+    const entry: PointsEntry = {
+      id: crypto.randomUUID(),
+      reviewLogId,
+      cardId: getString(pointsData?.cardId) ?? MOCK_CARD_IDS[0],
+      points: 10,
+      transactionType: 'daily_first_review',
+      rating,
+      reason: 'Daily first review bonus for 2026-04-17',
+      createdAt: currentMockNow(),
+    }
+
+    mockPointsLedger.unshift(entry)
+    return serializePointsEntry(entry) as T
+  }
+
+  if (cmd === 'list_points_ledger') {
+    return limitItems(
+      mockPointsLedger
+        .filter((entry) => (cardId ? entry.cardId === cardId : true))
+        .map(serializePointsEntry),
+      limit
+    ) as T
+  }
+
+  if (cmd === 'get_points_summary') {
+    return buildPointsSummary() as T
   }
 
   const mockResponses: Record<string, unknown> = {
@@ -1858,6 +2280,11 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         'update_api_config',
         'set_default_api_config',
         'delete_api_config',
+        'list_model_profiles',
+        'list_model_profiles_by_api_config',
+        'create_model_profile',
+        'update_model_profile',
+        'delete_model_profile',
         'delete_api_key',
         'store_api_key',
         'test_api_connection',
@@ -2064,6 +2491,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       cardId: MOCK_CARD_IDS[0],
       runId: 'run-anim-0001',
       animType: 'flashcard_reveal',
+      mode: 'quick_preview',
       scriptJson: JSON.stringify({
         type: 'flashcard_reveal',
         title: '什么是光合作用?',
@@ -2079,8 +2507,13 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
           },
         ],
       }),
+      videoPath: null,
+      posterPath: null,
+      renderLogPath: null,
       status: 'ready',
+      errorCode: null,
       errorMessage: null,
+      retryable: true,
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
@@ -2089,6 +2522,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       cardId: MOCK_CARD_IDS[0],
       runId: 'run-anim-0001',
       animType: 'flashcard_reveal',
+      mode: 'quick_preview',
       scriptJson: JSON.stringify({
         type: 'flashcard_reveal',
         title: '什么是光合作用?',
@@ -2104,8 +2538,13 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
           },
         ],
       }),
+      videoPath: null,
+      posterPath: null,
+      renderLogPath: null,
       status: 'ready',
+      errorCode: null,
       errorMessage: null,
+      retryable: true,
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
@@ -2131,7 +2570,11 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       audioPath: null,
       durationMs: 11000,
       status: 'ready',
+      stageKey: 'ready',
       errorMessage: null,
+      errorCode: null,
+      errorStage: null,
+      retryable: true,
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
@@ -2154,7 +2597,11 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       audioPath: null,
       durationMs: 11000,
       status: 'ready',
+      stageKey: 'ready',
       errorMessage: null,
+      errorCode: null,
+      errorStage: null,
+      retryable: true,
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
@@ -2402,7 +2849,8 @@ function getPodcastDurationTier(value: unknown): PodcastEpisode['durationTier'] 
 function getTtsProviderId(value: unknown): PodcastEpisode['ttsProvider'] | undefined {
   return value === 'auto' ||
     value === 'openai' ||
-    value === 'edge_tts'
+    value === 'edge_tts' ||
+    value === 'google'
     ? value
     : undefined
 }
@@ -2453,6 +2901,21 @@ function serializeHighlight(highlight: Highlight) {
   }
 }
 
+function serializeReviewLog(reviewLog: ReviewLog) {
+  return {
+    ...reviewLog,
+    reviewedAt: reviewLog.reviewedAt.toISOString(),
+    nextReview: reviewLog.nextReview?.toISOString() ?? null,
+  }
+}
+
+function serializePointsEntry(entry: PointsEntry) {
+  return {
+    ...entry,
+    createdAt: entry.createdAt.toISOString(),
+  }
+}
+
 function serializeWorkflowRun(run: WorkflowRun) {
   return {
     ...run,
@@ -2486,13 +2949,28 @@ function serializeApiConfig(config: ApiConfig) {
   }
 }
 
+function serializeModelProfile(profile: ModelProfile) {
+  const apiConfig = mockApiConfigs.find((config) => config.id === profile.apiConfigId) ?? null
+
+  return {
+    ...profile,
+    createdAt: profile.createdAt.toISOString(),
+    updatedAt: profile.updatedAt.toISOString(),
+    apiConfig: apiConfig ? serializeApiConfig(apiConfig) : null,
+  }
+}
+
 function serializeWorkflowAssignment(assignment: WorkflowModelAssignment) {
-  const apiConfig = mockApiConfigs.find((config) => config.id === assignment.apiConfigId) ?? null
+  const modelProfile =
+    mockModelProfiles.find((profile) => profile.id === assignment.modelProfileId) ?? null
+  const apiConfig =
+    mockApiConfigs.find((config) => config.id === modelProfile?.apiConfigId) ?? null
 
   return {
     ...assignment,
     assignedAt: assignment.assignedAt.toISOString(),
     updatedAt: assignment.updatedAt.toISOString(),
+    modelProfile: modelProfile ? serializeModelProfile(modelProfile) : null,
     apiConfig: apiConfig ? serializeApiConfig(apiConfig) : null,
   }
 }
@@ -2530,6 +3008,15 @@ function getNumber(value: unknown) {
 
 function getNullableNumber(value: unknown) {
   return typeof value === 'number' ? value : null
+}
+
+function getDate(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 function getWorkflowType(value: unknown): WorkflowRun['workflowType'] | undefined {
@@ -2588,6 +3075,70 @@ function isCandidateCardType(value: unknown): value is CardCandidate['cardType']
   return value === 'qa' || value === 'cloze' || value === 'fact' || value === 'choice'
 }
 
+function getReviewRating(value: unknown): ReviewLog['rating'] | undefined {
+  return value === 'again' || value === 'hard' || value === 'good' || value === 'easy'
+    ? value
+    : undefined
+}
+
+function getReviewState(value: unknown): ReviewLog['state'] | undefined {
+  return value === 'new' || value === 'learning' || value === 'review' || value === 'relearning'
+    ? value
+    : undefined
+}
+
+function currentMockNow() {
+  return new Date(MOCK_NOW)
+}
+
+function sameMockDay(left: Date, right: Date) {
+  return left.toISOString().slice(0, 10) === right.toISOString().slice(0, 10)
+}
+
+function isDueCard(card: Card, referenceDate = currentMockNow()) {
+  return !card.nextReview || card.nextReview.getTime() <= referenceDate.getTime()
+}
+
+function buildDailyStats() {
+  const now = currentMockNow()
+  const reviewedToday = mockReviewLogs.filter((log) => sameMockDay(log.reviewedAt, now))
+  return {
+    newCards: mockCards.filter((card) => card.state === 'new').length,
+    reviewCards: reviewedToday.length,
+    correctRate: reviewedToday.length
+      ? reviewedToday.filter((log) => log.rating !== 'again').length / reviewedToday.length
+      : null,
+  }
+}
+
+function buildReviewHeatmap(days = 112) {
+  const now = currentMockNow()
+  const threshold = new Date(now.getTime() - Math.max(0, days - 1) * 86_400_000)
+  const counts = new Map<string, number>()
+
+  for (const log of mockReviewLogs) {
+    if (log.reviewedAt < threshold) {
+      continue
+    }
+
+    const key = log.reviewedAt.toISOString().slice(0, 10)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+
+  return Array.from(counts.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, count]) => ({ date, count }))
+}
+
+function buildPointsSummary() {
+  const now = currentMockNow()
+  return {
+    todayPoints: mockPointsLedger
+      .filter((entry) => sameMockDay(entry.createdAt, now))
+      .reduce((sum, entry) => sum + entry.points, 0),
+  }
+}
+
 function appendMockWorkflowEvent(
   runId: string,
   eventType: WorkflowEvent['eventType'],
@@ -2620,6 +3171,7 @@ function syncMockWorkflowRunSummary(runId: string) {
   const fallbackCandidate = candidates.find((candidate) => candidate.fallbackReason)
 
   run.approvalPayload = {
+    documentId: MOCK_DOCUMENT_ID,
     documentTitle: mockDocument.title,
     phase: run.status,
     generationMode: preferredCandidate?.generationMode ?? candidates[0]?.generationMode ?? 'llm',

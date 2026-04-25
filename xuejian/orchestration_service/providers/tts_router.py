@@ -7,6 +7,7 @@ from .tts_base import TTSProvider
 from .tts_edge import EdgeTTSProvider, VOICE_MAP as EDGE_VOICE_MAP
 from .tts_elevenlabs import ElevenLabsTTSProvider
 from .tts_fish import FishAudioTTSProvider
+from .tts_google import GoogleTTSProvider, VOICE_MAP as GOOGLE_VOICE_MAP
 from .tts_openai import OpenAITTSProvider, VOICE_MAP as OPENAI_VOICE_MAP
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,22 @@ class TTSRouter:
             return {}
 
     def _init_providers(self) -> None:
+        google_config = self._host.get_config_with_key_by_provider("google")
+        if google_config is None:
+            google_config = self._host.get_config_with_key_by_provider("custom_google")
+        if google_config is not None:
+            config, api_key = google_config
+            provider = GoogleTTSProvider(
+                api_key=api_key,
+                model=str(
+                    self._settings.get("podcastGoogleTtsModel")
+                    or config.get("model")
+                    or "gemini-2.5-flash-preview-tts"
+                ),
+            )
+            if provider.is_available():
+                self._providers["google"] = provider
+
         openai_config = self._host.get_config_with_key_by_provider("openai")
         if openai_config is not None:
             config, api_key = openai_config
@@ -71,7 +88,7 @@ class TTSRouter:
             if provider is not None:
                 return provider
 
-        for fallback_id in ("openai", "elevenlabs", "fish_audio", "edge_tts"):
+        for fallback_id in ("google", "openai", "elevenlabs", "fish_audio", "edge_tts"):
             provider = self._providers.get(fallback_id)
             if provider is not None:
                 return provider
@@ -96,6 +113,9 @@ class TTSRouter:
 
         if provider_id == "openai":
             return OPENAI_VOICE_MAP.get(language, OPENAI_VOICE_MAP["en-US"]).get(normalized_role, "alloy")
+
+        if provider_id == "google":
+            return GOOGLE_VOICE_MAP.get(language, GOOGLE_VOICE_MAP["en-US"]).get(normalized_role, "Kore")
 
         if provider_id == "edge_tts":
             return EDGE_VOICE_MAP.get(language, EDGE_VOICE_MAP["en-US"]).get(normalized_role, "en-US-AriaNeural")

@@ -58,16 +58,45 @@ def _try_langchain_qa(
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     if match:
         result = json.loads(match.group())
-        valid_chunk_ids = {c.get("id") for c in chunks}
-        citations = []
-        for cit in result.get("citations", []):
-            chunk_id = cit.get("chunkId", "")
-            if chunk_id in valid_chunk_ids:
-                citations.append(cit)
-        result["citations"] = citations
+        result["citations"] = _normalize_citations(result.get("citations", []), chunks)
         return result
 
     return {"answer": raw.strip(), "citations": []}
+
+
+def _citation_from_chunk(chunk: dict, snippet: str | None = None) -> dict:
+    quote = (snippet or chunk.get("snippet") or chunk.get("content") or "").strip()
+    return {
+        "chunkId": chunk.get("id"),
+        "documentId": chunk.get("documentId"),
+        "sectionId": chunk.get("sectionId"),
+        "anchorId": chunk.get("anchorId"),
+        "page": chunk.get("pageStart"),
+        "quote": quote[:120],
+        "snippet": quote[:120],
+        "relevanceScore": chunk.get("score") or chunk.get("relevanceScore"),
+    }
+
+
+def _normalize_citations(raw_citations: object, chunks: list[dict]) -> list[dict]:
+    chunk_by_id = {chunk.get("id"): chunk for chunk in chunks if chunk.get("id")}
+    if not isinstance(raw_citations, list):
+        return []
+
+    citations: list[dict] = []
+    seen_chunk_ids: set[str] = set()
+    for raw in raw_citations:
+        if not isinstance(raw, dict):
+            continue
+        chunk_id = raw.get("chunkId")
+        if not isinstance(chunk_id, str) or chunk_id not in chunk_by_id or chunk_id in seen_chunk_ids:
+            continue
+        chunk = chunk_by_id[chunk_id]
+        snippet = raw.get("snippet") if isinstance(raw.get("snippet"), str) else raw.get("quote")
+        citation = _citation_from_chunk(chunk, snippet if isinstance(snippet, str) else None)
+        citations.append(citation)
+        seen_chunk_ids.add(chunk_id)
+    return citations
 
 
 def run_knowledge_qa_workflow(
@@ -76,6 +105,7 @@ def run_knowledge_qa_workflow(
 ) -> dict:
     """Execute the knowledge_qa preset workflow using hybrid retrieval + LLM."""
     retrieval_mode = "fts5"
+    retrieval_status = "ready"
     chunks: list[dict] = []
     graph_context: dict = {"entities": [], "paths": [], "communities": []}
     query_embedding: list[float] | None = None
@@ -83,16 +113,23 @@ def run_knowledge_qa_workflow(
     active_profile = host.get_active_embedding_profile()
     if active_profile is not None:
         try:
-            query_embedding = embed_texts(host, active_profile, [question])[0]
+            query_embedding = embed_texts(
+                host,
+                active_profile,
+                [question],
+                task_type="RETRIEVAL_QUERY",
+            )[0]
             chunks = host.search_hybrid(
                 question,
                 query_embedding=query_embedding,
                 document_ids=document_ids if document_ids else None,
                 limit=8,
             )
-            retrieval_mode = "hybrid_rrf"
+            retrieval_mode = "hybrid"
         except Exception as exc:
             logger.warning("Hybrid retrieval unavailable, falling back to FTS5: %s", exc)
+    else:
+        retrieval_status = "embedding_missing"
 
     try:
         graph_context = graph_rag_search(question, host, query_embedding=query_embedding, top_k=5)
@@ -106,12 +143,14 @@ def run_knowledge_qa_workflow(
         retrieval_mode = "fts5"
 
     if not chunks:
+        retrieval_status = "no_hits" if retrieval_status == "ready" else retrieval_status
         return {
             "status": "completed",
             "answer": {
                 "answer": "在当前选定文档里，没有检索到足够相关的内容来回答这个问题。你可以换一个问法、扩大文档范围，或先确认文档已经完成解析。",
                 "answerMode": "no_relevant_content",
                 "retrievalMode": retrieval_mode,
+                "retrievalStatus": retrieval_status,
                 "citations": [],
             },
         }
@@ -154,6 +193,7 @@ def run_knowledge_qa_workflow(
         config, api_key = config_with_key
         try:
             answer_data = _try_langchain_qa(config, api_key, question, passages_text, chunks)
+            citations = answer_data.get("citations") or [_citation_from_chunk(chunks[0])]
             if config.get("id"):
                 try:
                     host.record_workflow_cost(config["id"], estimate_workflow_cost(config))
@@ -165,7 +205,8 @@ def run_knowledge_qa_workflow(
                     "answer": answer_data.get("answer", ""),
                     "answerMode": "grounded",
                     "retrievalMode": retrieval_mode,
-                    "citations": answer_data.get("citations", []),
+                    "retrievalStatus": "ready",
+                    "citations": citations,
                 },
             }
         except Exception as exc:
@@ -183,12 +224,9 @@ def run_knowledge_qa_workflow(
             "answer": f"{fallback_intro}\n\n{excerpt}",
             "answerMode": "excerpt_fallback",
             "retrievalMode": retrieval_mode,
+            "retrievalStatus": retrieval_status,
             "citations": [{
-                "chunkId": top_chunk.get("id", ""),
-                "documentId": top_chunk.get("documentId", ""),
-                "sectionId": top_chunk.get("sectionId"),
-                "page": top_chunk.get("pageStart"),
-                "snippet": excerpt[:120],
+                **_citation_from_chunk(top_chunk, excerpt),
             }],
         },
     }

@@ -1,41 +1,69 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CardStudioPage as CardStudioPageView, type CardStudioTab } from '@/components/pages/card-studio-page'
+import { AnimationPreviewModal } from '@/components/cards'
+import { CardCandidatePanel } from '@/components/cards/CardCandidatePanel'
+import { CardEditorModal, type CardEditorDraft } from '@/components/cards/CardEditorModal'
+import { Card, CardContent, Button } from '@/components/ui'
+import { CardStudioPage as CardStudioPageView } from '@/components/pages/card-studio-page'
+import { reportAppError, reportFeedback } from '@/lib/appFeedback'
 import {
   cardsQueryKeys,
   documentsQueryKeys,
   orchestrationQueryKeys,
+  useBulkUpdateCardCandidateStatusesMutation,
   useCardCandidatesQuery,
-  useDocumentAnchorsQuery,
-  useDocumentChunksQuery,
-  useDocumentsQuery,
+  useCardsQuery,
+  useFinalizeCardGenerationMutation,
   useRecentWorkflowRunsQuery,
-  useWorkflowCheckpointQuery,
+  useUpdateCardCandidateMutation,
+  useDocumentsQuery,
   useWorkflowEventsQuery,
 } from '@/queries'
-import { cardsGateway } from '@/services/gateway/cards'
+import { cardsGateway, type CardCandidateFilters, type CreateCardInput, type UpdateCardInput } from '@/services/gateway/cards'
 import { useAppUiStore } from '@/store'
-import type { CardCandidate, WorkflowRun } from '@/types'
+import type { Card as CardEntity, CardCandidate, WorkflowRun } from '@/types'
 
 const LIVE_STATUSES = new Set<WorkflowRun['status']>(['queued', 'running'])
+
+type EditorState =
+  | { mode: 'create' }
+  | { mode: 'edit-card'; card: CardEntity }
+  | { mode: 'edit-candidate'; candidate: CardCandidate }
+  | null
+
+type FinalizeSummary = {
+  createdCount: number
+  skippedDuplicates: number
+  rejectedCount: number
+  highlightsCreated: number
+  highlightsUnlinked: number
+}
+
+type AnimationModalState =
+  | { cardId: string; cardFront: string; mode: 'quick_preview' | 'video_render' }
+  | null
 
 export function CardStudioPage() {
   const queryClient = useQueryClient()
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const preferredCardStudioDocumentId = useAppUiStore(
+    (state) => state.preferredCardStudioDocumentId
+  )
+  const setPreferredCardStudioDocumentId = useAppUiStore(
+    (state) => state.setPreferredCardStudioDocumentId
+  )
   const { data: documents = [] } = useDocumentsQuery()
   const readyDocuments = useMemo(
-    () => documents.filter((document) => document.status === 'ready'),
+    () => documents.filter((document) => document.status === 'ready' || document.status === 'parsed'),
     [documents]
   )
 
-  const [tab, setTab] = useState<CardStudioTab>('create')
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
-  const [candidateLimitInput, setCandidateLimitInput] = useState('24')
+  const [cardLimitInput, setCardLimitInput] = useState('24')
   const [searchQuery, setSearchQuery] = useState('')
-  const [candidateDrafts, setCandidateDrafts] = useState<
-    Record<string, { front: string; back: string; tags: string[] }>
-  >({})
+  const [editorState, setEditorState] = useState<EditorState>(null)
+  const [animationModalState, setAnimationModalState] = useState<AnimationModalState>(null)
+  const [finalizeSummary, setFinalizeSummary] = useState<FinalizeSummary | null>(null)
 
   useEffect(() => {
     if (readyDocuments.length === 0) {
@@ -43,59 +71,67 @@ export function CardStudioPage() {
       return
     }
 
+    if (
+      preferredCardStudioDocumentId &&
+      readyDocuments.some((document) => document.id === preferredCardStudioDocumentId)
+    ) {
+      setSelectedDocumentId(preferredCardStudioDocumentId)
+      setPreferredCardStudioDocumentId(null)
+      return
+    }
+
     if (!selectedDocumentId || !readyDocuments.some((document) => document.id === selectedDocumentId)) {
       setSelectedDocumentId(readyDocuments[0].id)
     }
-  }, [readyDocuments, selectedDocumentId])
+  }, [
+    preferredCardStudioDocumentId,
+    readyDocuments,
+    selectedDocumentId,
+    setPreferredCardStudioDocumentId,
+  ])
 
-  const { data: workflowRuns = [] } = useRecentWorkflowRunsQuery(40, 2_500)
+  useEffect(() => {
+    setFinalizeSummary(null)
+  }, [selectedDocumentId])
+
+  const { data: cards = [] } = useCardsQuery(
+    { documentId: selectedDocumentId, limit: 500 },
+    { enabled: Boolean(selectedDocumentId) }
+  )
+  const { data: workflowRuns = [] } = useRecentWorkflowRunsQuery(20, 2_500)
   const runsForDocument = useMemo(() => {
     const cardRuns = workflowRuns.filter((run) => run.workflowType === 'card_generation')
     return selectedDocumentId
       ? cardRuns.filter((run) => extractDocumentIdFromRun(run) === selectedDocumentId)
-      : []
+      : cardRuns
   }, [workflowRuns, selectedDocumentId])
-
-  useEffect(() => {
-    if (!selectedDocumentId || runsForDocument.length === 0) {
-      setSelectedRunId(null)
-      return
-    }
-
-    if (!selectedRunId || !runsForDocument.some((run) => run.id === selectedRunId)) {
-      setSelectedRunId(runsForDocument[0].id)
-    }
-  }, [runsForDocument, selectedDocumentId, selectedRunId])
-
-  const selectedDocument =
-    readyDocuments.find((document) => document.id === selectedDocumentId) ?? null
-  const activeRun = runsForDocument.find((run) => run.id === selectedRunId) ?? null
+  const activeRun = runsForDocument[0] ?? null
   const pollInterval = activeRun && LIVE_STATUSES.has(activeRun.status) ? 2_000 : false
-
-  const { data: anchors = [] } = useDocumentAnchorsQuery(selectedDocumentId)
-  const { data: chunks = [] } = useDocumentChunksQuery(selectedDocumentId)
-  const { data: candidates = [] } = useCardCandidatesQuery(
-    { workflowRunId: activeRun?.id ?? null, limit: 120 },
-    { refetchInterval: pollInterval }
-  )
-  const { data: checkpoint } = useWorkflowCheckpointQuery(
-    activeRun?.id ?? null,
-    activeRun?.checkpointRef ?? null,
-    { refetchInterval: pollInterval }
-  )
   const { data: events = [] } = useWorkflowEventsQuery(activeRun?.id ?? null, 24, {
     refetchInterval: pollInterval,
   })
 
-  useEffect(() => {
-    if (tab === 'create' && (runsForDocument.length > 0 || candidates.length > 0)) {
-      setTab('library')
-    }
-  }, [tab, candidates.length, runsForDocument.length])
+  const candidateFilters: CardCandidateFilters = activeRun?.id
+    ? { workflowRunId: activeRun.id, limit: 200 }
+    : selectedDocumentId
+      ? { documentId: selectedDocumentId, status: 'pending', limit: 200 }
+      : {}
+  const { data: candidates = [] } = useCardCandidatesQuery(candidateFilters, {
+    refetchInterval: pollInterval,
+  })
 
-  const pendingCount = candidates.filter((candidate) => candidate.status === 'pending').length
-  const acceptedCount = candidates.filter((candidate) => candidate.status === 'accepted').length
-  const rejectedCount = candidates.filter((candidate) => candidate.status === 'rejected').length
+  const pendingCandidates = useMemo(
+    () => candidates.filter((candidate) => candidate.status === 'pending'),
+    [candidates]
+  )
+  const acceptedCandidates = useMemo(
+    () => candidates.filter((candidate) => candidate.status === 'accepted'),
+    [candidates]
+  )
+  const rejectedCandidates = useMemo(
+    () => candidates.filter((candidate) => candidate.status === 'rejected'),
+    [candidates]
+  )
 
   async function invalidateCardQueries() {
     await Promise.all([
@@ -108,196 +144,364 @@ export function CardStudioPage() {
   const startMutation = useMutation({
     mutationFn: ({ documentId, maxCandidates }: { documentId: string; maxCandidates?: number }) =>
       cardsGateway.startGeneration(documentId, maxCandidates),
-    onSuccess: async (run) => {
-      setSelectedRunId(run.id)
-      setTab('library')
-      await invalidateCardQueries()
-    },
-  })
-
-  const resumeMutation = useMutation({
-    mutationFn: (runId: string) => cardsGateway.resumeGeneration(runId),
-    onSuccess: async (run) => {
-      setSelectedRunId(run.id)
-      await invalidateCardQueries()
-    },
-  })
-
-  const finalizeMutation = useMutation({
-    mutationFn: (runId: string) => cardsGateway.finalizeGeneration(runId),
     onSuccess: async () => {
+      setFinalizeSummary(null)
+      await invalidateCardQueries()
+    },
+    onError: (cause) => {
+      const detail = cause instanceof Error ? cause.message : String(cause)
+      reportAppError('卡片生成', cause, {
+        title: detail.includes('no parsed chunks')
+          ? '文档尚未解析成功，请回到文档库重试解析'
+          : '卡片生成启动失败',
+        showToast: true,
+      })
+    },
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (data: CreateCardInput) => cardsGateway.create(data),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateCardInput }) => cardsGateway.update(id, data),
+    onSuccess: async () => {
+      setEditorState(null)
       await invalidateCardQueries()
     },
   })
 
-  const updateCandidateMutation = useMutation({
-    mutationFn: ({
-      id,
-      data,
-    }: {
-      id: string
-      data: Partial<Pick<CardCandidate, 'front' | 'back' | 'tags' | 'status'>>
-    }) => cardsGateway.updateCandidate(id, data),
-    onSuccess: async () => {
-      await invalidateCardQueries()
-    },
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => cardsGateway.delete(id),
+    onSuccess: invalidateCardQueries,
   })
 
-  const bulkStatusMutation = useMutation({
-    mutationFn: ({
-      workflowRunId,
-      ids,
-      status,
-    }: {
-      workflowRunId: string
-      ids: string[]
-      status: CardCandidate['status']
-    }) => cardsGateway.bulkUpdateCandidateStatuses(workflowRunId, ids, status),
-    onSuccess: async () => {
-      await invalidateCardQueries()
-    },
-  })
+  const updateCandidateMutation = useUpdateCardCandidateMutation()
+  const bulkUpdateCandidateStatusesMutation = useBulkUpdateCardCandidateStatusesMutation()
+  const finalizeGenerationMutation = useFinalizeCardGenerationMutation()
 
   const isBusy =
     startMutation.isPending ||
-    resumeMutation.isPending ||
-    finalizeMutation.isPending ||
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    deleteMutation.isPending ||
     updateCandidateMutation.isPending ||
-    bulkStatusMutation.isPending
+    bulkUpdateCandidateStatusesMutation.isPending ||
+    finalizeGenerationMutation.isPending
 
-  const candidateViews = candidates.map((candidate) => {
-    const draft = candidateDrafts[candidate.id]
-    return {
-      id: candidate.id,
-      sourceLabel: candidate.sourcePage ? `P.${candidate.sourcePage}` : 'Document',
-      sourceQuote: candidate.sourceQuote,
-      front: draft?.front ?? candidate.front,
-      back: draft?.back ?? candidate.back,
-      tags: draft?.tags ?? candidate.tags,
-      confidenceLabel: `Confidence ${candidate.confidence.toFixed(2)}`,
-      status: candidate.status,
+  function handleEditorSave(data: CardEditorDraft & { mediaFilePaths: string[] }) {
+    if (editorState?.mode === 'edit-card') {
+      updateMutation.mutate({
+        id: editorState.card.id,
+        data: {
+          front: data.front,
+          back: data.back,
+          tags: data.tags,
+          cardType: data.cardType,
+        },
+      })
+      return
     }
-  })
+
+    if (editorState?.mode === 'edit-candidate') {
+      const nextCardType =
+        data.cardType === 'image_occlusion' ? 'qa' : data.cardType
+      updateCandidateMutation.mutate({
+        id: editorState.candidate.id,
+        data: {
+          front: data.front,
+          back: data.back,
+          tags: data.tags,
+          cardType: nextCardType,
+        },
+      })
+      setEditorState(null)
+      return
+    }
+
+    createMutation.mutate(
+      {
+        front: data.front,
+        back: data.back,
+        tags: data.tags,
+        cardType: data.cardType,
+        documentId: selectedDocumentId,
+      },
+      {
+        onSuccess: async (card) => {
+          if (data.mediaFilePaths.length > 0) {
+            await Promise.all(
+              data.mediaFilePaths.map((filePath) => cardsGateway.uploadCardMedia(card.id, filePath))
+            )
+          }
+          setEditorState(null)
+          await invalidateCardQueries()
+        },
+      }
+    )
+  }
+
+  async function handleUpdateCandidateStatus(
+    candidate: CardCandidate,
+    status: CardCandidate['status']
+  ) {
+    await updateCandidateMutation.mutateAsync({
+      id: candidate.id,
+      data: { status },
+    })
+  }
+
+  async function handleFinalizeAcceptedCandidates() {
+    if (!activeRun || !selectedDocumentId) {
+      return
+    }
+
+    try {
+      const result = await finalizeGenerationMutation.mutateAsync(activeRun.id)
+      const highlightResult = await cardsGateway.batchCreateHighlightsForRun(
+        activeRun.id,
+        selectedDocumentId
+      )
+      setFinalizeSummary({
+        createdCount: result.createdCount,
+        skippedDuplicates: result.skippedDuplicates,
+        rejectedCount: result.rejectedCount,
+        highlightsCreated: highlightResult.created,
+        highlightsUnlinked: highlightResult.unlinked,
+      })
+      await invalidateCardQueries()
+      reportFeedback({
+        scope: '卡片工坊',
+        title: '候选卡片已入库',
+        detail: `新增 ${result.createdCount} 张正式卡片，并创建 ${highlightResult.created} 条阅读高亮。`,
+        level: 'info',
+      })
+    } catch (cause) {
+      reportAppError('卡片工坊', cause, {
+        title: '候选卡片入库失败',
+        fallbackDetail: '请检查候选状态后重试。',
+        showToast: true,
+      })
+    }
+  }
+
+  const canFinalize =
+    Boolean(activeRun) && acceptedCandidates.length > 0 && pendingCandidates.length === 0
 
   return (
-    <CardStudioPageView
-      tab={tab}
-      hasReadyDocuments={readyDocuments.length > 0}
-      readyDocuments={readyDocuments.map((document) => ({
-        id: document.id,
-        title: document.title,
-        meta: `${document.pageCount ?? '--'} pages`,
-        cardCountLabel: `${runsForDocument.length} runs`,
-      }))}
-      selectedDocumentId={selectedDocumentId}
-      searchQuery={searchQuery}
-      candidateLimitInput={candidateLimitInput}
-      candidates={candidateViews}
-      activeRunLabel={activeRun ? `Run ${activeRun.id.slice(0, 8)}` : 'No active batch'}
-      activeRunStatusLabel={activeRun?.status ?? null}
-      activeRunStatusTone={activeRun ? statusTone(activeRun.status) : 'neutral'}
-      pendingCount={pendingCount}
-      acceptedCount={acceptedCount}
-      rejectedCount={rejectedCount}
-      metrics={[
-        { label: 'Ready docs', value: readyDocuments.length, hint: 'Documents that can start generation' },
-        { label: 'Anchors', value: anchors.length, hint: 'Reference anchors for the selected document' },
-        { label: 'Chunks', value: chunks.length, hint: 'Chunk coverage for candidate generation' },
-      ]}
-      runs={runsForDocument.map((run) => ({
-        id: run.id,
-        title: run.id.slice(0, 8),
-        meta: run.createdAt.toLocaleString(),
-        statusLabel: run.status,
-        statusTone: statusTone(run.status),
-      }))}
-      checkpoint={
-        checkpoint?.payload
-          ? [
-              { label: 'Phase', value: String(checkpoint.payload['phase'] ?? 'unknown') },
-              { label: 'Generated', value: String(checkpoint.payload['generatedCount'] ?? '--') },
-              {
-                label: 'Chunk cursor',
-                value: `${String(checkpoint.payload['chunkCursor'] ?? '--')}/${String(checkpoint.payload['totalChunks'] ?? '--')}`,
-              },
-            ]
-          : []
-      }
-      events={events.map((event) => ({
-        id: `${event.runId}-${event.createdAt.toISOString()}-${event.eventType}`,
-        title: event.eventType,
-        time: event.createdAt.toLocaleTimeString(),
-        detail: event.message,
-      }))}
-      isBusy={isBusy}
-      canGenerate={Boolean(selectedDocument)}
-      canResume={Boolean(activeRun && LIVE_STATUSES.has(activeRun.status))}
-      canFinalize={Boolean(activeRun && candidates.length > 0)}
-      onTabChange={setTab}
-      onDocumentSelect={setSelectedDocumentId}
-      onCandidateLimitChange={setCandidateLimitInput}
-      onSearchQueryChange={setSearchQuery}
-      onGenerate={() => {
-        if (!selectedDocument) return
-        startMutation.mutate({
-          documentId: selectedDocument.id,
-          maxCandidates: Number.parseInt(candidateLimitInput, 10) || undefined,
-        })
-      }}
-      onResume={() => activeRun && resumeMutation.mutate(activeRun.id)}
-      onFinalize={() => {
-        if (!activeRun) return
-        Object.entries(candidateDrafts).forEach(([id, draft]) => {
-          updateCandidateMutation.mutate({ id, data: draft })
-        })
-        finalizeMutation.mutate(activeRun.id)
-      }}
-      onBulkAccept={() => {
-        if (!activeRun) return
-        bulkStatusMutation.mutate({
-          workflowRunId: activeRun.id,
-          ids: candidates.filter((candidate) => candidate.status === 'pending').map((candidate) => candidate.id),
-          status: 'accepted',
-        })
-      }}
-      onBulkReject={() => {
-        if (!activeRun) return
-        bulkStatusMutation.mutate({
-          workflowRunId: activeRun.id,
-          ids: candidates.filter((candidate) => candidate.status === 'pending').map((candidate) => candidate.id),
-          status: 'rejected',
-        })
-      }}
-      onOpenLibrary={() => setActiveNavItem('library')}
-      onOpenSettings={() => setActiveNavItem('settings')}
-      onRunSelect={(runId) => {
-        setSelectedRunId(runId)
-        setTab('library')
-      }}
-      onCandidateUpdate={(candidateId, patch) => {
-        setCandidateDrafts((prev) => {
-          const currentCandidate = candidates.find((item) => item.id === candidateId)
-          if (!currentCandidate) return prev
-          const base = prev[candidateId] ?? {
-            front: currentCandidate.front,
-            back: currentCandidate.back,
-            tags: currentCandidate.tags,
-          }
-          return {
-            ...prev,
-            [candidateId]: {
-              front: patch.front ?? base.front,
-              back: patch.back ?? base.back,
-              tags: patch.tags ?? base.tags,
-            },
-          }
-        })
+    <>
+      <div className="space-y-6">
+        <CardStudioPageView
+          hasReadyDocuments={readyDocuments.length > 0}
+          readyDocuments={readyDocuments.map((document) => ({
+            id: document.id,
+            title: document.title,
+            meta: `${document.pageCount ?? '--'} pages`,
+            cardCountLabel: `${cards.filter((card) => card.documentId === document.id).length} cards`,
+          }))}
+          selectedDocumentId={selectedDocumentId}
+          searchQuery={searchQuery}
+          cardLimitInput={cardLimitInput}
+          cards={cards.map((card) => ({
+            id: card.id,
+            front: card.front,
+            back: card.back,
+            tags: card.tags,
+            cardType: card.cardType,
+            state: card.state,
+            sourceLabel: card.sourcePage ? `P.${card.sourcePage}` : 'Manual',
+          }))}
+          activeRunLabel={activeRun ? `Run ${activeRun.id.slice(0, 8)}` : 'No recent run'}
+          activeRunStatusLabel={activeRun?.status ?? null}
+          activeRunStatusTone={activeRun ? statusTone(activeRun.status) : 'neutral'}
+          metrics={[
+            { label: 'Ready docs', value: readyDocuments.length, hint: 'Documents available for generation' },
+            { label: 'Cards', value: cards.length, hint: 'Formal cards for the selected document' },
+            { label: 'Runs', value: runsForDocument.length, hint: 'Agent generation attempts' },
+          ]}
+          runs={runsForDocument.map((run) => ({
+            id: run.id,
+            title: run.id.slice(0, 8),
+            meta: run.createdAt.toLocaleString(),
+            statusLabel: run.status,
+            statusTone: statusTone(run.status),
+          }))}
+          events={events.map((event) => ({
+            id: `${event.runId}-${event.createdAt.toISOString()}-${event.eventType}`,
+            title: event.eventType,
+            time: event.createdAt.toLocaleTimeString(),
+            detail: event.message,
+          }))}
+          isBusy={isBusy}
+          canGenerate={Boolean(selectedDocumentId)}
+          onDocumentSelect={(documentId) => {
+            setSelectedDocumentId(documentId)
+            setPreferredCardStudioDocumentId(null)
+          }}
+          onCardLimitChange={setCardLimitInput}
+          onSearchQueryChange={setSearchQuery}
+          onGenerate={() => {
+            if (!selectedDocumentId) return
+            startMutation.mutate({
+              documentId: selectedDocumentId,
+              maxCandidates: Number.parseInt(cardLimitInput, 10) || undefined,
+            })
+          }}
+          onCreateCard={() => setEditorState({ mode: 'create' })}
+          onEditCard={(cardId) => {
+            const card = cards.find((item) => item.id === cardId)
+            if (card) setEditorState({ mode: 'edit-card', card })
+          }}
+          onDeleteCard={(cardId) => deleteMutation.mutate(cardId)}
+          onQuickPreviewCard={(cardId) => {
+            const card = cards.find((item) => item.id === cardId)
+            if (!card) return
+            setAnimationModalState({ cardId, cardFront: card.front, mode: 'quick_preview' })
+          }}
+          onRenderVideoCard={(cardId) => {
+            const card = cards.find((item) => item.id === cardId)
+            if (!card) return
+            setAnimationModalState({ cardId, cardFront: card.front, mode: 'video_render' })
+          }}
+          onOpenLibrary={() => setActiveNavItem('library')}
+        />
 
-        if (patch.status) {
-          updateCandidateMutation.mutate({ id: candidateId, data: { status: patch.status } })
-        }
-      }}
-    />
+        {activeRun ? (
+          <div className="mx-auto w-full max-w-7xl space-y-4" data-testid="card-studio-candidate-review">
+            <Card className="border-border/50 bg-card">
+              <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">候选审阅闭环</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    先审阅候选卡片，再统一入库并创建文档高亮。这样阅读器、卡片和复习才能保持同一来源定位。
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span data-testid="card-studio-pending-count">待审阅 {pendingCandidates.length}</span>
+                    <span data-testid="card-studio-accepted-count">已接受 {acceptedCandidates.length}</span>
+                    <span data-testid="card-studio-rejected-count">已拒绝 {rejectedCandidates.length}</span>
+                  </div>
+                </div>
+                <div className="flex flex-col items-start gap-2 lg:items-end">
+                  <Button
+                    onClick={() => void handleFinalizeAcceptedCandidates()}
+                    disabled={!canFinalize || isBusy}
+                    data-testid="card-studio-finalize-generation"
+                  >
+                    确认入库并生成高亮
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    {pendingCandidates.length > 0
+                      ? '还有待审阅候选，请先接受或拒绝。'
+                      : acceptedCandidates.length === 0
+                        ? '至少接受一张候选卡片后才能入库。'
+                        : '入库后会同步创建阅读高亮。'}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {finalizeSummary ? (
+              <Card className="border-border/50 bg-card" data-testid="card-studio-finalize-summary">
+                <CardContent className="grid gap-3 p-5 text-sm md:grid-cols-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">正式卡片</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">
+                      +{finalizeSummary.createdCount}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">重复跳过</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">
+                      {finalizeSummary.skippedDuplicates}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">高亮已创建</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">
+                      {finalizeSummary.highlightsCreated}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">未能定位</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">
+                      {finalizeSummary.highlightsUnlinked}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            <CardCandidatePanel
+              candidates={candidates}
+              busy={isBusy}
+              onAccept={(candidate) => {
+                void handleUpdateCandidateStatus(candidate, 'accepted')
+              }}
+              onReject={(candidate) => {
+                void handleUpdateCandidateStatus(candidate, 'rejected')
+              }}
+              onEdit={(candidate) => setEditorState({ mode: 'edit-candidate', candidate })}
+              onBulkAccept={(selectedCandidates) => {
+                if (!activeRun) return
+                void bulkUpdateCandidateStatusesMutation.mutateAsync({
+                  workflowRunId: activeRun.id,
+                  ids: selectedCandidates.map((candidate) => candidate.id),
+                  status: 'accepted',
+                })
+              }}
+              onBulkReject={(selectedCandidates) => {
+                if (!activeRun) return
+                void bulkUpdateCandidateStatusesMutation.mutateAsync({
+                  workflowRunId: activeRun.id,
+                  ids: selectedCandidates.map((candidate) => candidate.id),
+                  status: 'rejected',
+                })
+              }}
+              emptyHint="当前运行还没有待审阅候选。可以重新触发生成，或直接维护正式卡片。"
+            />
+          </div>
+        ) : null}
+      </div>
+
+      {editorState ? (
+        <CardEditorModal
+          card={editorState.mode === 'edit-card' ? editorState.card : null}
+          initialDraft={
+            editorState.mode === 'edit-candidate'
+              ? {
+                  front: editorState.candidate.front,
+                  back: editorState.candidate.back,
+                  tags: editorState.candidate.tags,
+                  cardType: editorState.candidate.cardType,
+                }
+              : null
+          }
+          title={editorState.mode === 'edit-candidate' ? '编辑候选卡片' : undefined}
+          submitLabel={editorState.mode === 'edit-candidate' ? '保存候选修改' : undefined}
+          allowedCardTypes={
+            editorState.mode === 'edit-candidate'
+              ? ['qa', 'cloze', 'fact', 'choice']
+              : ['qa', 'cloze', 'fact', 'choice', 'image_occlusion']
+          }
+          onSave={handleEditorSave}
+          onClose={() => setEditorState(null)}
+          isSaving={
+            createMutation.isPending ||
+            updateMutation.isPending ||
+            updateCandidateMutation.isPending
+          }
+        />
+      ) : null}
+
+      {animationModalState ? (
+        <AnimationPreviewModal
+          cardId={animationModalState.cardId}
+          cardFront={animationModalState.cardFront}
+          initialMode={animationModalState.mode}
+          onClose={() => setAnimationModalState(null)}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -309,7 +513,7 @@ function extractDocumentIdFromRun(run: WorkflowRun) {
 function statusTone(status: WorkflowRun['status']): 'neutral' | 'warning' | 'success' | 'danger' {
   if (status === 'completed') return 'success'
   if (status === 'failed' || status === 'cancelled') return 'danger'
-  if (status === 'queued' || status === 'running' || status === 'waiting_confirmation') {
+  if (status === 'queued' || status === 'running') {
     return 'warning'
   }
   return 'neutral'

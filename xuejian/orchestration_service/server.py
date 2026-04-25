@@ -13,9 +13,11 @@ import json
 import logging
 import os
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .clients.host_gateway import HostGatewayClient
+from .logging_config import configure_logging
 from .exports.annotated_pdf_exporter import export_annotated_pdf
 from .exports.genanki_exporter import export_cards_to_apkg
 from .exports.apkg_importer import import_apkg
@@ -27,7 +29,7 @@ from .workflows.knowledge_graph import run_knowledge_graph_workflow
 from .workflows.knowledge_qa import run_knowledge_qa_workflow
 from .workflows.podcast import run_podcast_workflow
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [orchestration] %(message)s")
+configure_logging()
 logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = "xuejian-orchestration/v1"
@@ -47,6 +49,7 @@ def build_handler(start_time: float):
             return
 
         def _write_json(self, status_code: int, payload: dict) -> None:
+            self._last_status_code = status_code
             body = json.dumps(payload).encode("utf-8")
             self.send_response(status_code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -54,93 +57,128 @@ def build_handler(start_time: float):
             self.end_headers()
             self.wfile.write(body)
 
+        def _request_id(self) -> str:
+            return self.headers.get("X-Request-Id") or uuid.uuid4().hex
+
+        def _log_request(self, request_id: str, started_at: float) -> None:
+            status_code = getattr(self, "_last_status_code", 0)
+            level = logging.ERROR if status_code >= 500 else logging.INFO
+            logger.log(
+                level,
+                "HTTP %s %s -> %s",
+                self.command,
+                self.path,
+                status_code,
+                extra={
+                    "request_id": request_id,
+                    "path": self.path,
+                    "duration_ms": round((time.monotonic() - started_at) * 1000, 3),
+                },
+            )
+
         def _read_body(self) -> bytes:
             length = int(self.headers.get("Content-Length", 0))
             return self.rfile.read(length) if length > 0 else b""
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path == "/health":
-                self._write_json(
-                    200,
-                    {
-                        "status": "healthy",
-                        "protocolVersion": PROTOCOL_VERSION,
-                        "serviceVersion": SERVICE_VERSION,
-                        "pid": os.getpid(),
-                        "uptimeSeconds": round(time.monotonic() - start_time, 3),
-                    },
-                )
-                return
+            request_id = self._request_id()
+            started_at = time.monotonic()
+            try:
+                if self.path == "/health":
+                    self._write_json(
+                        200,
+                        {
+                            "status": "healthy",
+                            "protocolVersion": PROTOCOL_VERSION,
+                            "serviceVersion": SERVICE_VERSION,
+                            "pid": os.getpid(),
+                            "uptimeSeconds": round(time.monotonic() - start_time, 3),
+                        },
+                    )
+                    return
 
-            if self.path == "/handshake":
-                self._write_json(
-                    200,
-                    {
-                        "protocolVersion": PROTOCOL_VERSION,
-                        "serviceVersion": SERVICE_VERSION,
-                        "service": "python-orchestration",
-                        "capabilities": [
-                            "health-check",
-                            "preset-workflows",
-                            "card-generation",
-                            "document-parse",
-                            "document-embedding",
-                            "knowledge-qa",
-                            "card-animation",
-                            "podcast",
-                            "knowledge-graph",
-                            "anki-export",
-                            "anki-import",
-                            "annotated-pdf-export",
-                        ],
-                    },
-                )
-                return
+                if self.path == "/handshake":
+                    self._write_json(
+                        200,
+                        {
+                            "protocolVersion": PROTOCOL_VERSION,
+                            "serviceVersion": SERVICE_VERSION,
+                            "service": "python-orchestration",
+                            "capabilities": [
+                                "health-check",
+                                "preset-workflows",
+                                "card-generation",
+                                "document-parse",
+                                "document-embedding",
+                                "knowledge-qa",
+                                "card-animation",
+                                "podcast",
+                                "knowledge-graph",
+                                "anki-export",
+                                "anki-import",
+                                "annotated-pdf-export",
+                            ],
+                        },
+                    )
+                    return
 
-            self._write_json(404, {"error": "not_found"})
+                self._write_json(404, {"error": "not_found"})
+            except Exception:
+                logger.exception("Unhandled GET request error", extra={"request_id": request_id, "path": self.path})
+                self._write_json(500, {"error": "internal_server_error"})
+            finally:
+                self._log_request(request_id, started_at)
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path == "/workflows/card-generation":
-                self._handle_card_generation()
-                return
+            request_id = self._request_id()
+            started_at = time.monotonic()
+            try:
+                if self.path == "/workflows/card-generation":
+                    self._handle_card_generation()
+                    return
 
-            if self.path == "/workflows/document-parse":
-                self._handle_document_parse()
-                return
+                if self.path == "/workflows/document-parse":
+                    self._handle_document_parse()
+                    return
 
-            if self.path == "/workflows/document-embedding":
-                self._handle_document_embedding()
-                return
+                if self.path == "/workflows/document-embedding":
+                    self._handle_document_embedding()
+                    return
 
-            if self.path == "/workflows/knowledge-qa":
-                self._handle_knowledge_qa()
-                return
+                if self.path == "/workflows/knowledge-qa":
+                    self._handle_knowledge_qa()
+                    return
 
-            if self.path == "/workflows/card-animation":
-                self._handle_card_animation()
-                return
+                if self.path == "/workflows/card-animation":
+                    self._handle_card_animation()
+                    return
 
-            if self.path == "/workflows/podcast":
-                self._handle_podcast()
-                return
+                if self.path == "/workflows/podcast":
+                    self._handle_podcast()
+                    return
 
-            if self.path == "/workflows/knowledge-graph":
-                self._handle_knowledge_graph()
-                return
+                if self.path == "/workflows/knowledge-graph":
+                    self._handle_knowledge_graph()
+                    return
 
-            if self.path == "/exports/apkg":
-                self._handle_export_apkg()
-                return
+                if self.path == "/exports/apkg":
+                    self._handle_export_apkg()
+                    return
 
-            if self.path == "/exports/annotated-pdf":
-                self._handle_export_annotated_pdf()
-                return
+                if self.path == "/exports/annotated-pdf":
+                    self._handle_export_annotated_pdf()
+                    return
 
-            if self.path == "/imports/apkg":
-                self._handle_import_apkg()
-                return
+                if self.path == "/imports/apkg":
+                    self._handle_import_apkg()
+                    return
 
-            self._write_json(404, {"error": "not_found"})
+                self._write_json(404, {"error": "not_found"})
+            except Exception:
+                logger.exception("Unhandled POST request error", extra={"request_id": request_id, "path": self.path})
+                self._write_json(500, {"error": "internal_server_error"})
+            finally:
+                self._log_request(request_id, started_at)
 
         def _handle_card_generation(self) -> None:
             if _host_gateway is None:
@@ -285,18 +323,19 @@ def build_handler(start_time: float):
             back = body.get("back", "").strip()
             tags = body.get("tags") or []
             anim_type = body.get("animType", "flashcard_reveal").strip()
+            mode = body.get("mode", "quick_preview").strip() or "quick_preview"
 
             if not card_id or not front:
                 self._write_json(400, {"error": "missing cardId or front"})
                 return
 
             logger.info(
-                "Starting card animation: run=%s card=%s type=%s",
-                run_id[:8] if run_id else "none", card_id[:8], anim_type,
+                "Starting card animation: run=%s card=%s type=%s mode=%s",
+                run_id[:8] if run_id else "none", card_id[:8], anim_type, mode,
             )
             try:
                 result = run_card_animation_workflow(
-                    run_id, card_id, front, back, tags, anim_type, _host_gateway,
+                    run_id, card_id, front, back, tags, anim_type, mode, _host_gateway,
                 )
                 self._write_json(200, result)
             except Exception as exc:

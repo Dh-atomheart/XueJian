@@ -23,6 +23,7 @@ import type {
   HostGatewayManifest,
   IRRect,
   ModelCapabilities,
+  ModelProfile,
   PointsEntry,
   PointsSummary,
   ProviderBudgetUsage,
@@ -358,8 +359,12 @@ export const appSettingsSchema = z.preprocess(
       .enum(['introductory', 'beginner', 'intermediate', 'advanced', 'expert'])
       .catch('intermediate')
       .default('intermediate'),
-    podcastTtsProvider: z.enum(['auto', 'openai', 'edge_tts']).catch('auto').default('auto'),
+    podcastTtsProvider: z
+      .enum(['auto', 'openai', 'edge_tts', 'google'])
+      .catch('auto')
+      .default('auto'),
     podcastOpenaiModel: stringSettingSchema('tts-1'),
+    podcastGoogleTtsModel: stringSettingSchema('gemini-2.5-flash-preview-tts'),
     podcastFishAudioEndpoint: optionalEndpointSchema.default(null),
     podcastVoiceOverrides: voiceOverridesSchema,
     defaultVoice: stringSettingSchema('gentle_female_xiaoxiao'),
@@ -460,18 +465,35 @@ export const embeddingProfileSchema = z.object({
   id: z.string().uuid(),
   provider: apiProviderSchema,
   model: z.string().min(1),
-  dimensions: z.number().int().positive(),
+  dimensions: z.number().int().nonnegative(),
   distanceMetric: z.literal('cosine'),
   isActive: z.boolean(),
   revision: z.number().int().nonnegative(),
   createdAt: dateValueSchema,
 }) as z.ZodType<EmbeddingProfile>
 
+export const modelProfileSchema = z.lazy(
+  () =>
+    z.object({
+      id: z.string().uuid(),
+      apiConfigId: z.string().uuid(),
+      modelId: z.string().min(1),
+      displayName: z.string().nullable(),
+      capabilitiesJson: z.string().nullable(),
+      isEnabled: z.boolean(),
+      isDefaultForConnection: z.boolean(),
+      createdAt: dateValueSchema,
+      updatedAt: dateValueSchema,
+      apiConfig: apiConfigSchema.nullable().optional(),
+    }) as z.ZodType<ModelProfile>
+)
+
 export const workflowModelAssignmentSchema = z.object({
   workflowType: workflowTypeSchema,
-  apiConfigId: z.string().uuid(),
+  modelProfileId: z.string().uuid(),
   assignedAt: dateValueSchema,
   updatedAt: dateValueSchema,
+  modelProfile: modelProfileSchema.nullable().optional(),
   apiConfig: apiConfigSchema.nullable().optional(),
 }) as z.ZodType<WorkflowModelAssignment>
 
@@ -536,8 +558,8 @@ export const documentAnchorSchema = z.object({
   textQuote: z.string().min(1),
   rects: z.array(documentAnchorRectSchema),
   hash: z.string().min(1),
-  hierarchyPath: z.array(z.string()),
-  quoteHash: z.string().nullable(),
+  hierarchyPath: z.array(z.string()).optional().default([]),
+  quoteHash: z.string().nullable().optional().default(null),
   createdAt: dateValueSchema,
 }) as z.ZodType<DocumentAnchor>
 
@@ -732,7 +754,16 @@ export const citationSchema = z.object({
 export const ragAnswerSchema = z.object({
   answer: z.string().min(1),
   answerMode: z.enum(['grounded', 'no_relevant_content', 'excerpt_fallback']),
-  retrievalMode: z.enum(['fts5', 'hybrid']),
+  retrievalMode: z.enum(['fts5', 'hybrid', 'graph_rag+fts5', 'graph_rag+hybrid']),
+  retrievalStatus: z.enum([
+    'ready',
+    'embedding_missing',
+    'embedding_stale',
+    'embedding_failed',
+    'no_hits',
+  ]),
+  graphEnhanced: z.boolean().catch(false).default(false),
+  graphContextSummary: z.string().nullable().catch(null).default(null),
   citations: z.array(citationSchema),
 }) as z.ZodType<RagAnswer>
 

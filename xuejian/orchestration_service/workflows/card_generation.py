@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from ..providers.graph_rag import graph_rag_search
 from ..providers.runtime import build_langchain_chat_model, estimate_workflow_cost
 from ..schemas.card_draft import CardDraftBatch
+from .agent_card_generation import generate_cards_with_agent
 
 if TYPE_CHECKING:
     from ..clients.host_gateway import HostGatewayClient
@@ -126,12 +127,21 @@ def _build_graph_context(
     return "\n".join(lines) if lines else "(none)"
 
 
-def _candidate_base_payload(chunk: dict, *, generation_mode: str, fallback_reason: str | None = None) -> dict:
+def _candidate_base_payload(
+    chunk: dict,
+    *,
+    generation_mode: str,
+    fallback_reason: str | None = None,
+    source_quote: str | None = None,
+) -> dict:
+    quote = (source_quote or chunk.get("snippet") or chunk.get("content") or "").strip()
     return {
         "sectionId": chunk.get("sectionId"),
         "visibilityBucket": "default",
         "generationMode": generation_mode,
         "fallbackReason": fallback_reason,
+        "sourcePage": chunk.get("pageStart"),
+        "sourceQuote": _truncate(quote, 500) if quote else None,
         "sourceChunkIds": [chunk["id"]] if chunk.get("id") else None,
     }
 
@@ -161,7 +171,19 @@ def _extract_flashcard(text: str, anchor: dict) -> tuple[str, str, float]:
     paragraph = anchor.get("paragraph")
     location = f"Page {page}" + (f", paragraph {paragraph}" if paragraph else "")
     focus = text.split("。")[0].split(".")[0].strip()[:18] or "this passage"
-    return f"{location}: what is the key idea about {focus}?", _truncate(text, 220), 0.64
+    return f"{location}: what is the key idea about {focus}?", _truncate(text, 220), 0.68
+
+
+def _persist_card_batch(host: HostGatewayClient, run_id: str, document_id: str, candidates: list[dict]) -> tuple[int, int]:
+    if not candidates:
+        return 0, 0
+
+    result = host.persist_cards(run_id, document_id, candidates)
+    created = int(result.get("createdCount", 0) or 0)
+    skipped = int(result.get("skippedDuplicates", 0) or 0)
+    discarded = int(result.get("discardedLowQuality", 0) or 0)
+    processed = created + skipped + discarded
+    return created, max(processed, len(candidates))
 
 
 def _try_langchain_generation(
@@ -180,9 +202,10 @@ def _try_langchain_generation(
 
     anchor_by_hash = {a.get("hash", ""): a for a in anchors if a.get("hash")}
     total_persisted = 0
+    total_processed = 0
 
     for chunk in chunks:
-        if total_persisted >= max_candidates:
+        if total_persisted >= max_candidates or total_processed >= max_candidates:
             break
 
         _check_cancelled(host, run_id)
@@ -213,46 +236,82 @@ def _try_langchain_generation(
         hierarchy_path = " > ".join((section or {}).get("hierarchyPath") or []) or "(root)"
         graph_context = _build_graph_context(quote, section_heading, host)
 
-        prompt = CARD_GENERATION_USER_TEMPLATE.format(
-            title=document.get("title", "Untitled"),
-            section_heading=section_heading,
-            hierarchy_path=hierarchy_path,
-            page_range=page_range,
-            quote=quote,
-            graph_context=graph_context,
-        )
-
+        remaining_budget = max_candidates - total_processed
         try:
-            response = llm.invoke([
-                SystemMessage(content=CARD_GENERATION_SYSTEM_PROMPT),
-                HumanMessage(content=prompt),
-            ])
-            raw = response.content
-            match = re.search(r"\[.*\]", raw, re.DOTALL)
-            if not match:
-                logger.warning("No JSON array found in LLM response for chunk %s", chunk.get("chunkIndex"))
-                continue
-            items = json.loads(match.group())
+            items = generate_cards_with_agent(
+                config=config,
+                api_key=api_key,
+                document=document,
+                chunk=chunk,
+                quote=quote,
+                section_heading=section_heading,
+                hierarchy_path=hierarchy_path,
+                page_range=page_range,
+                graph_context=graph_context,
+                max_cards=min(4, remaining_budget),
+            )
+            if items:
+                logger.info(
+                    "LangChain agent produced %d card drafts for chunk %s",
+                    len(items),
+                    chunk.get("chunkIndex"),
+                )
+            else:
+                logger.warning("LangChain agent produced no cards for chunk %s", chunk.get("chunkIndex"))
         except Exception as exc:
-            logger.error("LLM invocation failed for chunk %s: %s", chunk.get("chunkIndex"), exc)
-            continue
+            logger.warning(
+                "LangChain agent failed for chunk %s, falling back to direct LLM: %s",
+                chunk.get("chunkIndex"),
+                exc,
+            )
+            prompt = CARD_GENERATION_USER_TEMPLATE.format(
+                title=document.get("title", "Untitled"),
+                section_heading=section_heading,
+                hierarchy_path=hierarchy_path,
+                page_range=page_range,
+                quote=quote,
+                graph_context=graph_context,
+            )
+
+            try:
+                response = llm.invoke([
+                    SystemMessage(content=CARD_GENERATION_SYSTEM_PROMPT),
+                    HumanMessage(content=prompt),
+                ])
+                raw = response.content
+                match = re.search(r"\[.*\]", raw, re.DOTALL)
+                if not match:
+                    logger.warning("No JSON array found in LLM response for chunk %s", chunk.get("chunkIndex"))
+                    continue
+                items = json.loads(match.group())
+            except Exception as llm_exc:
+                logger.error("LLM invocation failed for chunk %s: %s", chunk.get("chunkIndex"), llm_exc)
+                continue
 
         batch = CardDraftBatch.from_llm_json(items, anchor.get("id") if anchor else None, document["id"])
+        if batch.invalid_count:
+            logger.warning(
+                "Rejected %d LLM card candidates for chunk %s: %s",
+                batch.invalid_count,
+                chunk.get("chunkIndex"),
+                "; ".join(batch.rejection_reasons[:3]),
+            )
         candidates = []
-        for draft in batch.drafts[:max_candidates - total_persisted]:
+        for draft in batch.drafts[:max_candidates - total_processed]:
             candidate = draft.to_persist_payload(run_id, document["id"])
-            candidate.update(_candidate_base_payload(chunk, generation_mode="llm"))
+            candidate.update(_candidate_base_payload(chunk, generation_mode="llm", source_quote=quote))
             candidate["evaluationSummary"] = f"LLM candidate from {section_heading}"
             candidates.append(candidate)
 
         if candidates:
-            result = host.persist_candidates(run_id, document["id"], candidates)
-            total_persisted += result.get("insertedCount", 0)
+            created_count, processed_count = _persist_card_batch(host, run_id, document["id"], candidates)
+            total_persisted += created_count
+            total_processed += processed_count
             logger.info(
-                "Persisted %d candidates for chunk %s (%d duplicates skipped)",
-                result.get("insertedCount", 0),
+                "Created %d cards for chunk %s (%d candidates processed)",
+                created_count,
                 chunk.get("chunkIndex"),
-                result.get("duplicateCount", 0),
+                processed_count,
             )
 
     return total_persisted
@@ -266,9 +325,10 @@ def _rule_based_generation(
     """Fallback: rule-based candidate generation (mirrors Rust local rules)."""
     anchor_by_hash = {a.get("hash", ""): a for a in anchors if a.get("hash")}
     total_persisted = 0
+    total_processed = 0
 
     for chunk in chunks:
-        if total_persisted >= max_candidates:
+        if total_persisted >= max_candidates or total_processed >= max_candidates:
             break
 
         _check_cancelled(host, run_id)
@@ -295,7 +355,7 @@ def _rule_based_generation(
             chunk_anchors.sort(key=lambda a: (a.get("page", 0), a.get("paragraph") or 0))
 
         candidates = []
-        for anchor in chunk_anchors[:max_candidates - total_persisted]:
+        for anchor in chunk_anchors[:max_candidates - total_processed]:
             text = (anchor.get("textQuote") or "").strip()
             if len(text) < 18:
                 continue
@@ -313,6 +373,7 @@ def _rule_based_generation(
                     chunk,
                     generation_mode="fallback_rule",
                     fallback_reason="rule_based_anchor_generation",
+                    source_quote=text,
                 ),
                 "sectionId": chunk.get("sectionId"),
                 "anchorId": anchor.get("id"),
@@ -325,8 +386,9 @@ def _rule_based_generation(
             })
 
         if candidates:
-            result = host.persist_candidates(run_id, document["id"], candidates)
-            total_persisted += result.get("insertedCount", 0)
+            created_count, processed_count = _persist_card_batch(host, run_id, document["id"], candidates)
+            total_persisted += created_count
+            total_processed += processed_count
 
     return total_persisted
 
@@ -420,12 +482,11 @@ def run_card_generation_workflow(
             "pendingCount": counts.get("pending", 0),
         }
 
-    counts = host.count_candidates(run_id)
     return {
         "status": "completed",
         "generatedCount": ai_count,
-        "totalCandidates": counts.get("total", 0),
-        "pendingCount": counts.get("pending", 0),
+        "createdCount": ai_count,
+        "pendingCount": 0,
     }
 
 

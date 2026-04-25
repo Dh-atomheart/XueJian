@@ -155,6 +155,11 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
         displayName: 'Gemini 2.5 Flash',
         capabilities: caps(true, true, 1048576, true),
       },
+      {
+        id: 'gemini-embedding-001',
+        displayName: 'Gemini Embedding 001',
+        capabilities: caps(false, false, 8192, false),
+      },
     ]),
     modelsEndpoint: '/models',
     testStrategy: 'tiered',

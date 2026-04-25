@@ -153,23 +153,26 @@ describe('BYOK workflow routing and budget tracking', () => {
       isDefault: true,
       isEnabled: true,
     })
+    const profiles = await apiConfigGateway.listModelProfilesByApiConfig(config.id)
+    const profile = profiles[0]
 
-    const assignment = await apiConfigGateway.setWorkflowAssignment('knowledge_qa', config.id)
+    const assignment = await apiConfigGateway.setWorkflowAssignment('knowledge_qa', profile.id)
     expect(assignment).toMatchObject({
       workflowType: 'knowledge_qa',
-      apiConfigId: config.id,
+      modelProfileId: profile.id,
     })
 
     const fetched = await apiConfigGateway.getWorkflowAssignment('knowledge_qa')
     expect(fetched).toMatchObject({
       workflowType: 'knowledge_qa',
-      apiConfigId: config.id,
+      modelProfileId: profile.id,
+      modelProfile: expect.objectContaining({ id: profile.id }),
       apiConfig: expect.objectContaining({ id: config.id }),
     })
 
-    const allAssignments = await apiConfigGateway.setAllWorkflowAssignments(config.id)
+    const allAssignments = await apiConfigGateway.setAllWorkflowAssignments(profile.id)
     expect(allAssignments).toHaveLength(6)
-    expect(allAssignments.every((item) => item.apiConfigId === config.id)).toBe(true)
+    expect(allAssignments.every((item) => item.modelProfileId === profile.id)).toBe(true)
     expect(allAssignments.some((item) => item.workflowType === 'card_animation')).toBe(true)
 
     await apiConfigGateway.deleteWorkflowAssignment('knowledge_qa')
@@ -248,6 +251,7 @@ describe('stats UI stays restrained — no heavy dashboard', () => {
         'dailyNewCardLimit',
         'reviewTimeLimit',
         'podcastTtsProvider',
+        'podcastGoogleTtsModel',
         'podcastOutputFormat',
         'podcastSkipReview',
         'podcastMaxLlmTokens',
