@@ -90,7 +90,6 @@ def generate_cards_with_agent(
     section_heading: str,
     hierarchy_path: str,
     page_range: str,
-    graph_context: str,
     max_cards: int,
 ) -> list[dict]:
     """Run a LangChain v1 agent to produce structured flashcard candidates."""
@@ -104,7 +103,7 @@ def generate_cards_with_agent(
 
     @tool
     def inspect_source_context() -> str:
-        """Return the source passage, document metadata, and graph context."""
+        """Return the source passage and document metadata."""
         return "\n".join(
             [
                 f"Document: {document.get('title', 'Untitled')}",
@@ -112,8 +111,6 @@ def generate_cards_with_agent(
                 f"Hierarchy: {hierarchy_path}",
                 f"Page range: {page_range}",
                 f"Source quote: {quote}",
-                "Graph context:",
-                graph_context or "(none)",
             ]
         )
 

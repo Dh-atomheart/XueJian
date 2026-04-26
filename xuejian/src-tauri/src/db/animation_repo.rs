@@ -37,6 +37,9 @@ pub struct CompleteCardAnimationRequest {
     pub video_path: Option<String>,
     pub poster_path: Option<String>,
     pub render_log_path: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub retryable: Option<bool>,
 }
 
 #[derive(Debug, Default)]
@@ -131,16 +134,19 @@ impl<'a> AnimationRepository<'a> {
                  poster_path = ?3,
                  render_log_path = ?4,
                  status = 'ready',
-                 error_code = NULL,
-                 error_message = NULL,
-                 retryable = 1,
-                 updated_at = ?5
-             WHERE card_id = ?6",
+                 error_code = ?5,
+                 error_message = ?6,
+                 retryable = ?7,
+                 updated_at = ?8
+             WHERE card_id = ?9",
             params![
                 request.script_json,
                 request.video_path,
                 request.poster_path,
                 request.render_log_path,
+                request.error_code,
+                request.error_message,
+                i64::from(request.retryable.unwrap_or(true)),
                 &now,
                 card_id
             ],

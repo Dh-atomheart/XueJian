@@ -1,89 +1,88 @@
-# XueJian 日志系统查询指南
+# XueJian ��־ϵͳ��ѯָ��
 
-本文说明开发和使用雪笺 App 时，遇到错误、卡顿、服务异常或工作流失败后应该去哪里查日志，以及如何根据日志定位问题。
+����˵��������ʹ��ѩ�� App ʱ���������󡢿��١������쳣������ʧ�ܺ�Ӧ��ȥ�������־���Լ���θ�����־��λ���⡣
 
-> 目录名按当前要求使用 `log-systeam`。如果后续统一命名，建议迁移为 `log-system`。
+> Ŀ¼������ǰҪ��ʹ�� `log-systeam`���������ͳһ����������Ǩ��Ϊ `log-system`��
 
-## 一、日志来源总览
+## һ����־��Դ����
 
-当前日志分为四类：
+��ǰ��־��Ϊ���ࣺ
 
-| 来源 | 覆盖范围 | 主要用途 |
+| ��Դ | ���Ƿ�Χ | ��Ҫ��; |
 | --- | --- | --- |
-| Tauri/Rust 主进程日志 | 数据库、Stronghold、IPC 命令、Host Gateway、Python 服务启动/停止、panic | 判断桌面端核心能力是否正常 |
-| 前端日志 | React ErrorBoundary、未捕获 JS 错误、未处理 Promise、React Query 错误、IPC 调用失败/慢调用 | 判断 UI、查询层、前端异步逻辑是否异常 |
-| Python 编排服务日志 | 文档解析、卡片生成、知识问答、播客、知识图谱、Anki 导入导出 | 判断 AI 工作流和 Python 服务是否异常 |
-| 测试/构建输出 | Vitest、ESLint、TypeScript、Cargo、Python 编译检查 | 判断开发期代码质量和回归问题 |
+| Tauri/Rust ��������־ | ���ݿ⡢Stronghold��IPC ���Host Gateway��Python ��������/ֹͣ��panic | �ж�����˺��������Ƿ����� |
+| ǰ����־ | React ErrorBoundary��δ���� JS ����δ���� Promise��React Query ����IPC ����ʧ��/������ | �ж� UI����ѯ�㡢ǰ���첽�߼��Ƿ��쳣 |
+| ����/������� | Vitest��ESLint��TypeScript��Cargo��Python ������ | �жϿ����ڴ��������ͻع����� |
 
-## 二、App 使用时在哪里查日志
+## ����App ʹ��ʱ���������־
 
-### 1. 项目根目录日志目录
+### 1. ��Ŀ��Ŀ¼��־Ŀ¼
 
-当前项目默认把日志统一写入仓库根目录下的 `logs/`，并且每次 App 进程启动都会创建一个独立的会话目录。
+��ǰ��ĿĬ�ϰ���־ͳһд��ֿ��Ŀ¼�µ� `logs/`������ÿ�� App �����������ᴴ��һ�������ĻỰĿ¼��
 
 ```text
 E:\XueJianProject\logs
 ```
 
-会话目录格式：
+�ỰĿ¼��ʽ��
 
 ```text
 logs\YYYY-MM-DD[HH-MM-SS]
 ```
 
-示例：
+ʾ����
 
 ```text
 E:\XueJianProject\logs\2026-04-24[18-48-17]
 ```
 
-注意：Windows 文件名不能包含冒号 `:`，所以时间使用 `18-48-17`，而不是 `18:48:17`。
+ע�⣺Windows �ļ������ܰ���ð�� `:`������ʱ��ʹ�� `18-48-17`�������� `18:48:17`��
 
-每个会话目录内常见文件：
+ÿ���ỰĿ¼�ڳ����ļ���
 
 ```text
 xuejian.log
 orchestration.log
 ```
 
-说明：
+˵����
 
-- `xuejian.log`：Rust 主进程日志，也包含前端通过 `log_frontend_event` 写入的结构化日志。
-- `orchestration.log`：Python 编排服务日志，JSONL 格式，一行一条记录。
-- 日志文件会轮转，当前保留最近若干份，避免无限增长。
+- `xuejian.log`��Rust ��������־��Ҳ����ǰ��ͨ�� `log_frontend_event` д��Ľṹ����־��
+- `orchestration.log`��Python ���ŷ�����־��JSONL ��ʽ��һ��һ����¼��
+- ��־�ļ�����ת����ǰ����������ɷݣ���������������
 
-### 2. PowerShell 快速打开
+### 2. PowerShell ���ٴ�
 
-打开日志目录：
+����־Ŀ¼��
 
 ```powershell
 explorer "E:\XueJianProject\logs"
 ```
 
-打开最新的日志会话目录：
+�����µ���־�ỰĿ¼��
 
 ```powershell
 $latest = Get-ChildItem "E:\XueJianProject\logs" -Directory | Sort-Object Name -Descending | Select-Object -First 1
 explorer $latest.FullName
 ```
 
-查看最新 Rust/前端日志：
+�鿴���� Rust/ǰ����־��
 
 ```powershell
 $latest = Get-ChildItem "E:\XueJianProject\logs" -Directory | Sort-Object Name -Descending | Select-Object -First 1
 Get-Content (Join-Path $latest.FullName "xuejian.log") -Tail 120
 ```
 
-查看最新 Python 工作流日志：
+�鿴���� Python ��������־��
 
 ```powershell
 $latest = Get-ChildItem "E:\XueJianProject\logs" -Directory | Sort-Object Name -Descending | Select-Object -First 1
 Get-Content (Join-Path $latest.FullName "orchestration.log") -Tail 120
 ```
 
-### 3. 临时改到其他目录
+### 3. ��ʱ�ĵ�����Ŀ¼
 
-如需把日志写到其他位置，可以在启动 App 前设置环境变量：
+�������־д������λ�ã����������� App ǰ���û���������
 
 ```powershell
 $env:XUEJIAN_LOG_DIR="D:\xuejian-logs"
@@ -91,15 +90,15 @@ cd E:\XueJianProject\xuejian
 npm run tauri:dev
 ```
 
-设置后，Rust/Tauri 日志和 Python 编排日志都会写入该目录下的新会话子目录，例如：
+���ú�Rust/Tauri ��־�� Python ������־����д���Ŀ¼�µ��»Ự��Ŀ¼�����磺
 
 ```text
 D:\xuejian-logs\2026-04-24[18-48-17]
 ```
 
-### 4. 日志里重点看什么
+### 4. ��־���ص㿴ʲô
 
-优先搜索这些关键字：
+����������Щ�ؼ��֣�
 
 ```text
 ERROR
@@ -115,118 +114,117 @@ document_id
 request_id
 ```
 
-如果是一次 UI 操作失败，优先看 `request_id` 和 `command`。
+�����һ�� UI ����ʧ�ܣ����ȿ� `request_id` �� `command`��
 
-如果是 AI 工作流失败，优先看 `run_id`、`document_id`、`workflow`。
+����� AI ������ʧ�ܣ����ȿ� `run_id`��`document_id`��`workflow`��
 
-## 三、开发时在哪里查错误
+## ��������ʱ����������
 
-### 1. 前端开发服务器
+### 1. ǰ�˿���������
 
-运行：
+���У�
 
 ```powershell
 cd E:\XueJianProject\xuejian
 npm run dev
 ```
 
-主要查看终端输出：
+��Ҫ�鿴�ն������
 
-- Vite 编译错误
-- React 运行时错误
-- 模块导入错误
-- CSS/Tailwind 构建错误
+- Vite �������
+- React ����ʱ����
+- ģ�鵼�����
+- CSS/Tailwind ��������
 
-### 2. Tauri 开发模式
+### 2. Tauri ����ģʽ
 
-运行：
+���У�
 
 ```powershell
 cd E:\XueJianProject\xuejian
 npm run tauri:dev
 ```
 
-重点查看：
+�ص�鿴��
 
-- 当前终端输出
-- `E:\XueJianProject\logs\<启动时间>\xuejian.log`
-- `E:\XueJianProject\logs\<启动时间>\orchestration.log`
+- ��ǰ�ն����
+- `E:\XueJianProject\logs\<����ʱ��>\xuejian.log`
+- `E:\XueJianProject\logs\<����ʱ��>\orchestration.log`
 
-Tauri 开发模式会同时涉及前端、Rust 主进程、Python 编排服务，问题通常要跨日志串联。
+Tauri ����ģʽ��ͬʱ�漰ǰ�ˡ�Rust �����̡�Python ���ŷ�������ͨ��Ҫ����־������
 
-### 3. Rust 检查
+### 3. Rust ���
 
 ```powershell
 cargo check --manifest-path E:\XueJianProject\xuejian\src-tauri\Cargo.toml
 ```
 
-用于发现：
+���ڷ��֣�
 
-- Rust 类型错误
-- Tauri command 注册错误
-- 依赖/API 使用错误
+- Rust ���ʹ���
+- Tauri command ע�����
+- ����/API ʹ�ô���
 
-### 4. 前端检查
+### 4. ǰ�˼��
 
 ```powershell
 cd E:\XueJianProject\xuejian
 npm run build
 ```
 
-用于发现：
+���ڷ��֣�
 
-- TypeScript 类型错误
-- Vite 打包错误
-- 生产构建问题
+- TypeScript ���ʹ���
+- Vite �������
+- ������������
 
-局部 ESLint：
+�ֲ� ESLint��
 
 ```powershell
 cd E:\XueJianProject\xuejian
 npx eslint src/lib/logger.ts src/services/gateway/index.ts
 ```
 
-### 5. Python 语法检查
+### 5. Python �﷨���
 
 ```powershell
 python -m py_compile E:\XueJianProject\xuejian\orchestration_service\logging_config.py E:\XueJianProject\xuejian\orchestration_service\server.py
 ```
 
-用于发现 Python 语法错误和导入层面的基础问题。
+���ڷ��� Python �﷨����͵������Ļ������⡣
 
-## 四、常见问题排查流程
+## �ġ����������Ų�����
 
-### 1. 页面按钮点击后没有反应
+### 1. ҳ�水ť�����û�з�Ӧ
 
-排查顺序：
+�Ų�˳��
 
-1. 打开浏览器/前端控制台，看是否有 React 或 JS 错误。
-2. 查最新会话目录中的 `xuejian.log`，搜索 `frontend`、`Command failed`、`IPC`。
-3. 如果涉及后端命令，搜索对应 command 名。
-4. 如果日志里有 `request_id`，用同一个 `request_id` 查前后相关记录。
+1. �������/ǰ�˿���̨�����Ƿ��� React �� JS ����
+2. �����»ỰĿ¼�е� `xuejian.log`������ `frontend`��`Command failed`��`IPC`��
+3. ����漰������������Ӧ command ����
+4. �����־���� `request_id`����ͬһ�� `request_id` ��ǰ����ؼ�¼��
 
-### 2. 文档导入或 PDF 解析失败
+### 2. �ĵ������ PDF ����ʧ��
 
-排查顺序：
+�Ų�˳��
 
-1. 查最新会话目录中的 `xuejian.log`，搜索 `import_document`、`document-parse`、`Command failed`。
-2. 查最新会话目录中的 `orchestration.log`，搜索 `document-parse`、`document_id`、`exception`。
-3. 如果 Python 服务没有日志，检查 Rust 日志里是否有 orchestration service 启动失败。
+1. �����»ỰĿ¼�е� `xuejian.log`������ `import_document`��`document-parse`��`Command failed`��
+2. �����»ỰĿ¼�е� `orchestration.log`������ `document-parse`��`document_id`��`exception`��
+3. ��� Python ����û����־����� Rust ��־���Ƿ��� orchestration service ����ʧ�ܡ�
 
-### 3. 卡片生成、知识问答、播客、知识图谱失败
 
-排查顺序：
+�Ų�˳��
 
-1. 在 UI 或数据库记录中找到对应 `runId`。
-2. 查最新会话目录中的 `orchestration.log`，搜索 `run_id` 或工作流名称。
-3. 查最新会话目录中的 `xuejian.log`，搜索同一个 `run_id`、`host_gateway`、`HTTP`。
-4. 如果是模型调用失败，检查日志中的 provider/model/base_url，但不要记录或传播 API key。
+1. �� UI �����ݿ��¼���ҵ���Ӧ `runId`��
+2. �����»ỰĿ¼�е� `orchestration.log`������ `run_id` ���������ơ�
+3. �����»ỰĿ¼�е� `xuejian.log`������ͬһ�� `run_id`��`host_gateway`��`HTTP`��
+4. �����ģ�͵���ʧ�ܣ������־�е� provider/model/base_url������Ҫ��¼�򴫲� API key��
 
-### 4. Python 编排服务启动失败
+### 4. Python ���ŷ�������ʧ��
 
-排查顺序：
+�Ų�˳��
 
-1. 查最新会话目录中的 `xuejian.log`，搜索：
+1. �����»ỰĿ¼�е� `xuejian.log`��������
 
 ```text
 Background orchestration startup failed
@@ -236,7 +234,7 @@ ScriptMissing
 degraded
 ```
 
-2. 检查本机 Python：
+2. ��鱾�� Python��
 
 ```powershell
 python --version
@@ -244,24 +242,24 @@ python3 --version
 py -3 --version
 ```
 
-3. 检查依赖：
+3. ���������
 
 ```powershell
 cd E:\XueJianProject\xuejian
 pip install -r orchestration_service\requirements.txt
 ```
 
-### 5. App 直接崩溃或白屏
+### 5. App ֱ�ӱ��������
 
-排查顺序：
+�Ų�˳��
 
-1. 查最新会话目录中的 `xuejian.log`，搜索 `panic`。
-2. 查是否有 `frontend.runtime` 或 `frontend.react`。
-3. 如果是 release 包，优先收集最近的 `xuejian.log` 和 `orchestration.log`。
+1. �����»ỰĿ¼�е� `xuejian.log`������ `panic`��
+2. ���Ƿ��� `frontend.runtime` �� `frontend.react`��
+3. ����� release ���������ռ������ `xuejian.log` �� `orchestration.log`��
 
-## 五、日志字段说明
+## �塢��־�ֶ�˵��
 
-前端结构化日志通常包含：
+ǰ�˽ṹ����־ͨ��������
 
 ```json
 {
@@ -278,7 +276,7 @@ pip install -r orchestration_service\requirements.txt
 }
 ```
 
-Python 编排日志通常包含：
+Python ������־ͨ��������
 
 ```json
 {
@@ -294,24 +292,24 @@ Python 编排日志通常包含：
 }
 ```
 
-重要字段：
+��Ҫ�ֶΣ�
 
-| 字段 | 含义 |
+| �ֶ� | ���� |
 | --- | --- |
-| `source` | 日志来源，如 `frontend`、`python-orchestration` |
-| `scope` | 前端日志作用域，如 `IPC`、`frontend.react` |
-| `requestId` / `request_id` | 单次请求或操作链路 ID |
-| `run_id` | 工作流运行 ID |
-| `document_id` | 文档 ID |
-| `command` | Tauri IPC 命令名 |
-| `durationMs` / `duration_ms` | 耗时 |
-| `exception` | Python 异常堆栈 |
+| `source` | ��־��Դ���� `frontend`��`python-orchestration` |
+| `scope` | ǰ����־�������� `IPC`��`frontend.react` |
+| `requestId` / `request_id` | ��������������· ID |
+| `run_id` | ���������� ID |
+| `document_id` | �ĵ� ID |
+| `command` | Tauri IPC ������ |
+| `durationMs` / `duration_ms` | ��ʱ |
+| `exception` | Python �쳣��ջ |
 
-## 六、隐私与脱敏规则
+## ������˽����������
 
-日志系统默认做本地记录，不上传远程服务。
+��־ϵͳĬ�������ؼ�¼�����ϴ�Զ�̷���
 
-这些内容不应出现在日志中：
+��Щ���ݲ�Ӧ��������־�У�
 
 - API key
 - Authorization header
@@ -319,10 +317,10 @@ Python 编排日志通常包含：
 - password
 - credential
 - Stronghold secret
-- 完整文档正文
-- 完整 LLM prompt 或模型输出全文
+- �����ĵ�����
+- ���� LLM prompt ��ģ�����ȫ��
 
-当前日志写入前会对包含以下关键词的字段做脱敏：
+��ǰ��־д��ǰ��԰������¹ؼ��ʵ��ֶ���������
 
 ```text
 key
@@ -333,29 +331,29 @@ password
 credential
 ```
 
-长字符串会被截断，数组也会限制长度。
+���ַ����ᱻ�ضϣ�����Ҳ�����Ƴ��ȡ�
 
-## 七、提交问题时建议附带什么
+## �ߡ��ύ����ʱ���鸽��ʲô
 
-如果需要他人协助排查，建议提供：
+�����Ҫ����Э���Ų飬�����ṩ��
 
-1. 复现步骤。
-2. 出错时间点。
-3. 相关功能名称，例如“导入 PDF”“生成卡片”“播客生成”。
-4. 最近会话目录中的 `xuejian.log` 最近 120 行。
-5. 如果涉及 AI 工作流，再附同一会话目录中的 `orchestration.log` 最近 120 行。
-6. 如果 UI 提示中有 `runId`、`requestId` 或 command 名，也一并提供。
+1. ���ֲ��衣
+2. ����ʱ��㡣
+3. ��ع������ƣ����硰���� PDF�������ɿ�Ƭ�����������ɡ���
+4. ����ỰĿ¼�е� `xuejian.log` ��� 120 �С�
+5. ����漰 AI ���������ٸ�ͬһ�ỰĿ¼�е� `orchestration.log` ��� 120 �С�
+6. ��� UI ��ʾ���� `runId`��`requestId` �� command ����Ҳһ���ṩ��
 
-不要提供：
+��Ҫ�ṩ��
 
 - API key
-- 私密文档全文
-- 账号密码
-- 完整 Authorization/token
+- ˽���ĵ�ȫ��
+- �˺�����
+- ���� Authorization/token
 
-## 八、当前已知限制
+## �ˡ���ǰ��֪����
 
-- UI 里的反馈面板是内存态提示，不等同于完整日志文件。
-- `requestId` 当前主要覆盖前端 IPC 调用；Python 内部 workflow 的上下文仍主要依赖 `run_id`。
-- 目前没有一键导出诊断包功能，后续可以在设置页增加。
-- `npm run build` 可能被既有 TypeScript 问题阻塞，构建错误不代表日志系统本身不可用。
+- UI ��ķ���������ڴ�̬��ʾ������ͬ��������־�ļ���
+- `requestId` ��ǰ��Ҫ����ǰ�� IPC ���ã�Python �ڲ� workflow ������������Ҫ���� `run_id`��
+- Ŀǰû��һ��������ϰ����ܣ���������������ҳ���ӡ�
+- `npm run build` ���ܱ����� TypeScript �����������������󲻴�����־ϵͳ���������á�

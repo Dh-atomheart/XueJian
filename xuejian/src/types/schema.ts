@@ -433,7 +433,6 @@ export const workflowTypeSchema = z.enum([
   'document_embedding',
   'knowledge_qa',
   'podcast_generation',
-  'knowledge_graph',
   'card_animation',
 ])
 
@@ -673,6 +672,7 @@ export const workflowEventSchema = z.object({
     'completed',
     'failed',
     'fallback',
+    'cancelled',
   ]),
   message: z.string().nullable(),
   progress: z.number().min(0).max(1).nullable(),
@@ -706,6 +706,40 @@ export const workflowCheckpointSchema = z.object({
   updatedAt: dateValueSchema,
 }) as z.ZodType<WorkflowCheckpoint>
 
+export const knowledgeQaConversationSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1),
+  documentIds: z.array(z.string().uuid()),
+  createdAt: dateValueSchema,
+  updatedAt: dateValueSchema,
+}) as z.ZodType<import('./document').KnowledgeQaConversation>
+
+export const knowledgeQaMessageSchema = z.object({
+  id: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  role: z.enum(['user', 'assistant']),
+  content: z.string(),
+  status: z.enum(['pending', 'answered', 'error', 'cancelled']),
+  workflowRunId: z.string().uuid().nullable(),
+  documentIds: z.array(z.string().uuid()),
+  answerPayload: z.record(z.unknown()).nullable(),
+  errorMessage: z.string().nullable(),
+  createdAt: dateValueSchema,
+  updatedAt: dateValueSchema,
+}) as z.ZodType<import('./document').KnowledgeQaMessage>
+
+export const knowledgeQaConversationDetailSchema = z.object({
+  conversation: knowledgeQaConversationSchema,
+  messages: z.array(knowledgeQaMessageSchema),
+}) as z.ZodType<import('./document').KnowledgeQaConversationDetail>
+
+export const sendKnowledgeQaMessageResultSchema = z.object({
+  conversation: knowledgeQaConversationSchema,
+  userMessage: knowledgeQaMessageSchema,
+  assistantMessage: knowledgeQaMessageSchema,
+  run: workflowRunSchema,
+}) as z.ZodType<import('./document').SendKnowledgeQaMessageResult>
+
 export const finalizeCardGenerationResultSchema = z.object({
   createdCount: z.number().int().nonnegative(),
   skippedDuplicates: z.number().int().nonnegative(),
@@ -723,6 +757,10 @@ export const serviceHealthStatusSchema = z.object({
   checkedAt: dateValueSchema,
   protocolCompatible: z.boolean(),
   errorMessage: z.string().nullable(),
+  hostGatewayConfigured: z.boolean().catch(false).default(false),
+  hostGatewayEndpoint: z.string().nullable().catch(null).default(null),
+  dependenciesReady: z.boolean().catch(true).default(true),
+  missingDependencies: z.array(z.string()).catch([]).default([]),
 }) as z.ZodType<ServiceHealthStatus>
 
 export const hostGatewayManifestSchema = z.object({
@@ -754,7 +792,7 @@ export const citationSchema = z.object({
 export const ragAnswerSchema = z.object({
   answer: z.string().min(1),
   answerMode: z.enum(['grounded', 'no_relevant_content', 'excerpt_fallback']),
-  retrievalMode: z.enum(['fts5', 'hybrid', 'graph_rag+fts5', 'graph_rag+hybrid']),
+  retrievalMode: z.enum(['fts5', 'hybrid']),
   retrievalStatus: z.enum([
     'ready',
     'embedding_missing',
@@ -762,8 +800,6 @@ export const ragAnswerSchema = z.object({
     'embedding_failed',
     'no_hits',
   ]),
-  graphEnhanced: z.boolean().catch(false).default(false),
-  graphContextSummary: z.string().nullable().catch(null).default(null),
   citations: z.array(citationSchema),
 }) as z.ZodType<RagAnswer>
 

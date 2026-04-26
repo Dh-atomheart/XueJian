@@ -4,7 +4,7 @@
 This module is the thin server shell. All business logic lives in submodules:
 - clients/   — HostGatewayClient
 - providers/  — model runtime helpers
-- workflows/  — card_generation, knowledge_qa, card_animation, podcast, knowledge_graph
+- workflows/  — card_generation, knowledge_qa, card_animation, podcast
 """
 from __future__ import annotations
 
@@ -25,7 +25,6 @@ from .parsing.docling_pipeline import run_document_parse_workflow
 from .workflows.card_animation import run_card_animation_workflow
 from .workflows.card_generation import run_card_generation_workflow
 from .workflows.document_embedding import run_document_embedding_workflow
-from .workflows.knowledge_graph import run_knowledge_graph_workflow
 from .workflows.knowledge_qa import run_knowledge_qa_workflow
 from .workflows.podcast import run_podcast_workflow
 
@@ -113,7 +112,6 @@ def build_handler(start_time: float):
                                 "knowledge-qa",
                                 "card-animation",
                                 "podcast",
-                                "knowledge-graph",
                                 "anki-export",
                                 "anki-import",
                                 "annotated-pdf-export",
@@ -155,10 +153,6 @@ def build_handler(start_time: float):
 
                 if self.path == "/workflows/podcast":
                     self._handle_podcast()
-                    return
-
-                if self.path == "/workflows/knowledge-graph":
-                    self._handle_knowledge_graph()
                     return
 
                 if self.path == "/exports/apkg":
@@ -392,46 +386,6 @@ def build_handler(start_time: float):
                 self._write_json(200, result)
             except Exception as exc:
                 logger.error("Podcast workflow failed: %s", exc, exc_info=True)
-                self._write_json(500, {"error": str(exc)})
-
-        def _handle_knowledge_graph(self) -> None:
-            if _host_gateway is None:
-                self._write_json(503, {"error": "host_gateway_unavailable"})
-                return
-
-            try:
-                body = json.loads(self._read_body())
-            except (json.JSONDecodeError, ValueError):
-                self._write_json(400, {"error": "invalid_json"})
-                return
-
-            run_id = body.get("runId", "")
-            build_run_id = body.get("buildRunId", "")
-            document_ids = body.get("documentIds", [])
-            incremental = bool(body.get("incremental", False))
-
-            if not document_ids:
-                self._write_json(400, {"error": "missing documentIds"})
-                return
-
-            logger.info(
-                "Starting knowledge graph build: run=%s build=%s docs=%d incremental=%s",
-                run_id[:8] if run_id else "none",
-                build_run_id[:8] if build_run_id else "none",
-                len(document_ids),
-                incremental,
-            )
-            try:
-                result = run_knowledge_graph_workflow(
-                    run_id,
-                    build_run_id,
-                    document_ids,
-                    incremental,
-                    _host_gateway,
-                )
-                self._write_json(200, result)
-            except Exception as exc:
-                logger.error("Knowledge graph workflow failed: %s", exc, exc_info=True)
                 self._write_json(500, {"error": str(exc)})
 
         def _handle_export_apkg(self) -> None:

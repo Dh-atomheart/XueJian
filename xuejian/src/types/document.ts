@@ -371,7 +371,6 @@ export type WorkflowType =
   | 'document_embedding'
   | 'knowledge_qa'
   | 'podcast_generation'
-  | 'knowledge_graph'
   | 'card_animation'
 
 export interface ModelCapabilities {
@@ -511,7 +510,7 @@ export interface KnowledgeScope {
 
 export interface AgentPreset {
   id: string
-  type: 'card_generation' | 'knowledge_qa' | 'podcast_generation' | 'knowledge_graph'
+  type: 'card_generation' | 'knowledge_qa' | 'podcast_generation'
   name: string
   modelProfileId: string
   knowledgeScopeId: string | null
@@ -560,6 +559,40 @@ export interface WorkflowCheckpoint {
   updatedAt: Date
 }
 
+export interface KnowledgeQaConversation {
+  id: string
+  title: string
+  documentIds: string[]
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface KnowledgeQaMessage {
+  id: string
+  conversationId: string
+  role: 'user' | 'assistant'
+  content: string
+  status: 'pending' | 'answered' | 'error' | 'cancelled'
+  workflowRunId: string | null
+  documentIds: string[]
+  answerPayload: Record<string, unknown> | null
+  errorMessage: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface KnowledgeQaConversationDetail {
+  conversation: KnowledgeQaConversation
+  messages: KnowledgeQaMessage[]
+}
+
+export interface SendKnowledgeQaMessageResult {
+  conversation: KnowledgeQaConversation
+  userMessage: KnowledgeQaMessage
+  assistantMessage: KnowledgeQaMessage
+  run: WorkflowRun
+}
+
 export interface WorkflowEvent {
   runId: string
   eventType:
@@ -586,6 +619,10 @@ export interface ServiceHealthStatus {
   checkedAt: Date
   protocolCompatible: boolean
   errorMessage: string | null
+  hostGatewayConfigured: boolean
+  hostGatewayEndpoint: string | null
+  dependenciesReady: boolean
+  missingDependencies: string[]
 }
 
 export interface HostGatewayManifest {
@@ -619,15 +656,13 @@ export interface Citation {
 export interface RagAnswer {
   answer: string
   answerMode: 'grounded' | 'no_relevant_content' | 'excerpt_fallback'
-  retrievalMode: 'fts5' | 'hybrid' | 'graph_rag+fts5' | 'graph_rag+hybrid'
+  retrievalMode: 'fts5' | 'hybrid'
   retrievalStatus:
     | 'ready'
     | 'embedding_missing'
     | 'embedding_stale'
     | 'embedding_failed'
     | 'no_hits'
-  graphEnhanced: boolean
-  graphContextSummary: string | null
   citations: Citation[]
 }
 

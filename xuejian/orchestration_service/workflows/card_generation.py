@@ -7,7 +7,6 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from ..providers.graph_rag import graph_rag_search
 from ..providers.runtime import build_langchain_chat_model, estimate_workflow_cost
 from ..schemas.card_draft import CardDraftBatch
 from .agent_card_generation import generate_cards_with_agent
@@ -47,8 +46,6 @@ Section: {section_heading}
 Hierarchy: {hierarchy_path}
 Page range: {page_range}
 Source quote: {quote}
-Graph context:
-{graph_context}
 
 Generate flashcard candidates from this passage. Output a JSON array only.
 """
@@ -80,51 +77,6 @@ def _get_chunk_section(chunk: dict, section_by_id: dict[str, dict]) -> dict | No
     if not section_id:
         return None
     return section_by_id.get(section_id)
-
-
-def _build_graph_context(
-    quote: str,
-    section_heading: str,
-    host: HostGatewayClient,
-) -> str:
-    query = f"{section_heading}\n{quote[:240]}".strip()
-    if not query:
-        return "(none)"
-
-    try:
-        graph_context = graph_rag_search(query, host, top_k=4)
-    except Exception as exc:
-        logger.debug("GraphRAG context unavailable for card generation: %s", exc)
-        return "(none)"
-
-    lines: list[str] = []
-    entities = graph_context.get("entities") or []
-    if entities:
-        lines.append("[Entities]")
-        for entity in entities[:4]:
-            lines.append(
-                f"- {entity.get('label')} ({entity.get('nodeType')}): {entity.get('description') or ''}".strip()
-            )
-
-    paths = graph_context.get("paths") or []
-    if paths:
-        lines.append("[Relation Paths]")
-        for path in paths[:2]:
-            relation_chain = " -> ".join(
-                edge.get("relation", "related_to") for edge in path.get("edges", [])
-            )
-            if relation_chain:
-                lines.append(f"- {relation_chain}")
-
-    communities = graph_context.get("communities") or []
-    if communities:
-        lines.append("[Communities]")
-        for community in communities[:2]:
-            title = community.get("title") or "Untitled community"
-            summary = community.get("summary") or ""
-            lines.append(f"- {title}: {summary}".strip())
-
-    return "\n".join(lines) if lines else "(none)"
 
 
 def _candidate_base_payload(
@@ -234,7 +186,6 @@ def _try_langchain_generation(
         page_range = f"{chunk.get('pageStart', '?')}-{chunk.get('pageEnd', '?')}"
         section_heading = (section or {}).get("heading") or "Untitled section"
         hierarchy_path = " > ".join((section or {}).get("hierarchyPath") or []) or "(root)"
-        graph_context = _build_graph_context(quote, section_heading, host)
 
         remaining_budget = max_candidates - total_processed
         try:
@@ -247,7 +198,6 @@ def _try_langchain_generation(
                 section_heading=section_heading,
                 hierarchy_path=hierarchy_path,
                 page_range=page_range,
-                graph_context=graph_context,
                 max_cards=min(4, remaining_budget),
             )
             if items:
@@ -270,7 +220,6 @@ def _try_langchain_generation(
                 hierarchy_path=hierarchy_path,
                 page_range=page_range,
                 quote=quote,
-                graph_context=graph_context,
             )
 
             try:

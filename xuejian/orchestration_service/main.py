@@ -48,7 +48,6 @@ class _REMOVED:
 #   workflows/knowledge_qa.py
 #   workflows/card_animation.py
 #   workflows/podcast.py
-#   workflows/knowledge_graph.py
 #   server.py
 #
 # This file is now a thin shim. The old code is preserved in git history.

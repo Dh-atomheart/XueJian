@@ -79,8 +79,3 @@ FROM api_configs
 WHERE is_default = TRUE AND is_enabled = TRUE
 LIMIT 1;
 
-INSERT OR IGNORE INTO workflow_model_assignments (workflow_type, api_config_id, assigned_at, updated_at)
-SELECT 'knowledge_graph', id, datetime('now'), datetime('now')
-FROM api_configs
-WHERE is_default = TRUE AND is_enabled = TRUE
-LIMIT 1;

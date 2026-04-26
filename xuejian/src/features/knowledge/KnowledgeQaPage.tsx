@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { KnowledgeQaPage as KnowledgeQaPageView } from '@/components/pages/knowledge-qa-page'
-import { useStartKnowledgeQaMutation, useKnowledgeSearchQuery } from '@/queries/knowledge'
+import {
+  knowledgeQueryKeys,
+  useCancelKnowledgeQaMessageMutation,
+  useKnowledgeQaConversationQuery,
+  useKnowledgeQaConversationsQuery,
+  useKnowledgeSearchQuery,
+  useSendKnowledgeQaMessageMutation,
+} from '@/queries/knowledge'
 import {
   apiConfigQueryKeys,
   useDocumentsQuery,
@@ -12,7 +19,7 @@ import { useAppUiStore } from '@/store'
 import { isTauriEnvironment } from '@/services/gateway'
 import { embeddingProfileGateway } from '@/services/gateway/models'
 import { orchestrationGateway } from '@/services/gateway/orchestration'
-import type { ChunkSearchResult, WorkflowEvent } from '@/types'
+import type { ChunkSearchResult, KnowledgeQaMessage, WorkflowEvent } from '@/types'
 
 type TurnState = {
   id: string
@@ -20,8 +27,6 @@ type TurnState = {
   answer: string | null
   answerMode?: 'grounded' | 'no_relevant_content' | 'excerpt_fallback'
   retrievalStatus?: 'ready' | 'embedding_missing' | 'embedding_stale' | 'embedding_failed' | 'no_hits'
-  graphEnhanced?: boolean
-  graphContextSummary?: string | null
   citations: Array<{
     id: string
     documentId: string
@@ -30,10 +35,11 @@ type TurnState = {
     snippet: string
     relevance: number | null
   }>
-  status: 'pending' | 'answered' | 'error'
+  status: 'pending' | 'answered' | 'error' | 'cancelled'
   errorMessage?: string | null
   documentTitleCache: Map<string, string>
   workflowRunId: string | null
+  assistantMessageId: string | null
 }
 
 const KNOWLEDGE_POLL_INTERVAL_MS = 1_800
@@ -54,9 +60,11 @@ export function KnowledgeQaPage() {
   const [question, setQuestion] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [turns, setTurns] = useState<TurnState[]>([])
   const [isRestartingService, setIsRestartingService] = useState(false)
   const reportedWorkflowFailuresRef = useRef(new Set<string>())
+  const queryClient = useQueryClient()
 
   const { data: documents = [] } = useDocumentsQuery()
   const { data: activeEmbeddingProfile } = useQuery({
@@ -85,7 +93,13 @@ export function KnowledgeQaPage() {
     scopedDocumentIds,
     searchQuery.length > 0
   )
-  const startQaMutation = useStartKnowledgeQaMutation()
+  const { data: conversations = [] } = useKnowledgeQaConversationsQuery()
+  const { data: activeConversationDetail } = useKnowledgeQaConversationQuery(
+    activeConversationId,
+    Boolean(activeConversationId),
+  )
+  const sendQaMutation = useSendKnowledgeQaMessageMutation()
+  const cancelQaMutation = useCancelKnowledgeQaMessageMutation()
   const openReader = useAppUiStore((state) => state.openReader)
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const knowledgeDraft = useAppUiStore((state) => state.knowledgeDraft)
@@ -111,10 +125,32 @@ export function KnowledgeQaPage() {
   }, [qaDocumentIdSet])
 
   useEffect(() => {
+    if (!activeConversationId && conversations.length > 0) {
+      setActiveConversationId(conversations[0].id)
+    }
+  }, [activeConversationId, conversations])
+
+  useEffect(() => {
+    const hasPendingMessage = activeConversationDetail?.messages.some(
+      (message) => message.role === 'assistant' && message.status === 'pending'
+    )
+    if (!activeConversationId || !hasPendingMessage) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      void queryClient.invalidateQueries({
+        queryKey: knowledgeQueryKeys.conversation(activeConversationId),
+      })
+    }, KNOWLEDGE_POLL_INTERVAL_MS)
+
+    return () => window.clearInterval(timer)
+  }, [activeConversationDetail?.messages, activeConversationId, queryClient])
+
+  useEffect(() => {
     if (
       !knowledgeDraft.question &&
-      knowledgeDraft.selectedDocumentIds.length === 0 &&
-      !knowledgeDraft.graphContextSummary
+      knowledgeDraft.selectedDocumentIds.length === 0
     ) {
       return
     }
@@ -224,8 +260,6 @@ export function KnowledgeQaPage() {
               answer: result.answer,
               answerMode: result.answerMode,
               retrievalStatus: result.retrievalStatus,
-              graphEnhanced: result.graphEnhanced,
-              graphContextSummary: result.graphContextSummary,
               citations: result.citations,
               errorMessage: null,
             }
@@ -297,22 +331,10 @@ export function KnowledgeQaPage() {
   const handleAsk = useCallback(
     async (rawQuestion?: string) => {
       const trimmedQuestion = (rawQuestion ?? question).trim()
-      if (!trimmedQuestion || startQaMutation.isPending || isRestartingService) {
+      if (!trimmedQuestion || sendQaMutation.isPending || isRestartingService) {
         return
       }
 
-      const turnId = `turn-${Date.now()}`
-      const pendingTurn: TurnState = {
-        id: turnId,
-        question: trimmedQuestion,
-        answer: null,
-        citations: [],
-        status: 'pending',
-        documentTitleCache: new Map(documentTitleLookup),
-        workflowRunId: null,
-      }
-
-      setTurns((previous) => [pendingTurn, ...previous])
       setSearchQuery(trimmedQuestion)
       setQuestion('')
 
@@ -321,48 +343,33 @@ export function KnowledgeQaPage() {
           await handleRestartService()
         }
 
-        const run = await startQaMutation.mutateAsync({
+        const result = await sendQaMutation.mutateAsync({
+          conversationId: activeConversationId,
           question: trimmedQuestion,
           documentIds: scopedDocumentIds.length > 0 ? scopedDocumentIds : undefined,
         })
 
-        setTurns((previous) =>
-          previous.map((turn) =>
-            turn.id === turnId
-              ? {
-                  ...turn,
-                  workflowRunId: run.id,
-                }
-              : turn
-          )
-        )
+        setActiveConversationId(result.conversation.id)
+        await queryClient.invalidateQueries({ queryKey: knowledgeQueryKeys.conversations() })
+        await queryClient.invalidateQueries({
+          queryKey: knowledgeQueryKeys.conversation(result.conversation.id),
+        })
       } catch (error) {
-        const detail = reportAppError('知识问答', error, {
+        reportAppError('知识问答', error, {
           title: '知识问答启动失败',
           showToast: true,
         })
-
-        setTurns((previous) =>
-          previous.map((turn) =>
-            turn.id === turnId
-              ? {
-                  ...turn,
-                  status: 'error',
-                  errorMessage: detail,
-                }
-              : turn
-          )
-        )
       }
     },
     [
-      documentTitleLookup,
+      activeConversationId,
       handleRestartService,
       isRestartingService,
       question,
+      queryClient,
       scopedDocumentIds,
+      sendQaMutation,
       shouldWarnOrchestration,
-      startQaMutation,
     ]
   )
 
@@ -378,32 +385,58 @@ export function KnowledgeQaPage() {
     )
   }, [qaDocumentIdSet])
 
+  const persistedTurns = useMemo(
+    () => buildTurnsFromMessages(activeConversationDetail?.messages ?? [], documentTitleLookup),
+    [activeConversationDetail?.messages, documentTitleLookup]
+  )
+
   const handleRetry = useCallback(
     (turnId: string) => {
-      const turn = turns.find((item) => item.id === turnId)
+      const turn = persistedTurns.find((item) => item.id === turnId)
       if (!turn) {
         return
       }
       void handleAsk(turn.question)
     },
-    [handleAsk, turns]
+    [handleAsk, persistedTurns]
   )
 
-  const latestCitations = turns.flatMap((turn) => turn.citations).slice(0, 6)
+  const handleCancel = useCallback(
+    async (turnId: string) => {
+      const turn = persistedTurns.find((item) => item.id === turnId)
+      if (!turn?.assistantMessageId) {
+        return
+      }
+      try {
+        await cancelQaMutation.mutateAsync(turn.assistantMessageId)
+        if (activeConversationId) {
+          await queryClient.invalidateQueries({
+            queryKey: knowledgeQueryKeys.conversation(activeConversationId),
+          })
+        }
+      } catch (error) {
+        reportAppError('知识问答', error, {
+          title: '停止回答失败',
+          showToast: true,
+        })
+      }
+    },
+    [activeConversationId, cancelQaMutation, persistedTurns, queryClient]
+  )
+
+  const latestCitations = persistedTurns.flatMap((turn) => turn.citations).slice(0, 6)
 
   return (
     <KnowledgeQaPageView
       question={question}
       documents={qaDocuments}
       selectedDocumentIds={scopedDocumentIds}
-      turns={turns.map((turn) => ({
+      turns={persistedTurns.map((turn) => ({
         id: turn.id,
         question: turn.question,
         answer: turn.answer,
         answerMode: turn.answerMode ?? null,
         retrievalStatus: turn.retrievalStatus ?? null,
-        graphEnhanced: turn.graphEnhanced ?? false,
-        graphContextSummary: turn.graphContextSummary ?? null,
         status: turn.status,
         errorMessage: turn.errorMessage ?? null,
         citations: turn.citations.map((citation) => ({
@@ -428,7 +461,7 @@ export function KnowledgeQaPage() {
         pageLabel: `P.${chunk.pageStart ?? '?'}-${chunk.pageEnd ?? '?'}`,
         snippet: chunk.snippet || chunk.content,
       }))}
-      isSubmitting={startQaMutation.isPending || isRestartingService}
+      isSubmitting={sendQaMutation.isPending || isRestartingService}
       hasConfiguration
       serviceWarningTitle={retrievalWarning.title}
       serviceWarningMessage={retrievalWarning.message}
@@ -438,6 +471,7 @@ export function KnowledgeQaPage() {
         void handleAsk()
       }}
       onRetryQuestion={handleRetry}
+      onCancelQuestion={handleCancel}
       onToggleDocument={toggleDoc}
       onClearDocuments={() => setSelectedDocIds([])}
       onUsePrompt={setQuestion}
@@ -448,6 +482,51 @@ export function KnowledgeQaPage() {
       onOpenSettings={() => setActiveNavItem('settings')}
     />
   )
+}
+
+function buildTurnsFromMessages(
+  messages: KnowledgeQaMessage[],
+  documentTitleCache: Map<string, string>
+): TurnState[] {
+  const turns: TurnState[] = []
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]
+    if (message.role !== 'user') {
+      continue
+    }
+
+    const assistant = messages
+      .slice(index + 1)
+      .find((candidate) => candidate.role === 'assistant') ?? null
+    const result = extractKnowledgeQaAnswerPayload(assistant?.answerPayload ?? null, documentTitleCache)
+
+    turns.unshift({
+      id: assistant?.id ?? message.id,
+      question: message.content,
+      answer: assistant?.content || result.answer,
+      answerMode: result.answerMode,
+      retrievalStatus: result.retrievalStatus,
+      citations: result.citations,
+      status: assistant?.status ?? 'error',
+      errorMessage: assistant?.errorMessage ?? null,
+      documentTitleCache: new Map(documentTitleCache),
+      workflowRunId: assistant?.workflowRunId ?? null,
+      assistantMessageId: assistant?.id ?? null,
+    })
+  }
+  return turns
+}
+
+function extractKnowledgeQaAnswerPayload(
+  payload: Record<string, unknown> | null,
+  documentTitleCache: Map<string, string>
+) {
+  const answerPayload =
+    payload && typeof payload['answer'] === 'object' && payload['answer'] != null
+      ? (payload['answer'] as Record<string, unknown>)
+      : null
+
+  return normalizeKnowledgeQaAnswer(answerPayload, documentTitleCache)
 }
 
 export function extractKnowledgeQaResult(
@@ -463,6 +542,13 @@ export function extractKnowledgeQaResult(
       ? (payload['answer'] as Record<string, unknown>)
       : null
 
+  return normalizeKnowledgeQaAnswer(answerPayload, documentTitleCache)
+}
+
+function normalizeKnowledgeQaAnswer(
+  answerPayload: Record<string, unknown> | null,
+  documentTitleCache: Map<string, string>
+) {
   const answer =
     answerPayload && typeof answerPayload['answer'] === 'string' && answerPayload['answer'].trim()
       ? answerPayload['answer']
@@ -486,23 +572,13 @@ export function extractKnowledgeQaResult(
       ? answerPayload['retrievalStatus']
       : 'ready'
 
-  const graphEnhanced =
-    answerPayload && typeof answerPayload['graphEnhanced'] === 'boolean'
-      ? answerPayload['graphEnhanced']
-      : false
-
-  const graphContextSummary =
-    answerPayload && typeof answerPayload['graphContextSummary'] === 'string'
-      ? answerPayload['graphContextSummary']
-      : null
-
   const citations = Array.isArray(answerPayload?.['citations'])
     ? answerPayload['citations'].flatMap((citation, index) =>
         normalizeKnowledgeCitation(citation, index, documentTitleCache)
       )
     : []
 
-  return { answer, answerMode, retrievalStatus, graphEnhanced, graphContextSummary, citations }
+  return { answer, answerMode, retrievalStatus, citations }
 }
 
 function normalizeKnowledgeCitation(

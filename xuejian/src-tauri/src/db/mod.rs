@@ -6,9 +6,8 @@ use tauri::{AppHandle, Manager};
 
 pub mod animation_repo;
 pub mod card_repo;
-pub mod community_repo;
 pub mod document_repo;
-pub mod knowledge_graph_repo;
+pub mod knowledge_qa_repo;
 pub mod podcast_repo;
 pub mod points_repo;
 pub mod section_repo;
@@ -18,9 +17,8 @@ pub mod workflow_repo;
 
 pub use animation_repo::*;
 pub use card_repo::*;
-pub use community_repo::*;
 pub use document_repo::*;
-pub use knowledge_graph_repo::*;
+pub use knowledge_qa_repo::*;
 pub use podcast_repo::*;
 pub use points_repo::*;
 pub use section_repo::*;

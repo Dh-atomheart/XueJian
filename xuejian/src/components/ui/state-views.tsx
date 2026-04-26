@@ -6,7 +6,6 @@ import {
   Inbox,
   Layers,
   Loader2,
-  Network,
   RefreshCcw,
   Settings,
   Sparkles,
@@ -58,7 +57,7 @@ export function LoadingSpinner({ className }: { className?: string }) {
   return <Loader2 className={cn('h-5 w-5 animate-spin text-muted-foreground', className)} />
 }
 
-export function CenteredLoading({ label = '加载中…' }: { label?: string }) {
+export function CenteredLoading({ label = '加载中...' }: { label?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-20">
       <LoadingSpinner className="h-6 w-6" />
@@ -114,8 +113,8 @@ export function EmptyDocuments({ onUpload }: { onUpload: () => void }) {
   return (
     <EmptyState
       icon={CloudUpload}
-      title="还没有文档"
-      description="上传第一份 PDF 后，文档库、阅读、卡片和知识工作流都会接通。"
+      title="还没有上传文档"
+      description="上传 PDF 或其他学习资料后，雪见会为你解析、检索并生成学习内容。"
       action={{ label: '上传文档', onClick: onUpload }}
     />
   )
@@ -126,20 +125,9 @@ export function EmptyCards({ onGenerate, onCreate }: { onGenerate: () => void; o
     <EmptyState
       icon={Layers}
       title="还没有学习卡片"
-      description="从文档生成候选卡片，或者先手动创建一张卡片。"
-      action={{ label: '从文档生成', onClick: onGenerate }}
+      description="可以从文档中自动生成卡片，也可以手动创建第一张卡片。"
+      action={{ label: '生成卡片', onClick: onGenerate }}
       secondaryAction={{ label: '手动创建', onClick: onCreate }}
-    />
-  )
-}
-
-export function EmptyGraph({ onBuild }: { onBuild: () => void }) {
-  return (
-    <EmptyState
-      icon={Network}
-      title="知识图谱尚未生成"
-      description="选择文档并启动构建后，系统会提取概念和关系。"
-      action={{ label: '开始构建', onClick: onBuild }}
     />
   )
 }
@@ -149,14 +137,14 @@ export function EmptySearchResults({ query }: { query: string }) {
     <EmptyState
       icon={FileText}
       title={`没有找到“${query}”相关内容`}
-      description="换个关键词，或者清除筛选后再试。"
+      description="尝试更换关键词，或先上传并解析更多文档。"
     />
   )
 }
 
 export function ErrorState({
   title = '出现了一些问题',
-  description = '当前操作未能完成，请稍后重试。',
+  description = '当前操作没有完成，请稍后重试。',
   onRetry,
   className,
 }: {
@@ -220,8 +208,8 @@ export function UnconfiguredState({
         <Settings className="h-6 w-6 text-muted-foreground/60" strokeWidth={1.5} />
       </div>
       <div className="max-w-sm space-y-1.5">
-        <p className="text-sm font-medium text-foreground">{feature} 需要先配置 AI</p>
-        <p className="text-sm leading-relaxed text-muted-foreground">前往设置页接入可用模型后，再继续当前工作流。</p>
+        <p className="text-sm font-medium text-foreground">{feature} 还没有可用的 AI 模型</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">请先在设置中配置模型提供商和工作流分配。</p>
       </div>
       <div className="flex items-center gap-3">
         <Button size="sm" className="gap-2 rounded-lg" onClick={onConfigure}>
@@ -230,7 +218,7 @@ export function UnconfiguredState({
         </Button>
         {canBrowse && onBrowse ? (
           <Button variant="ghost" size="sm" className="rounded-lg text-muted-foreground" onClick={onBrowse}>
-            先浏览内容
+            浏览文档
           </Button>
         ) : null}
       </div>
@@ -253,7 +241,7 @@ export function ParsingBanner({
         <div className="flex items-center gap-2.5">
           <LoadingSpinner />
           <div>
-            <p className="text-sm font-medium text-foreground">正在处理文档</p>
+            <p className="text-sm font-medium text-foreground">正在解析文档</p>
             <p className="text-xs text-muted-foreground">{filename}</p>
           </div>
         </div>

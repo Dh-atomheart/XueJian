@@ -654,9 +654,9 @@ impl<'a> SettingsRepository<'a> {
             None => current.capabilities_json,
         };
         let is_enabled = req.is_enabled.unwrap_or(current.is_enabled);
-        let is_default_for_connection =
-            req.is_default_for_connection
-                .unwrap_or(current.is_default_for_connection);
+        let is_default_for_connection = req
+            .is_default_for_connection
+            .unwrap_or(current.is_default_for_connection);
         let updated_at = chrono::Utc::now().to_rfc3339();
 
         if is_default_for_connection {

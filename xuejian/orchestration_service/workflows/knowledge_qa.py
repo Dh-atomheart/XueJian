@@ -7,13 +7,20 @@ import re
 from typing import TYPE_CHECKING
 
 from ..providers.embedding_runtime import embed_texts
-from ..providers.graph_rag import graph_rag_search
 from ..providers.runtime import build_langchain_chat_model, estimate_workflow_cost
 
 if TYPE_CHECKING:
     from ..clients.host_gateway import HostGatewayClient
 
 logger = logging.getLogger(__name__)
+
+class WorkflowCancelled(Exception):
+    """Raised when the host marks a Knowledge Q&A run as cancelled."""
+
+
+def _check_cancelled(host: HostGatewayClient, run_id: str) -> None:
+    if run_id and host.is_run_cancelled(run_id):
+        raise WorkflowCancelled("knowledge Q&A workflow cancelled")
 
 KNOWLEDGE_QA_SYSTEM_PROMPT = """\
 You are a knowledge Q&A assistant for a learning app. Given a user's question and
@@ -104,15 +111,16 @@ def run_knowledge_qa_workflow(
     host: HostGatewayClient,
 ) -> dict:
     """Execute the knowledge_qa preset workflow using hybrid retrieval + LLM."""
+    _check_cancelled(host, run_id)
     retrieval_mode = "fts5"
     retrieval_status = "ready"
     chunks: list[dict] = []
-    graph_context: dict = {"entities": [], "paths": [], "communities": []}
     query_embedding: list[float] | None = None
 
     active_profile = host.get_active_embedding_profile()
     if active_profile is not None:
         try:
+            _check_cancelled(host, run_id)
             query_embedding = embed_texts(
                 host,
                 active_profile,
@@ -127,18 +135,14 @@ def run_knowledge_qa_workflow(
             )
             retrieval_mode = "hybrid"
         except Exception as exc:
+            if isinstance(exc, WorkflowCancelled):
+                raise
             logger.warning("Hybrid retrieval unavailable, falling back to FTS5: %s", exc)
     else:
         retrieval_status = "embedding_missing"
 
-    try:
-        graph_context = graph_rag_search(question, host, query_embedding=query_embedding, top_k=5)
-        if graph_context["entities"] or graph_context["paths"] or graph_context["communities"]:
-            retrieval_mode = "graph_rag+" + retrieval_mode
-    except Exception as exc:
-        logger.warning("GraphRAG retrieval unavailable, continuing with text search only: %s", exc)
-
     if not chunks:
+        _check_cancelled(host, run_id)
         chunks = host.search_chunks(question, document_ids if document_ids else None, limit=8)
         retrieval_mode = "fts5"
 
@@ -166,33 +170,14 @@ def run_knowledge_qa_workflow(
         )
     passages_text = "\n\n".join(passages)
 
-    graph_lines: list[str] = []
-    if graph_context["entities"]:
-        graph_lines.append("[Graph Entities]")
-        for entity in graph_context["entities"][:5]:
-            graph_lines.append(
-                f"- {entity.get('label')} ({entity.get('nodeType')}): {entity.get('description') or ''}".strip()
-            )
-    if graph_context["paths"]:
-        graph_lines.append("[Graph Paths]")
-        for path in graph_context["paths"][:3]:
-            relation_chain = " -> ".join(edge.get("relation", "related_to") for edge in path.get("edges", []))
-            graph_lines.append(f"- {relation_chain}")
-    if graph_context["communities"]:
-        graph_lines.append("[Community Summaries]")
-        for community in graph_context["communities"][:3]:
-            graph_lines.append(
-                f"- {community.get('title')}: {community.get('summary', '')}".strip()
-            )
-    if graph_lines:
-        passages_text = passages_text + "\n\n" + "\n".join(graph_lines)
-
     # Step 3: Try LLM-based Q&A
     config_with_key = host.get_config_for_workflow("knowledge_qa")
     if config_with_key:
         config, api_key = config_with_key
         try:
+            _check_cancelled(host, run_id)
             answer_data = _try_langchain_qa(config, api_key, question, passages_text, chunks)
+            _check_cancelled(host, run_id)
             citations = answer_data.get("citations") or [_citation_from_chunk(chunks[0])]
             if config.get("id"):
                 try:
@@ -210,9 +195,12 @@ def run_knowledge_qa_workflow(
                 },
             }
         except Exception as exc:
+            if isinstance(exc, WorkflowCancelled):
+                raise
             logger.error("LLM Q&A failed, falling back to excerpt-based answer: %s", exc)
 
     # Step 4: Fallback — return top chunks as the answer
+    _check_cancelled(host, run_id)
     top_chunk = chunks[0]
     excerpt = (top_chunk.get("snippet") or top_chunk.get("content", ""))[:300]
     fallback_intro = "当前未能生成归纳后的模型回答，先展示最相关的原文摘录："

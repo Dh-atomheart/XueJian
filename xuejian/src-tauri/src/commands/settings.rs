@@ -19,12 +19,11 @@ use crate::{
     },
 };
 
-const WORKFLOW_TYPES: [&str; 6] = [
+const WORKFLOW_TYPES: [&str; 5] = [
     "card_generation",
     "document_embedding",
     "knowledge_qa",
     "podcast_generation",
-    "knowledge_graph",
     "card_animation",
 ];
 
@@ -151,10 +150,7 @@ impl ApiConfigDto {
     }
 }
 
-fn model_profile_to_dto(
-    profile: ModelProfile,
-    config: Option<ApiConfigDto>,
-) -> ModelProfileDto {
+fn model_profile_to_dto(profile: ModelProfile, config: Option<ApiConfigDto>) -> ModelProfileDto {
     ModelProfileDto {
         id: profile.id,
         api_config_id: profile.api_config_id,
@@ -703,14 +699,15 @@ fn infer_model_capabilities(model_id: &str) -> ModelCapabilitiesDto {
         65_536
     };
 
-    let json_mode = !is_embedding && !is_tts && !lower.contains("haiku") && !lower.contains("reasoner");
+    let json_mode =
+        !is_embedding && !is_tts && !lower.contains("haiku") && !lower.contains("reasoner");
     let vision = !is_embedding
         && !is_tts
         && (lower.contains("vision")
-        || lower.contains("gpt-4")
-        || lower.contains("gemini")
-        || lower.contains("claude")
-        || lower.contains("deepseek-chat"));
+            || lower.contains("gpt-4")
+            || lower.contains("gemini")
+            || lower.contains("claude")
+            || lower.contains("deepseek-chat"));
 
     ModelCapabilitiesDto {
         vision,
@@ -722,7 +719,10 @@ fn infer_model_capabilities(model_id: &str) -> ModelCapabilitiesDto {
 }
 
 fn parse_capability_tokens(capabilities_json: Option<&str>) -> Vec<String> {
-    let Some(raw) = capabilities_json.map(str::trim).filter(|value| !value.is_empty()) else {
+    let Some(raw) = capabilities_json
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
         return Vec::new();
     };
 
@@ -1089,14 +1089,15 @@ fn validate_assignment_target(
     }
 
     if config.auth_mode != "adc" && sync_api_config_key_status(state, &config)? == "none" {
-        return Err(CommandError::InvalidInput("该连接尚未存储 API Key".to_string()));
+        return Err(CommandError::InvalidInput(
+            "该连接尚未存储 API Key".to_string(),
+        ));
     }
 
     if workflow_type == "document_embedding" {
         if !is_embedding_model(&profile) {
             return Err(CommandError::InvalidInput(
-                "文档向量化只能分配嵌入模型。请为该工作流选择 embedding 模型档案。"
-                    .to_string(),
+                "文档向量化只能分配嵌入模型。请为该工作流选择 embedding 模型档案。".to_string(),
             ));
         }
     } else if !is_generation_model(&profile) {
@@ -1292,7 +1293,9 @@ pub fn get_api_config(
         return Ok(None);
     };
 
-    Ok(Some(api_config_to_dto_with_actual_key_status(&state, config)?))
+    Ok(Some(api_config_to_dto_with_actual_key_status(
+        &state, config,
+    )?))
 }
 
 #[tauri::command]
@@ -2025,7 +2028,10 @@ pub fn get_workflow_assignment(
     };
 
     Ok(Some(workflow_assignment_to_dto_with_actual_key_status(
-        &state, assignment, model_profile, config,
+        &state,
+        assignment,
+        model_profile,
+        config,
     )?))
 }
 

@@ -1,0 +1,55 @@
+{
+  "documentId": "b5aaff36-8001-4162-b8c4-e601e5f19581",
+  "fixturePath": "C:\\Users\\86137\\AppData\\Roaming\\com.xuejian.app\\native-smoke-fixtures\\tauri-native-smoke-fixture.md",
+  "generatedAt": "2026-04-26T02:58:13.132494500+00:00",
+  "steps": [
+    {
+      "details": "Tauri app initialized with AppState",
+      "name": "app_boot",
+      "status": "passed_native"
+    },
+    {
+      "details": "status=healthy, endpoint=Some(\"http://127.0.0.1:56758\"), hostGatewayConfigured=true, dependenciesReady=true, missingDependencies=[]",
+      "name": "orchestration_health",
+      "status": "passed_native"
+    },
+    {
+      "details": "document id=b5aaff36-8001-4162-b8c4-e601e5f19581, title=tauri-native-smoke-fixture.md, status=uploading",
+      "name": "library_import",
+      "status": "passed_native"
+    },
+    {
+      "details": "document status=parsed, pageCount=Number(1)",
+      "name": "parse",
+      "status": "passed_real"
+    },
+    {
+      "details": "document status=ready, response={\"contentHash\":\"a6b2cb265b3cc2d800167fdea56486a166fb590309fe9c875960c15a36301c84\",\"createdAt\":\"2026-04-26T02:58:37.492918400+00:00\",\"filePath\":\"C:\\\\Users\\\\86137\\\\AppData\\\\Roaming\\\\com.xuejian.app\\\\documents\\\\a6b2cb265b3c-tauri-native-smoke-fixture.md\",\"fileSize\":327,\"fileType\":\"md\",\"id\":\"b5aaff36-8001-4162-b8c4-e601e5f19581\",\"pageCount\":1,\"status\":\"ready\",\"title\":\"tauri-native-smoke-fixture.md\",\"updatedAt\":\"2026-04-26T02:59:28.706451200+00:00\"}",
+      "name": "embedding",
+      "status": "passed_real"
+    },
+    {
+      "details": "run=c18d1440-fa1e-4a1e-bc90-45c23e22f8f2, finalRun={\"approvalPayload\":{\"acceptedCount\":0,\"chunkCursor\":0,\"documentId\":\"b5aaff36-8001-4162-b8c4-e601e5f19581\",\"documentTitle\":\"tauri-native-smoke-fixture.md\",\"duplicateCount\":0,\"fallbackReason\":null,\"generatedCount\":3,\"generationMode\":\"model\",\"lastChunkIndex\":null,\"maxCandidates\":4,\"pendingCount\":0,\"phase\":\"completed\",\"rejectedCount\":0,\"totalChunks\":1},\"checkpointRef\":\"completed\",\"costUsd\":null,\"createdAt\":\"2026-04-26T02:59:28.709023+00:00\",\"errorMessage\":null,\"finishedAt\":\"2026-04-26T03:00:13.329157+00:00\",\"id\":\"c18d1440-fa1e-4a1e-bc90-45c23e22f8f2\",\"presetId\":\"m3-card-production-line\",\"startedAt\":\"2026-04-26T02:59:28.717361+00:00\",\"status\":\"completed\",\"threadId\":\"card-generation:b5aaff36-8001-4162-b8c4-e601e5f19581\",\"updatedAt\":\"2026-04-26T03:00:13.329260100+00:00\",\"workflowType\":\"card_generation\"}, candidates=[]",
+      "name": "card_generation",
+      "status": "passed_real"
+    },
+    {
+      "name": "knowledge_search",
+      "status": "passed_native"
+    },
+    {
+      "details": "run=3c71ed0d-ea67-42b8-a115-17a588a14533, finalRun={\"approvalPayload\":null,\"checkpointRef\":null,\"costUsd\":null,\"createdAt\":\"2026-04-26T03:00:13.754658100+00:00\",\"errorMessage\":null,\"finishedAt\":\"2026-04-26T03:00:43.123250100+00:00\",\"id\":\"3c71ed0d-ea67-42b8-a115-17a588a14533\",\"presetId\":null,\"startedAt\":\"2026-04-26T03:00:13.759139200+00:00\",\"status\":\"completed\",\"threadId\":\"knowledge-qa:b5aaff36-8001-4162-b8c4-e601e5f19581\",\"updatedAt\":\"2026-04-26T03:00:43.125195+00:00\",\"workflowType\":\"knowledge_qa\"}",
+      "name": "knowledge_qa",
+      "status": "passed_real"
+    },
+    {
+      "details": "initial={\"communitiesDetected\":0,\"createdAt\":\"2026-04-26 03:00:43\",\"currentStage\":0,\"documentIds\":[\"b5aaff36-8001-4162-b8c4-e601e5f19581\"],\"edgesCreated\":0,\"errorMessage\":null,\"id\":\"bae65121-b826-4223-a628-52a730750e3e\",\"nodesCreated\":0,\"nodesMerged\":0,\"runId\":\"48c01f9f-fc5c-486e-a3dc-c00f30b2bff4\",\"scopeDescription\":\"native smoke graph build\",\"status\":\"queued\",\"updatedAt\":\"2026-04-26 03:00:43\"}, final={\"communitiesDetected\":5,\"createdAt\":\"2026-04-26 03:00:43\",\"currentStage\":5,\"documentIds\":[\"b5aaff36-8001-4162-b8c4-e601e5f19581\"],\"edgesCreated\":15,\"errorMessage\":null,\"id\":\"bae65121-b826-4223-a628-52a730750e3e\",\"nodesCreated\":7,\"nodesMerged\":5,\"runId\":\"48c01f9f-fc5c-486e-a3dc-c00f30b2bff4\",\"scopeDescription\":\"native smoke graph build\",\"status\":\"completed\",\"updatedAt\":\"2026-04-26 03:01:39\"}",
+      "status": "passed_real"
+    },
+    {
+      "details": "initial={\"audioFormat\":\"mp3\",\"audioPath\":null,\"completedSegments\":0,\"createdAt\":\"2026-04-26 03:01:39\",\"currentStage\":0,\"documentIds\":[\"b5aaff36-8001-4162-b8c4-e601e5f19581\"],\"durationMs\":0,\"durationTier\":\"short\",\"errorCode\":null,\"errorMessage\":null,\"errorStage\":null,\"evaluationJson\":null,\"id\":\"d3db5d04-1efd-48a3-bba4-71f347469d6f\",\"language\":\"en-US\",\"outlineJson\":null,\"retryable\":true,\"runId\":\"84ea16fe-1a28-4a3b-8b96-048b0c87872e\",\"scopeDescription\":\"Native smoke podcast over the imported fixture\",\"scriptJson\":\"{}\",\"stageKey\":\"retrieval\",\"status\":\"queued\",\"style\":\"interview\",\"title\":\"Native smoke podcast over the imported f\",\"totalSegments\":0,\"ttsProvider\":\"auto\",\"updatedAt\":\"2026-04-26 03:01:39\"}, final={\"audioFormat\":\"mp3\",\"audioPath\":\"C:\\\\Users\\\\86137\\\\AppData\\\\Roaming\\\\com.xuejian.app\\\\podcasts\\\\d3db5d04-1efd-48a3-bba4-71f347469d6f\\\\episode.mp3\",\"completedSegments\":2,\"createdAt\":\"2026-04-26 03:01:39\",\"currentStage\":6,\"documentIds\":[\"b5aaff36-8001-4162-b8c4-e601e5f19581\"],\"durationMs\":12302,\"durationTier\":\"short\",\"errorCode\":null,\"errorMessage\":null,\"errorStage\":null,\"evaluationJson\":\"{\\\"coherence\\\": 8.0, \\\"accuracy\\\": 7.0, \\\"styleConsistency\\\": 7.5, \\\"naturalness\\\": 7.5, \\\"overallScore\\\": 7.5, \\\"issues\\\": [], \\\"suggestions\\\": [\\\"模型评估失败，建议人工抽查。\\\"], \\\"revised\\\": false}\",\"id\":\"d3db5d04-1efd-48a3-bba4-71f347469d6f\",\"language\":\"en-US\",\"outlineJson\":\"{\\\"title\\\": \\\"Native smoke podcast over the imported f\\\", \\\"description\\\": \\\"en-US 学习播客，围�?Native smoke podcast over the imported f 进行结构化讲解。\\\", \\\"totalTargetDurationMs\\\": 180000, \\\"segm...",
+      "name": "podcast",
+      "status": "passed_real"
+    }
+  ]
+}

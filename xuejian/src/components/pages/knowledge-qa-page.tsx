@@ -8,6 +8,7 @@ import {
   MessageSquare,
   RefreshCcw,
   Send,
+  Square,
 } from 'lucide-react'
 import {
   Badge,
@@ -40,9 +41,7 @@ export interface KnowledgeQaTurnView {
   answer: string | null
   answerMode?: 'grounded' | 'no_relevant_content' | 'excerpt_fallback' | null
   retrievalStatus?: 'ready' | 'embedding_missing' | 'embedding_stale' | 'embedding_failed' | 'no_hits' | null
-  graphEnhanced?: boolean | null
-  graphContextSummary?: string | null
-  status: 'pending' | 'answered' | 'error'
+  status: 'pending' | 'answered' | 'error' | 'cancelled'
   errorMessage?: string | null
   citations: KnowledgeQaCitationView[]
 }
@@ -70,6 +69,7 @@ export interface KnowledgeQaPageProps {
   onQuestionChange: (value: string) => void
   onSubmit: () => void
   onRetryQuestion: (turnId: string) => void
+  onCancelQuestion: (turnId: string) => void
   onToggleDocument: (documentId: string) => void
   onClearDocuments: () => void
   onUsePrompt: (prompt: string) => void
@@ -98,7 +98,7 @@ function PageHeader({ scopedCount }: { scopedCount: number }) {
         </p>
       </div>
       <Card className="border-border/50 bg-card">
-        <CardContent className="flex items-center gap-2 p-3">
+        <CardContent className="flex items-center gap-3 p-3">
           <FileText className="h-4 w-4 text-muted-foreground" />
           <div className="text-xs">
             <span className="text-muted-foreground">文档范围</span>
@@ -247,16 +247,12 @@ function CitationCard({
 function AnswerMeta({
   answerMode,
   retrievalStatus,
-  graphEnhanced,
-  graphContextSummary,
 }: {
   answerMode?: KnowledgeQaTurnView['answerMode']
   retrievalStatus?: KnowledgeQaTurnView['retrievalStatus']
-  graphEnhanced?: KnowledgeQaTurnView['graphEnhanced']
-  graphContextSummary?: KnowledgeQaTurnView['graphContextSummary']
 }) {
   const isPlainGrounded =
-    !graphEnhanced && !graphContextSummary && (!answerMode || (answerMode === 'grounded' && retrievalStatus === 'ready'))
+    !answerMode || (answerMode === 'grounded' && retrievalStatus === 'ready')
 
   if (isPlainGrounded) {
     return null
@@ -277,22 +273,9 @@ function AnswerMeta({
 
   return (
     <div className="mb-3 space-y-2" data-testid="knowledge-qa-answer-meta">
-      {graphEnhanced ? (
-        <Badge variant="secondary" className="mr-2 rounded-md" data-testid="knowledge-qa-graph-badge">
-          图谱增强
-        </Badge>
-      ) : null}
       <Badge variant="secondary" className="rounded-md">
         {label}
       </Badge>
-      {graphContextSummary ? (
-        <p
-          className="rounded-lg border border-border/40 bg-background/50 px-3 py-2 text-xs leading-5 text-muted-foreground"
-          data-testid="knowledge-qa-graph-summary"
-        >
-          {graphContextSummary}
-        </p>
-      ) : null}
     </div>
   )
 }
@@ -302,16 +285,12 @@ function AssistantMessage({
   citations,
   answerMode,
   retrievalStatus,
-  graphEnhanced,
-  graphContextSummary,
   onOpenCitation,
 }: {
   content: string
   citations: KnowledgeQaCitationView[]
   answerMode?: KnowledgeQaTurnView['answerMode']
   retrievalStatus?: KnowledgeQaTurnView['retrievalStatus']
-  graphEnhanced?: KnowledgeQaTurnView['graphEnhanced']
-  graphContextSummary?: KnowledgeQaTurnView['graphContextSummary']
   onOpenCitation: KnowledgeQaPageProps['onOpenCitation']
 }) {
   const [showAllCitations, setShowAllCitations] = useState(false)
@@ -330,8 +309,6 @@ function AssistantMessage({
             <AnswerMeta
               answerMode={answerMode}
               retrievalStatus={retrievalStatus}
-              graphEnhanced={graphEnhanced}
-              graphContextSummary={graphContextSummary}
             />
             <div className="prose prose-sm max-w-none text-foreground">
               {content.split('\n\n').map((paragraph, idx) => (
@@ -364,7 +341,7 @@ function AssistantMessage({
   )
 }
 
-function StreamingIndicator() {
+function StreamingIndicator({ onCancel }: { onCancel: () => void }) {
   return (
     <div className="flex items-center gap-3">
       <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-foreground/5">
@@ -373,6 +350,10 @@ function StreamingIndicator() {
       <Card className="border-border/50 bg-card">
         <CardContent className="flex items-center gap-2 p-3">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          <Button variant="outline" size="sm" className="h-7 gap-1 rounded-lg text-xs" onClick={onCancel}>
+            <Square className="h-3 w-3" />
+            停止
+          </Button>
           <span className="text-xs text-muted-foreground">正在检索文档并生成回答…</span>
         </CardContent>
       </Card>
@@ -549,7 +530,17 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                     <div key={turn.id}>
                       <UserMessage content={turn.question} />
                       <div className="mt-4">
-                        <StreamingIndicator />
+                        <StreamingIndicator onCancel={() => props.onCancelQuestion(turn.id)} />
+                      </div>
+                    </div>
+                  ) : turn.status === 'cancelled' ? (
+                    <div key={turn.id}>
+                      <UserMessage content={turn.question} />
+                      <div className="mt-4">
+                        <InlineError
+                          message={turn.errorMessage ?? '回答已停止，历史已保留。'}
+                          onRetry={() => props.onRetryQuestion(turn.id)}
+                        />
                       </div>
                     </div>
                   ) : turn.status === 'error' ? (
@@ -570,8 +561,6 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                           content={turn.answer ?? ''}
                           answerMode={turn.answerMode}
                           retrievalStatus={turn.retrievalStatus}
-                          graphEnhanced={turn.graphEnhanced}
-                          graphContextSummary={turn.graphContextSummary}
                           citations={turn.citations}
                           onOpenCitation={props.onOpenCitation}
                         />

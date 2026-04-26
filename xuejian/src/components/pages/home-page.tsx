@@ -1,5 +1,8 @@
-import { ArrowRight, FileText, FolderOpen, MessageSquare, Network, Pen, Plus, RefreshCcw, Sparkles, TrendingUp, Upload } from 'lucide-react'
+import { ArrowRight, Check, FileText, FolderOpen, MessageSquare, Pen, Plus, RefreshCcw, Sparkles, TrendingUp, Upload } from 'lucide-react'
 import { Button, Card, CardContent, EmptyState, SkeletonDocRow } from '@/components/ui'
+import { HeatmapCalendar, type HeatmapEntry } from '@/components/stats'
+import { useStickyNote } from '@/hooks/useStickyNote'
+import { useCallback, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 export interface HomePageDocument {
@@ -14,7 +17,7 @@ export interface HomePageDocument {
 export interface HomePageProps {
   stats: Array<{ value: number | string; label: string }>
   overview: Array<{ label: string; value: string | number }>
-  heatmap: Array<Array<{ date: string; count: number } | undefined>>
+  heatmap: HeatmapEntry[]
   recentDocuments: HomePageDocument[]
   isDocumentsLoading?: boolean
   hasDocuments?: boolean
@@ -93,31 +96,11 @@ function StudyOverviewPanel({ overview }: Pick<HomePageProps, 'overview'>) {
   )
 }
 
-function getIntensityClass(count: number) {
-  if (count === 0) return 'bg-muted/50'
-  if (count === 1) return 'bg-chart-1/20'
-  if (count === 2) return 'bg-chart-1/40'
-  if (count === 3) return 'bg-chart-1/60'
-  return 'bg-chart-1/80'
-}
-
 function HeatmapPanel({ heatmap }: Pick<HomePageProps, 'heatmap'>) {
   return (
     <Card className="border-border/50 bg-card">
       <CardContent className="p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-foreground">学习热力图</h3>
-          <span className="text-xs text-muted-foreground">过去 63 天</span>
-        </div>
-        <div className="flex gap-1" data-testid="home-heatmap-panel">
-          {heatmap.map((week, weekIdx) => (
-            <div key={weekIdx} className="flex flex-col gap-1">
-              {week.map((day, dayIdx) => (
-                <div key={`${weekIdx}-${dayIdx}`} className={cn('h-3 w-3 rounded-sm', getIntensityClass(day?.count ?? 0))} title={day ? `${day.date}: ${day.count}` : ''} />
-              ))}
-            </div>
-          ))}
-        </div>
+        <HeatmapCalendar entries={heatmap} weeks={16} />
       </CardContent>
     </Card>
   )
@@ -225,6 +208,38 @@ function QuickActionsPanel({ quickActions }: Pick<HomePageProps, 'quickActions'>
 }
 
 function DeskNotePanel() {
+  const { note, saveNote } = useStickyNote()
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const startEditing = useCallback(() => {
+    setDraft(note)
+    setIsEditing(true)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.select()
+    })
+  }, [note])
+
+  const finishEditing = useCallback(() => {
+    saveNote(draft)
+    setIsEditing(false)
+  }, [draft, saveNote])
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault()
+        finishEditing()
+      }
+      if (e.key === 'Escape') {
+        setIsEditing(false)
+      }
+    },
+    [finishEditing]
+  )
+
   return (
     <Card className="border-border/50 bg-chart-2/10">
       <CardContent className="p-4">
@@ -232,14 +247,49 @@ function DeskNotePanel() {
           <h3 className="text-xs font-medium text-foreground">桌面便笺</h3>
           <Sparkles className="h-3.5 w-3.5 text-chart-2" />
         </div>
-        <p className="text-sm leading-relaxed text-muted-foreground italic">
-          把今天收束成一轮清晰的学习闭环，
-          <br />
-          比做很多事更重要。
-        </p>
-        <div className="mt-3 flex justify-end">
-          <Pen className="h-4 w-4 text-muted-foreground/50" />
-        </div>
+        {isEditing ? (
+          <div className="space-y-2">
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={finishEditing}
+              onKeyDown={handleKeyDown}
+              className="w-full resize-none rounded-lg border border-border/50 bg-background/80 p-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-chart-2/50"
+              rows={3}
+              placeholder="写下你的学习目标..."
+            />
+            <div className="flex justify-end">
+              <button
+                onClick={finishEditing}
+                className="flex items-center gap-1 rounded-md bg-chart-2/20 px-2 py-1 text-xs text-chart-2 hover:bg-chart-2/30"
+              >
+                <Check className="h-3 w-3" />
+                保存
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p
+              className="cursor-pointer text-sm leading-relaxed text-muted-foreground italic"
+              onClick={startEditing}
+              title="点击编辑"
+            >
+              {note.split('\n').map((line, i) => (
+                <span key={i}>
+                  {i > 0 && <br />}
+                  {line || <br />}
+                </span>
+              ))}
+            </p>
+            <div className="mt-3 flex justify-end">
+              <button onClick={startEditing}>
+                <Pen className="h-4 w-4 text-muted-foreground/50 hover:text-muted-foreground/80" />
+              </button>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   )
@@ -329,5 +379,4 @@ export const homePageIcons = {
   upload: Upload,
   cards: Plus,
   qa: MessageSquare,
-  graph: Network,
 }

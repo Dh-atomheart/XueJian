@@ -7,7 +7,6 @@ export type NavItemId =
   | 'learning'
   | 'knowledge'
   | 'podcast'
-  | 'graph'
   | 'profile'
   | 'settings'
 
@@ -41,7 +40,6 @@ interface KnowledgeDraftState {
   question: string | null
   selectedDocumentIds: string[]
   sourceLabel: string | null
-  graphContextSummary: string | null
 }
 
 interface AppUiState {
@@ -101,7 +99,6 @@ const initialKnowledgeDraftState: KnowledgeDraftState = {
   question: null,
   selectedDocumentIds: [],
   sourceLabel: null,
-  graphContextSummary: null,
 }
 
 const MAX_FEEDBACK_LOG_ENTRIES = 120
@@ -149,7 +146,6 @@ export const useAppUiStore = create<AppUiState>((set) => ({
         question: draft?.question ?? null,
         selectedDocumentIds: draft?.selectedDocumentIds ?? [],
         sourceLabel: draft?.sourceLabel ?? null,
-        graphContextSummary: draft?.graphContextSummary ?? null,
       },
       reader: initialReaderState,
     }),

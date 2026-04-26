@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import math
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ VOICE_MAP: dict[str, dict[str, str]] = {
 }
 
 
-def _extract_audio_bytes(response: Any) -> bytes:
+def _extract_audio(response: Any) -> tuple[bytes, str]:
     candidates = getattr(response, "candidates", None) or []
     for candidate in candidates:
         content = getattr(candidate, "content", None)
@@ -27,20 +28,42 @@ def _extract_audio_bytes(response: Any) -> bytes:
             inline_data = getattr(part, "inline_data", None)
             if inline_data is None:
                 continue
+            mime_type = getattr(inline_data, "mime_type", "") or ""
             data = getattr(inline_data, "data", None)
             if isinstance(data, bytes):
-                return data
+                return data, mime_type
             if isinstance(data, memoryview):
-                return data.tobytes()
+                return data.tobytes(), mime_type
             if isinstance(data, str):
-                return base64.b64decode(data)
+                return base64.b64decode(data), mime_type
 
-            mime_type = getattr(inline_data, "mime_type", "")
             blob = getattr(part, "text", None)
             if mime_type.startswith("audio/") and isinstance(blob, str):
-                return base64.b64decode(blob)
+                return base64.b64decode(blob), mime_type
 
     raise RuntimeError("Google TTS response did not include inline audio data")
+
+
+def _write_google_audio(target_path: Path, audio_bytes: bytes, mime_type: str) -> None:
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if audio_bytes.startswith(b"RIFF") or "wav" in mime_type.lower():
+        target_path.write_bytes(audio_bytes)
+        return
+
+    # Gemini TTS commonly returns raw signed 16-bit PCM (audio/L16) at 24 kHz.
+    sample_rate = 24_000
+    lowered = mime_type.lower()
+    if "rate=" in lowered:
+        try:
+            sample_rate = int(lowered.split("rate=", 1)[1].split(";", 1)[0])
+        except ValueError:
+            sample_rate = 24_000
+
+    with wave.open(str(target_path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(audio_bytes)
 
 
 class GoogleTTSProvider:
@@ -63,7 +86,7 @@ class GoogleTTSProvider:
 
         safe_speed = max(0.5, min(2.0, speed))
 
-        def _run() -> bytes:
+        def _run() -> tuple[bytes, str]:
             client = genai.Client(api_key=self._api_key)
             response = client.models.generate_content(
                 model=self._model,
@@ -77,12 +100,11 @@ class GoogleTTSProvider:
                     ),
                 ),
             )
-            return _extract_audio_bytes(response)
+            return _extract_audio(response)
 
-        audio_bytes = await asyncio.to_thread(_run)
+        audio_bytes, mime_type = await asyncio.to_thread(_run)
         target_path = Path(output_path)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_bytes(audio_bytes)
+        _write_google_audio(target_path, audio_bytes, mime_type)
 
         duration_ms = max(1000, math.ceil(len(text) * 170 / safe_speed))
         return {

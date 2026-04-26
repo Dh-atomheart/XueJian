@@ -99,6 +99,9 @@ export interface PodcastEpisode {
   outlineJson: string | null
   evaluationJson: string | null
   audioPath: string | null
+  audioExists?: boolean
+  audioFileSize?: number | null
+  audioMimeHint?: string | null
   durationMs: number
   status: PodcastStatus
   stageKey:
@@ -224,6 +227,9 @@ export const PodcastEpisodeSchema = z.object({
   outlineJson: z.string().nullable(),
   evaluationJson: z.string().nullable(),
   audioPath: z.string().nullable(),
+  audioExists: z.boolean().catch(false).default(false),
+  audioFileSize: z.number().nullable().catch(null).default(null),
+  audioMimeHint: z.string().nullable().catch(null).default(null),
   durationMs: z.number(),
   status: PodcastStatusSchema,
   stageKey: z

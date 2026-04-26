@@ -176,6 +176,9 @@ export function PodcastPage() {
   const selectedEpisodeErrorSummary = selectedEpisode
     ? getEpisodeErrorSummary(selectedEpisode)
     : null
+  const selectedEpisodeUsesFallback = selectedEpisode
+    ? isFallbackEpisode(selectedEpisode)
+    : false
 
   async function handleGenerate() {
     if (selectedDocumentIds.length === 0) {
@@ -469,6 +472,11 @@ export function PodcastPage() {
                           <span> | {episode.retryable ? 'retryable' : 'manual fix required'}</span>
                         </div>
                       ) : null}
+                      {isFallbackEpisode(episode) ? (
+                        <div className="mt-3 rounded-[14px] border border-amber-200/70 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                          Fallback workflow used | orchestration or TTS chain did not fully execute.
+                        </div>
+                      ) : null}
                     </button>
                   )
                 })}
@@ -505,6 +513,12 @@ export function PodcastPage() {
                       data-testid="podcast-error-panel"
                     >
                       {selectedEpisodeErrorSummary}
+                    </div>
+                  ) : null}
+                  {selectedEpisodeUsesFallback ? (
+                    <div className="rounded-[16px] border border-amber-200/70 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      This episode was completed through a fallback path. Script and audio readiness
+                      should not be treated as proof that the native orchestration chain is healthy.
                     </div>
                   ) : null}
                   <div className="flex flex-wrap gap-2 pt-2">
@@ -785,4 +799,8 @@ function getEpisodeErrorSummary(episode: PodcastEpisode) {
   ].filter(Boolean)
 
   return parts.join(' | ')
+}
+
+function isFallbackEpisode(episode: PodcastEpisode) {
+  return episode.errorCode === 'fallback_used'
 }

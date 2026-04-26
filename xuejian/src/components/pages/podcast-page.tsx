@@ -442,7 +442,7 @@ export function PodcastPageLayout({
   detailRail: ReactNode
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-6" data-testid="podcast-page">
+    <div className="mx-auto box-border flex w-full max-w-[1480px] flex-col gap-6 p-6" data-testid="podcast-page">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-3xl">
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">

@@ -1,6 +1,20 @@
 import { z } from 'zod'
-import { chunkSearchResultSchema, workflowRunSchema } from '@/types'
-import type { ChunkSearchResult, WorkflowRun } from '@/types'
+import {
+  chunkSearchResultSchema,
+  knowledgeQaConversationDetailSchema,
+  knowledgeQaConversationSchema,
+  knowledgeQaMessageSchema,
+  sendKnowledgeQaMessageResultSchema,
+  workflowRunSchema,
+} from '@/types'
+import type {
+  ChunkSearchResult,
+  KnowledgeQaConversation,
+  KnowledgeQaConversationDetail,
+  KnowledgeQaMessage,
+  SendKnowledgeQaMessageResult,
+  WorkflowRun,
+} from '@/types'
 import { invokeWithSchema } from './index'
 
 export interface SearchKnowledgeInput {
@@ -10,6 +24,12 @@ export interface SearchKnowledgeInput {
 }
 
 export interface StartKnowledgeQaInput {
+  question: string
+  documentIds?: string[]
+}
+
+export interface SendKnowledgeQaMessageInput {
+  conversationId?: string | null
   question: string
   documentIds?: string[]
 }
@@ -30,5 +50,37 @@ export async function startKnowledgeQaWorkflow(input: StartKnowledgeQaInput): Pr
       question: input.question,
       documentIds: input.documentIds ?? null,
     },
+  })
+}
+
+export async function listKnowledgeQaConversations(limit = 50): Promise<KnowledgeQaConversation[]> {
+  return invokeWithSchema('list_knowledge_qa_conversations', z.array(knowledgeQaConversationSchema), {
+    limit,
+  })
+}
+
+export async function getKnowledgeQaConversation(
+  conversationId: string
+): Promise<KnowledgeQaConversationDetail | null> {
+  return invokeWithSchema('get_knowledge_qa_conversation', knowledgeQaConversationDetailSchema.nullable(), {
+    conversationId,
+  })
+}
+
+export async function sendKnowledgeQaMessage(
+  input: SendKnowledgeQaMessageInput
+): Promise<SendKnowledgeQaMessageResult> {
+  return invokeWithSchema('send_knowledge_qa_message', sendKnowledgeQaMessageResultSchema, {
+    data: {
+      conversationId: input.conversationId ?? null,
+      question: input.question,
+      documentIds: input.documentIds ?? null,
+    },
+  })
+}
+
+export async function cancelKnowledgeQaMessage(messageId: string): Promise<KnowledgeQaMessage | null> {
+  return invokeWithSchema('cancel_knowledge_qa_message', knowledgeQaMessageSchema.nullable(), {
+    messageId,
   })
 }

@@ -29,7 +29,9 @@
         "scope": [
           "$APPDATA/documents/**",
           "$APPLOCALDATA/documents/**",
-          "$APPLOCALDATA/card-media/**"
+          "$APPLOCALDATA/card-media/**",
+          "$APPDATA/podcasts/**",
+          "$APPLOCALDATA/podcasts/**"
         ]
       }
     }

@@ -47,6 +47,10 @@ export function AnimationPreviewModal({
   const resolvedMode = animation?.mode ?? mode
   const isLive = animation ? LIVE_STATUSES.has(animation.status) : false
   const videoSrc = useMemo(() => resolveMediaSrc(animation?.videoPath ?? null), [animation?.videoPath])
+  const fallbackNotice =
+    animation?.status === 'ready' && animation.errorCode
+      ? animation.errorMessage ?? 'Current preview was produced by a local fallback path.'
+      : null
 
   function handleRegenerate(nextMode = resolvedMode) {
     setMode(nextMode)
@@ -109,6 +113,15 @@ export function AnimationPreviewModal({
         </div>
 
         <div className="mt-5 rounded-[24px] border border-line-soft bg-paper-card p-5">
+          {fallbackNotice ? (
+            <div
+              className="mb-4 rounded-[18px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+              data-testid="card-animation-fallback-panel"
+            >
+              <p className="font-medium">Fallback preview in use</p>
+              <p className="mt-2">{fallbackNotice}</p>
+            </div>
+          ) : null}
           {isLoading || isLive || startMutation.isPending ? (
             <GeneratingState
               label={

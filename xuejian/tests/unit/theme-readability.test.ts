@@ -10,7 +10,6 @@ const KEY_SOURCES = [
   'src/features/documents/ReaderPage.tsx',
   'src/features/documents/LibraryPage.tsx',
   'src/features/settings/SettingsPage.tsx',
-  'src/features/knowledge/KnowledgeGraphPage.tsx',
   'src/components/shell/AppShell.tsx',
   'src/components/learning/FlipCard.tsx',
   'src/components/learning/RatingBar.tsx',

@@ -92,7 +92,6 @@ FROM (
     UNION ALL SELECT 'document_embedding'
     UNION ALL SELECT 'knowledge_qa'
     UNION ALL SELECT 'podcast_generation'
-    UNION ALL SELECT 'knowledge_graph'
     UNION ALL SELECT 'card_animation'
 ) seed
 WHERE EXISTS (

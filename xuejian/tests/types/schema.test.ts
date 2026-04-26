@@ -148,8 +148,6 @@ describe('structured schemas', () => {
       answerMode: 'grounded',
       retrievalStatus: 'ready',
       retrievalMode: 'fts5',
-      graphEnhanced: true,
-      graphContextSummary: 'FSRS connects review spacing with retention outcomes.',
       citations: [
         {
           documentId: '4f4ac6a1-21d0-4d62-bec0-4b7188b84d51',
@@ -166,7 +164,6 @@ describe('structured schemas', () => {
     expect(answer.citations).toHaveLength(1)
     expect(answer.answerMode).toBe('grounded')
     expect(answer.retrievalMode).toBe('fts5')
-    expect(answer.graphEnhanced).toBe(true)
   })
 
   it('parses fallback workflow events and normalizes timestamps into Date instances', () => {

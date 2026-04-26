@@ -1,5 +1,4 @@
 export * from './animation'
 export * from './document'
-export * from './knowledge-graph'
 export * from './podcast'
 export * from './schema'

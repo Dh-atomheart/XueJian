@@ -258,7 +258,6 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     icon: '🎙️',
     description: '大纲、脚本和音频生成。',
   },
-  { type: 'knowledge_graph', name: '知识图谱', icon: '🕸️', description: '抽取实体并构建图谱。' },
   {
     type: 'card_animation',
     name: 'Card Animation',

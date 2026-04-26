@@ -1,4 +1,4 @@
-import { Layers, Mic, Network, Sparkles, TrendingUp } from 'lucide-react'
+import { BookOpen, Layers, Mic, Sparkles, TrendingUp } from 'lucide-react'
 import { Button, Card, CardContent, EmptyState } from '@/components/ui'
 export interface ProfileOverviewMetric {
   label: string
@@ -33,7 +33,9 @@ export interface ProfilePageProps {
 function Header() {
   return (
     <div className="mb-6">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">LEARNING PROFILE</p>
+      <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+        LEARNING PROFILE
+      </p>
       <h1 className="mt-1 text-2xl font-medium text-foreground" data-testid="app-shell-page-title">
         我的
       </h1>
@@ -56,7 +58,9 @@ function StudyOverviewPanel({ overview }: { overview: ProfileOverviewMetric[] })
           {overview.map((item) => (
             <div key={item.label}>
               <p className="text-xs text-muted-foreground">{item.label}</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{item.value}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                {item.value}
+              </p>
             </div>
           ))}
         </div>
@@ -65,7 +69,11 @@ function StudyOverviewPanel({ overview }: { overview: ProfileOverviewMetric[] })
   )
 }
 
-function MasteryProgressPanel({ mastery }: { mastery: Array<{ label: string; value: number | string }> }) {
+function MasteryProgressPanel({
+  mastery,
+}: {
+  mastery: Array<{ label: string; value: number | string }>
+}) {
   return (
     <Card className="border-border/50 bg-card">
       <CardContent className="p-5">
@@ -75,8 +83,13 @@ function MasteryProgressPanel({ mastery }: { mastery: Array<{ label: string; val
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {mastery.map((item) => (
-            <div key={item.label} className="rounded-xl border border-border/40 bg-background/50 p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{item.label}</p>
+            <div
+              key={item.label}
+              className="rounded-xl border border-border/40 bg-background/50 p-4"
+            >
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                {item.label}
+              </p>
               <p className="mt-2 text-2xl font-semibold text-foreground">{item.value}</p>
             </div>
           ))}
@@ -113,7 +126,10 @@ function PointsLedgerPanel({ ledger }: { ledger: ProfileLedgerItem[] }) {
         ) : (
           <div className="space-y-3">
             {ledger.map((item) => (
-              <div key={item.id} className="flex items-center justify-between gap-4 rounded-xl border border-border/40 bg-background/50 p-4">
+              <div
+                key={item.id}
+                className="flex items-center justify-between gap-4 rounded-xl border border-border/40 bg-background/50 p-4"
+              >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{item.title}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{item.meta}</p>
@@ -132,7 +148,7 @@ function PointsLedgerPanel({ ledger }: { ledger: ProfileLedgerItem[] }) {
 }
 
 function QuickLinksPanel({ quickLinks }: { quickLinks: ProfileQuickLink[] }) {
-  const icons = [Layers, Mic, Network, Sparkles]
+  const icons = [Layers, Mic, BookOpen, Sparkles]
   return (
     <Card className="border-border/50 bg-card">
       <CardContent className="p-5">
@@ -170,7 +186,10 @@ function SummaryRail({ summary }: { summary: Array<{ label: string; value: strin
         <h3 className="mb-4 text-sm font-medium text-foreground">当前状态</h3>
         <div className="space-y-3">
           {summary.map((item) => (
-            <div key={item.label} className="flex items-center justify-between gap-3 border-b border-border/40 pb-3 last:border-b-0 last:pb-0">
+            <div
+              key={item.label}
+              className="flex items-center justify-between gap-3 border-b border-border/40 pb-3 last:border-b-0 last:pb-0"
+            >
               <span className="text-sm text-muted-foreground">{item.label}</span>
               <span className="text-sm font-medium text-foreground">{item.value}</span>
             </div>
@@ -184,7 +203,7 @@ function SummaryRail({ summary }: { summary: Array<{ label: string; value: strin
 export function ProfilePage(props: ProfilePageProps) {
   if (!props.hasData) {
     return (
-      <div className="mx-auto max-w-5xl" data-testid="profile-page">
+      <div className="mx-auto box-border max-w-5xl p-6" data-testid="profile-page">
         <EmptyState
           title="还没有形成学习画像"
           description="完成一次复习，或先导入一份文档。这里会开始累计热力图、掌握度和积分台账。"
@@ -195,10 +214,12 @@ export function ProfilePage(props: ProfilePageProps) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5" data-testid="profile-page">
+    <div className="mx-auto box-border flex w-full max-w-[1440px] flex-col gap-5 p-6" data-testid="profile-page">
       <Header />
       <div className="flex flex-wrap gap-3">
-        <Button onClick={props.onOpenReview} className="rounded-lg">继续复习</Button>
+        <Button onClick={props.onOpenReview} className="rounded-lg">
+          继续复习
+        </Button>
         <Button variant="outline" onClick={props.onOpenLibrary} className="rounded-lg">
           文档库
         </Button>

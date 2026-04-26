@@ -6,7 +6,6 @@ export type SketchIllustration =
   | 'book'
   | 'chat'
   | 'podcast'
-  | 'graph'
   | 'cards'
   | 'heatmap'
 
@@ -80,8 +79,6 @@ function Illustration({ illustration }: { illustration: SketchIllustration }) {
       return <ChatIllustration />
     case 'podcast':
       return <PodcastIllustration />
-    case 'graph':
-      return <GraphIllustration />
     case 'cards':
       return <CardsIllustration />
     case 'heatmap':
@@ -142,19 +139,6 @@ function PodcastIllustration() {
       <path d="M30 54c0 18 14 30 30 30s30-12 30-30" />
       <path d="M46 86h28" />
       <path d="M60 30v12M60 48v8" strokeDasharray="2 3" />
-    </svg>
-  )
-}
-
-function GraphIllustration() {
-  return (
-    <svg {...baseSvgProps}>
-      <circle cx="60" cy="32" r="8" />
-      <circle cx="28" cy="74" r="6" />
-      <circle cx="92" cy="74" r="6" />
-      <circle cx="60" cy="94" r="5" />
-      <path d="M56 38l-24 30M64 38l24 30M30 80l26 12M90 80l-26 12" />
-      <path d="M36 22c-3-2-6-2-8 1" strokeDasharray="2 3" />
     </svg>
   )
 }

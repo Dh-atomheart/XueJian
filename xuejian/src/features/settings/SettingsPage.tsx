@@ -142,11 +142,6 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
       description: '用于播客脚本与音频流程。',
     },
     {
-      workflowType: 'knowledge_graph',
-      label: '知识图谱',
-      description: '用于知识图谱构建。',
-    },
-    {
       workflowType: 'card_animation',
       label: '卡片动效',
       description: '用于卡片动画脚本生成。',

@@ -1198,8 +1198,8 @@ function EnhancedAiModelSettings(
 
   const hasConfigs = props.apiConfigs.length > 0
   const showSetupCallout = props.forcedOnboarding || !hasConfigs
-  const availableWorkflowProfiles = selectedProfiles.filter((profile) => {
-    const config = profile.apiConfig ?? selectedConfig
+  const availableWorkflowProfiles = props.modelProfiles.filter((profile) => {
+    const config = profile.apiConfig ?? props.apiConfigs.find((item) => item.id === profile.apiConfigId)
     if (!profile.isEnabled || !config) {
       return false
     }
@@ -1548,11 +1548,16 @@ function EnhancedAiModelSettings(
                         className="h-9 min-w-64 rounded-lg border border-border/50 bg-background px-3 text-sm text-foreground"
                       >
                         <option value="">未分配</option>
-                        {availableWorkflowProfiles.map((profile) => (
-                          <option key={profile.id} value={profile.id}>
-                            {profile.displayName?.trim() || profile.modelId}
-                          </option>
-                        ))}
+                        {availableWorkflowProfiles.map((profile) => {
+                          const config =
+                            profile.apiConfig ?? props.apiConfigs.find((item) => item.id === profile.apiConfigId)
+                          return (
+                            <option key={profile.id} value={profile.id}>
+                              {config?.displayName?.trim() || config?.name || config?.provider || 'Provider'} /{' '}
+                              {profile.displayName?.trim() || profile.modelId}
+                            </option>
+                          )
+                        })}
                       </select>
                     </div>
                   ))}

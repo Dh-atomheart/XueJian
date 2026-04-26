@@ -66,6 +66,7 @@ export function PodcastPlayerModal({ open, episodeId, onClose }: PodcastPlayerMo
   const [durationSeconds, setDurationSeconds] = useState(0)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [volume, setVolume] = useState(1)
+  const [playbackError, setPlaybackError] = useState<string | null>(null)
 
   const activeSegmentIndex = useMemo(() => {
     if (playbackSegments.length === 0) return -1
@@ -124,6 +125,19 @@ export function PodcastPlayerModal({ open, episodeId, onClose }: PodcastPlayerMo
     }
     const handlePlay = () => setIsPlaying(true)
     const handlePause = () => setIsPlaying(false)
+    const handleError = () => {
+      const error = audio.error
+      const code = error?.code
+      const message =
+        code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+          ? '音频文件无法解码或格式不受支持。'
+          : code === MediaError.MEDIA_ERR_NETWORK
+            ? '音频文件无法通过 Tauri asset protocol 读取，请检查路径权限。'
+            : code === MediaError.MEDIA_ERR_DECODE
+              ? '音频文件解码失败，可能是生成文件损坏。'
+              : '音频加载失败。'
+      setPlaybackError(`${message}${episode?.audioPath ? ` 路径：${episode.audioPath}` : ''}`)
+    }
     const handleEnded = () => {
       setIsPlaying(false)
       setCurrentTime(audio.duration || 0)
@@ -134,6 +148,7 @@ export function PodcastPlayerModal({ open, episodeId, onClose }: PodcastPlayerMo
     audio.addEventListener('durationchange', handleLoadedMetadata)
     audio.addEventListener('play', handlePlay)
     audio.addEventListener('pause', handlePause)
+    audio.addEventListener('error', handleError)
     audio.addEventListener('ended', handleEnded)
 
     return () => {
@@ -142,8 +157,13 @@ export function PodcastPlayerModal({ open, episodeId, onClose }: PodcastPlayerMo
       audio.removeEventListener('durationchange', handleLoadedMetadata)
       audio.removeEventListener('play', handlePlay)
       audio.removeEventListener('pause', handlePause)
+      audio.removeEventListener('error', handleError)
       audio.removeEventListener('ended', handleEnded)
     }
+  }, [audioSrc, episode?.audioPath])
+
+  useEffect(() => {
+    setPlaybackError(null)
   }, [audioSrc])
 
   async function togglePlayback() {
@@ -151,7 +171,12 @@ export function PodcastPlayerModal({ open, episodeId, onClose }: PodcastPlayerMo
     if (!audio) return
 
     if (audio.paused) {
-      await audio.play()
+      try {
+        setPlaybackError(null)
+        await audio.play()
+      } catch (error) {
+        setPlaybackError(error instanceof Error ? error.message : '音频播放启动失败。')
+      }
     } else {
       audio.pause()
     }
@@ -251,6 +276,11 @@ export function PodcastPlayerModal({ open, episodeId, onClose }: PodcastPlayerMo
                   {audioSrc ? (
                     <div className="mt-4 space-y-4">
                       <audio ref={audioRef} key={audioSrc} src={audioSrc} preload="metadata" />
+                      {playbackError ? (
+                        <div className="rounded-[16px] border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-6 text-rose-700">
+                          {playbackError}
+                        </div>
+                      ) : null}
 
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-3 font-latin text-xs tracking-wide text-ink-soft">

@@ -164,7 +164,10 @@ pub fn start_card_animation_workflow(
         workflow_repo.append_event(AppendWorkflowEventRequest {
             run_id: run.id.clone(),
             event_type: "queued".to_string(),
-            message: Some(format!("Queued {mode} animation generation for card {}", card.id)),
+            message: Some(format!(
+                "Queued {mode} animation generation for card {}",
+                card.id
+            )),
             progress: Some(0.0),
             payload: None,
         })?;
@@ -205,12 +208,16 @@ fn spawn_animation_worker(app_handle: AppHandle, card_id: String) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = execute_animation_worker(&app_handle, &card_id).await {
             log::error!("Card animation worker for card {card_id} failed: {error}");
-            let _ = mark_animation_failed(&app_handle, &card_id, FailedCardAnimationRequest {
-                error_code: Some("worker_failed".to_string()),
-                error_message: error.to_string(),
-                render_log_path: None,
-                retryable: true,
-            });
+            let _ = mark_animation_failed(
+                &app_handle,
+                &card_id,
+                FailedCardAnimationRequest {
+                    error_code: Some("worker_failed".to_string()),
+                    error_message: error.to_string(),
+                    render_log_path: None,
+                    retryable: true,
+                },
+            );
         }
     });
 }
@@ -288,12 +295,17 @@ async fn execute_animation_worker(app_handle: &AppHandle, card_id: &str) -> Comm
             if mode == "quick_preview" {
                 AnimationWorkflowResponse {
                     status: Some("ready".to_string()),
-                    script_json: Some(build_fallback_script(&anim_type, &card.front, &card.back, &tags)),
+                    script_json: Some(build_fallback_script(
+                        &anim_type,
+                        &card.front,
+                        &card.back,
+                        &tags,
+                    )),
                     video_path: None,
                     poster_path: None,
                     render_log_path: None,
-                    error_code: None,
-                    error_message: None,
+                    error_code: Some("fallback_preview".to_string()),
+                    error_message: Some(error),
                     retryable: Some(true),
                 }
             } else {
@@ -360,10 +372,20 @@ async fn execute_animation_worker(app_handle: &AppHandle, card_id: &str) -> Comm
                         video_path: response.video_path.clone(),
                         poster_path: response.poster_path.clone(),
                         render_log_path: response.render_log_path.clone(),
+                        error_code: response.error_code.clone(),
+                        error_message: response.error_message.clone(),
+                        retryable: response.retryable,
                     },
                 )?;
 
                 if !run_id_str.is_empty() {
+                    let fallback_payload = response.error_code.as_ref().map(|error_code| {
+                        serde_json::json!({
+                            "fallbackUsed": true,
+                            "errorCode": error_code,
+                            "errorMessage": response.error_message.clone(),
+                        })
+                    });
                     workflow_repo.update_run(
                         run_id_str,
                         UpdateWorkflowRunRequest {
@@ -371,17 +393,25 @@ async fn execute_animation_worker(app_handle: &AppHandle, card_id: &str) -> Comm
                             checkpoint_ref: Some("ready".to_string()),
                             approval_payload: None,
                             cost_usd: None,
-                            error_message: None,
+                            error_message: response.error_message.clone(),
                             started_at: None,
                             finished_at: Some(chrono::Utc::now().to_rfc3339()),
                         },
                     )?;
                     workflow_repo.append_event(AppendWorkflowEventRequest {
                         run_id: run_id_str.to_string(),
-                        event_type: "completed".to_string(),
-                        message: Some("Animation ready".to_string()),
+                        event_type: if response.error_code.is_some() {
+                            "fallback".to_string()
+                        } else {
+                            "completed".to_string()
+                        },
+                        message: Some(if response.error_code.is_some() {
+                            "Animation ready via fallback preview".to_string()
+                        } else {
+                            "Animation ready".to_string()
+                        }),
                         progress: Some(1.0),
-                        payload: None,
+                        payload: fallback_payload,
                     })?;
                 }
             }
@@ -439,7 +469,8 @@ async fn try_orchestration_animation(
         return Err(format!("Orchestration returned {status}: {body}"));
     }
 
-    response.json::<AnimationWorkflowResponse>()
+    response
+        .json::<AnimationWorkflowResponse>()
         .await
         .map_err(|error| error.to_string())
 }

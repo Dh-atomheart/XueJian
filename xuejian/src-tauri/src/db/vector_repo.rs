@@ -455,8 +455,6 @@ mod tests {
             .expect("apply v5 migration");
         conn.execute_batch(include_str!("../migrations/V6__podcast_episodes.sql"))
             .expect("apply v6 migration");
-        conn.execute_batch(include_str!("../migrations/V7__knowledge_graph.sql"))
-            .expect("apply v7 migration");
         conn.execute_batch(include_str!(
             "../migrations/V8__points_daily_bonus_rule.sql"
         ))

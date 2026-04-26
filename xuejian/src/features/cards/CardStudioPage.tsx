@@ -132,6 +132,14 @@ export function CardStudioPage() {
     () => candidates.filter((candidate) => candidate.status === 'rejected'),
     [candidates]
   )
+  const fallbackCandidates = useMemo(
+    () =>
+      candidates.filter(
+        (candidate) =>
+          candidate.generationMode !== 'llm' || Boolean(candidate.fallbackReason)
+      ),
+    [candidates]
+  )
 
   async function invalidateCardQueries() {
     await Promise.all([
@@ -427,6 +435,19 @@ export function CardStudioPage() {
                       {finalizeSummary.highlightsUnlinked}
                     </p>
                   </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {fallbackCandidates.length > 0 ? (
+              <Card className="border-amber-200/70 bg-amber-50" data-testid="card-studio-fallback-summary">
+                <CardContent className="p-5 text-sm text-amber-900">
+                  <p className="font-medium">Fallback generation detected</p>
+                  <p className="mt-2">
+                    {fallbackCandidates.length} candidate(s) came from fallback logic. Review them
+                    as degraded output rather than treating them as proof that the orchestration
+                    chain is healthy.
+                  </p>
                 </CardContent>
               </Card>
             ) : null}

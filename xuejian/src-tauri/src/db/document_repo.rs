@@ -528,15 +528,17 @@ impl<'a> DocumentRepository<'a> {
         document_ids: Option<&[String]>,
         limit: i64,
     ) -> Result<Vec<DocumentChunkSearchResult>> {
-        let primary = self.search_chunks_fts(query, document_ids, limit)?;
-        if !primary.is_empty() {
-            return Ok(primary);
-        }
-
-        for fallback_query in build_fts_fallback_queries(query) {
-            let results = self.search_chunks_fts(&fallback_query, document_ids, limit)?;
-            if !results.is_empty() {
-                return Ok(results);
+        for fts_query in build_fts_queries(query) {
+            match self.search_chunks_fts(&fts_query, document_ids, limit) {
+                Ok(results) if !results.is_empty() => return Ok(results),
+                Ok(_) => {}
+                Err(error) => {
+                    log::warn!(
+                        "FTS chunk search failed for sanitized query {:?}: {}",
+                        fts_query,
+                        error
+                    );
+                }
             }
         }
 
@@ -617,7 +619,8 @@ impl<'a> DocumentRepository<'a> {
             ));
         }
 
-        let (scope_clause, scope_params) = document_scope_clause(document_ids, param_values.len() + 1);
+        let (scope_clause, scope_params) =
+            document_scope_clause(document_ids, param_values.len() + 1);
         param_values.extend(scope_params);
         let limit_index = param_values.len() + 1;
         param_values.push(Box::new(limit));
@@ -691,13 +694,36 @@ fn build_fts_fallback_queries(query: &str) -> Vec<String> {
     let mut fallbacks = Vec::new();
 
     if !keywords.is_empty() {
-        fallbacks.push(keywords.join(" OR "));
+        fallbacks.push(
+            keywords
+                .iter()
+                .map(|keyword| quote_fts_term(keyword))
+                .collect::<Vec<_>>()
+                .join(" OR "),
+        );
         if keywords.len() > 1 {
-            fallbacks.push(keywords.join(" "));
+            fallbacks.push(
+                keywords
+                    .iter()
+                    .map(|keyword| quote_fts_term(keyword))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
         }
     }
 
     fallbacks
+}
+
+fn build_fts_queries(query: &str) -> Vec<String> {
+    let mut queries = build_fts_fallback_queries(query);
+    queries.retain(|item| !item.trim().is_empty());
+    queries.dedup();
+    queries
+}
+
+fn quote_fts_term(term: &str) -> String {
+    format!("\"{}\"", term.replace('"', "\"\""))
 }
 
 fn extract_keyword_terms(query: &str) -> Vec<String> {
@@ -859,8 +885,6 @@ mod tests {
             .expect("apply v5 migration");
         conn.execute_batch(include_str!("../migrations/V6__podcast_episodes.sql"))
             .expect("apply v6 migration");
-        conn.execute_batch(include_str!("../migrations/V7__knowledge_graph.sql"))
-            .expect("apply v7 migration");
         conn.execute_batch(include_str!(
             "../migrations/V8__points_daily_bonus_rule.sql"
         ))

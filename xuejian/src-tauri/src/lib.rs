@@ -275,6 +275,11 @@ pub fn run() {
             commands::orchestration::get_workflow_checkpoint,
             commands::orchestration::export_cards_apkg,
             commands::knowledge::search_knowledge,
+            commands::knowledge::list_knowledge_qa_conversations,
+            commands::knowledge::get_knowledge_qa_conversation,
+            commands::knowledge::create_knowledge_qa_conversation,
+            commands::knowledge::send_knowledge_qa_message,
+            commands::knowledge::cancel_knowledge_qa_message,
             commands::knowledge::start_knowledge_qa_workflow,
             commands::points::record_points,
             commands::points::list_points_ledger,
@@ -290,23 +295,6 @@ pub fn run() {
             commands::podcast::review_podcast_script,
             commands::podcast::retry_podcast_episode,
             commands::podcast::get_podcast_audio_segments,
-            commands::knowledge_graph::start_graph_build_workflow,
-            commands::knowledge_graph::list_graph_nodes,
-            commands::knowledge_graph::list_all_graph_edges,
-            commands::knowledge_graph::list_graph_edges,
-            commands::knowledge_graph::get_node_sources,
-            commands::knowledge_graph::update_knowledge_node,
-            commands::knowledge_graph::merge_graph_nodes,
-            commands::knowledge_graph::delete_graph_node,
-            commands::knowledge_graph::create_knowledge_edge,
-            commands::knowledge_graph::update_knowledge_edge,
-            commands::knowledge_graph::delete_knowledge_edge,
-            commands::knowledge_graph::list_communities,
-            commands::knowledge_graph::get_community_summary,
-            commands::knowledge_graph::toggle_community_collapse,
-            commands::knowledge_graph::list_graph_build_runs,
-            commands::knowledge_graph::cancel_graph_build,
-            commands::knowledge_graph::get_graph_stats,
             commands::logging::log_frontend_event,
         ])
         .build(tauri::generate_context!())
@@ -320,4 +308,537 @@ pub fn run() {
             }
         }
     });
+}
+
+pub mod native_smoke {
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{Duration, Instant},
+    };
+
+    use serde_json::{json, Value};
+    use tauri::Manager;
+
+    use super::*;
+
+    #[derive(Debug)]
+    struct SmokeStep {
+        name: &'static str,
+        status: String,
+        details: String,
+    }
+
+    #[derive(Debug)]
+    struct SmokeReport {
+        generated_at: String,
+        fixture_path: PathBuf,
+        document_id: Option<String>,
+        steps: Vec<SmokeStep>,
+    }
+
+    impl SmokeReport {
+        fn new(fixture_path: PathBuf) -> Self {
+            Self {
+                generated_at: chrono::Utc::now().to_rfc3339(),
+                fixture_path,
+                document_id: None,
+                steps: Vec::new(),
+            }
+        }
+
+        fn push(
+            &mut self,
+            name: &'static str,
+            status: impl Into<String>,
+            details: impl Into<String>,
+        ) {
+            self.steps.push(SmokeStep {
+                name,
+                status: status.into(),
+                details: details.into(),
+            });
+        }
+
+        fn has_failed_native_infra(&self) -> bool {
+            self.steps.iter().any(|step| {
+                step.status == "failed"
+                    && matches!(
+                        step.name,
+                        "app_boot" | "orchestration_health" | "library_import" | "parse"
+                    )
+            })
+        }
+
+        fn markdown(&self) -> String {
+            let mut text = String::new();
+            text.push_str("# Tauri Native Smoke Report\n\n");
+            text.push_str(&format!("- Generated at: `{}`\n", self.generated_at));
+            text.push_str(&format!(
+                "- Fixture: `{}`\n",
+                self.fixture_path.to_string_lossy()
+            ));
+            text.push_str(&format!(
+                "- Document ID: `{}`\n\n",
+                self.document_id.as_deref().unwrap_or("<not-created>")
+            ));
+            text.push_str("| Step | Status | Details |\n");
+            text.push_str("| --- | --- | --- |\n");
+            for step in &self.steps {
+                text.push_str(&format!(
+                    "| {} | {} | {} |\n",
+                    step.name,
+                    step.status,
+                    escape_markdown_table(&step.details)
+                ));
+            }
+            text.push_str("\n## Classification Rules\n\n");
+            text.push_str("- `passed_real`: native command completed through Rust/AppState/orchestration and produced non-fallback persisted output.\n");
+            text.push_str("- `passed_native`: native command/database/orchestration dispatch path is executable, but the step does not require model output.\n");
+            text.push_str("- `blocked`: native path is wired, but external provider credentials or model assignments are missing.\n");
+            text.push_str("- `fallback_detected`: command completed only because a rule-based fallback path ran; this is not accepted as real workflow success.\n");
+            text.push_str("- `failed`: native infrastructure or command execution failed.\n");
+            text
+        }
+
+        fn json(&self) -> Value {
+            json!({
+                "generatedAt": self.generated_at,
+                "fixturePath": self.fixture_path,
+                "documentId": self.document_id,
+                "steps": self.steps.iter().map(|step| {
+                    json!({
+                        "name": step.name,
+                        "status": step.status,
+                        "details": step.details,
+                    })
+                }).collect::<Vec<_>>(),
+            })
+        }
+    }
+
+    pub async fn run() -> PathBuf {
+        let repo_root = repo_root();
+        let report_dir = repo_root.join("docs").join("audit");
+        fs::create_dir_all(&report_dir).expect("create audit directory");
+
+        let app = build_smoke_app();
+        install_smoke_state(&app);
+        let fixture_path = write_smoke_fixture(&app);
+        let mut report = SmokeReport::new(fixture_path.clone());
+        report.push(
+            "app_boot",
+            "passed_native",
+            "Tauri app initialized with AppState",
+        );
+
+        let health = {
+            let state = app.state::<app_state::AppState>();
+            state
+                .orchestration
+                .start()
+                .await
+                .expect("start orchestration service")
+        };
+        report.push(
+            "orchestration_health",
+            if health.host_gateway_configured && health.dependencies_ready {
+                "passed_native"
+            } else {
+                "failed"
+            },
+            format!(
+                "status={}, endpoint={:?}, hostGatewayConfigured={}, dependenciesReady={}, missingDependencies={:?}",
+                health.status,
+                health.endpoint,
+                health.host_gateway_configured,
+                health.dependencies_ready,
+                health.missing_dependencies
+            ),
+        );
+
+        let imported = commands::documents::import_document_from_path(
+            app.handle().clone(),
+            app.state::<app_state::AppState>(),
+            fixture_path.to_string_lossy().to_string(),
+        )
+        .expect("import fixture document through native command");
+        let document_id = imported.id.clone();
+        report.document_id = Some(document_id.clone());
+        report.push(
+            "library_import",
+            "passed_native",
+            format!(
+                "document id={}, title={}, status={}",
+                document_id, imported.title, imported.status
+            ),
+        );
+
+        match commands::documents::run_document_parse_workflow(
+            app.handle().clone(),
+            app.state::<app_state::AppState>(),
+            document_id,
+        )
+        .await
+        {
+            Ok(parsed) => {
+                let parsed_value =
+                    serde_json::to_value(&parsed).expect("serialize parsed document");
+                report.push(
+                    "parse",
+                    "passed_real",
+                    format!(
+                        "document status={}, pageCount={:?}",
+                        parsed.status, parsed_value["pageCount"]
+                    ),
+                );
+            }
+            Err(error) => {
+                report.push("parse", "failed", error.to_string());
+            }
+        }
+
+        match commands::documents::run_document_embedding_workflow(
+            app.handle().clone(),
+            app.state::<app_state::AppState>(),
+            report.document_id.as_deref().unwrap_or("").to_string(),
+        )
+        .await
+        {
+            Ok(embedded) => {
+                let embedded_value =
+                    serde_json::to_value(&embedded).expect("serialize embedded document");
+                report.push(
+                    "embedding",
+                    "passed_real",
+                    format!(
+                        "document status={}, response={}",
+                        embedded.status,
+                        compact_json(&embedded_value)
+                    ),
+                );
+            }
+            Err(error) => {
+                let message = error.to_string();
+                report.push("embedding", classify_provider_error(&message), message);
+            }
+        }
+
+        match commands::cards::start_card_generation_workflow(
+            app.handle().clone(),
+            app.state::<app_state::AppState>(),
+            commands::cards::StartCardGenerationDto {
+                document_id: report.document_id.as_deref().unwrap_or("").to_string(),
+                max_candidates: Some(4),
+            },
+        ) {
+            Ok(run) => {
+                let run_id = run.id.clone();
+                let completed = wait_for_run(&app, &run_id, Duration::from_secs(90));
+                let candidates = commands::cards::list_card_candidates(
+                    app.state::<app_state::AppState>(),
+                    Some(run_id.clone()),
+                    None,
+                    None,
+                    Some(20),
+                )
+                .map(|items| serde_json::to_value(items).expect("serialize candidates"))
+                .unwrap_or_else(|error| json!({ "error": error.to_string() }));
+                let fallback = candidates.as_array().is_some_and(|items| {
+                    items.iter().any(|item| {
+                        item["fallbackReason"].is_string()
+                            || item["generationMode"]
+                                .as_str()
+                                .unwrap_or("")
+                                .contains("fallback")
+                    })
+                });
+                report.push(
+                    "card_generation",
+                    if fallback {
+                        "fallback_detected"
+                    } else if completed["status"].as_str() == Some("completed") {
+                        "passed_real"
+                    } else {
+                        "failed"
+                    },
+                    format!(
+                        "run={}, finalRun={}, candidates={}",
+                        run_id,
+                        compact_json(&completed),
+                        compact_json(&candidates)
+                    ),
+                );
+            }
+            Err(error) => {
+                let message = error.to_string();
+                report.push(
+                    "card_generation",
+                    classify_provider_error(&message),
+                    message,
+                )
+            }
+        }
+
+        match commands::knowledge::search_knowledge(
+            app.state::<app_state::AppState>(),
+            commands::knowledge::SearchKnowledgeDto {
+                query: "retrieval augmented generation".to_string(),
+                document_ids: Some(vec![report
+                    .document_id
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_string()]),
+                limit: Some(5),
+            },
+        ) {
+            Ok(results) => report.push(
+                "knowledge_search",
+                "passed_native",
+                format!(
+                    "results={}",
+                    compact_json(&serde_json::to_value(results).expect("serialize search results"))
+                ),
+            ),
+            Err(error) => report.push("knowledge_search", "failed", error.to_string()),
+        }
+
+        match commands::knowledge::start_knowledge_qa_workflow(
+            app.handle().clone(),
+            app.state::<app_state::AppState>(),
+            commands::knowledge::StartKnowledgeQaDto {
+                question: "What does the smoke fixture say about native orchestration?".to_string(),
+                document_ids: Some(vec![report
+                    .document_id
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_string()]),
+            },
+        )
+        .await
+        {
+            Ok(run) => {
+                let run_id = run.id.clone();
+                let completed = wait_for_run(&app, &run_id, Duration::from_secs(90));
+                report.push(
+                    "knowledge_qa",
+                    classify_run_status(&completed),
+                    format!("run={}, finalRun={}", run_id, compact_json(&completed)),
+                );
+            }
+            Err(error) => {
+                let message = error.to_string();
+                report.push("knowledge_qa", classify_provider_error(&message), message)
+            }
+        }
+
+        match commands::podcast::start_podcast_workflow(
+            app.handle().clone(),
+            app.state::<app_state::AppState>(),
+            commands::podcast::StartPodcastDto {
+                document_ids: vec![report.document_id.as_deref().unwrap_or("").to_string()],
+                prompt: Some("Native smoke podcast over the imported fixture".to_string()),
+                style: Some("interview".to_string()),
+                language: Some("en-US".to_string()),
+                duration_tier: Some("short".to_string()),
+                tts_provider: Some("auto".to_string()),
+                audio_format: Some("mp3".to_string()),
+            },
+        ) {
+            Ok(episode) => {
+                let episode_value = serde_json::to_value(&episode).expect("serialize episode");
+                let final_episode = wait_for_podcast_episode(&app, &episode.id);
+                let fallback = final_episode["errorCode"].as_str() == Some("fallback_used")
+                    || final_episode["errorMessage"]
+                        .as_str()
+                        .unwrap_or("")
+                        .contains("fallback_used")
+                    || final_episode["audioPath"].is_null();
+                report.push(
+                    "podcast",
+                    if fallback {
+                        "fallback_detected"
+                    } else if final_episode["status"].as_str() == Some("ready") {
+                        "passed_real"
+                    } else {
+                        "failed"
+                    },
+                    format!(
+                        "initial={}, final={}",
+                        compact_json(&episode_value),
+                        compact_json(&final_episode)
+                    ),
+                );
+            }
+            Err(error) => {
+                let message = error.to_string();
+                report.push("podcast", classify_provider_error(&message), message)
+            }
+        }
+
+        let markdown_path = report_dir.join("2026-04-26-tauri-native-smoke-report.md");
+        let json_path = report_dir.join("2026-04-26-tauri-native-smoke-report.json");
+        fs::write(&markdown_path, report.markdown()).expect("write native smoke markdown report");
+        fs::write(
+            &json_path,
+            serde_json::to_string_pretty(&report.json()).expect("serialize native smoke json"),
+        )
+        .expect("write native smoke json report");
+
+        {
+            let state = app.state::<app_state::AppState>();
+            state
+                .orchestration
+                .stop()
+                .await
+                .expect("stop orchestration");
+        }
+
+        if report.has_failed_native_infra() {
+            panic!(
+                "native smoke infrastructure failed; see {}",
+                markdown_path.display()
+            );
+        }
+
+        markdown_path
+    }
+
+    fn build_smoke_app() -> tauri::App {
+        tauri::Builder::default()
+            .build(tauri::generate_context!())
+            .expect("build native smoke app")
+    }
+
+    fn install_smoke_state(app: &tauri::App) {
+        let db = db::init_db(app.handle()).expect("initialize native smoke database");
+        let secrets = secrets::init_secrets(app.handle()).expect("initialize native smoke secrets");
+        let host_gateway = gateway::host_http::HostHttpGateway::new(app.handle().clone())
+            .expect("create native smoke host gateway");
+        let host_gateway_port = host_gateway.port();
+        let orchestration = tasks::OrchestrationService::new(app.handle(), Some(host_gateway_port))
+            .expect("initialize native smoke orchestration service");
+        app.manage(app_state::AppState::new(db, secrets, orchestration));
+        host_gateway
+            .start()
+            .expect("start native smoke host gateway");
+    }
+
+    fn wait_for_run(app: &tauri::App, run_id: &str, timeout: Duration) -> Value {
+        let deadline = Instant::now() + timeout;
+        let mut latest = json!({ "id": run_id, "status": "unknown" });
+        while Instant::now() < deadline {
+            match commands::orchestration::get_workflow_run(
+                app.state::<app_state::AppState>(),
+                run_id.to_string(),
+            ) {
+                Ok(value) => {
+                    latest = serde_json::to_value(value).expect("serialize run");
+                    if matches!(
+                        latest["status"].as_str(),
+                        Some("completed" | "failed" | "cancelled")
+                    ) {
+                        return latest;
+                    }
+                }
+                Err(error) => {
+                    latest = json!({ "id": run_id, "status": "failed", "error": error.to_string() })
+                }
+            }
+            std::thread::sleep(Duration::from_millis(750));
+        }
+        latest
+    }
+
+    fn wait_for_podcast_episode(app: &tauri::App, episode_id: &str) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(180);
+        let mut latest = json!({ "id": episode_id, "status": "unknown" });
+        while Instant::now() < deadline {
+            match commands::podcast::get_podcast_episode(
+                app.handle().clone(),
+                app.state::<app_state::AppState>(),
+                episode_id.to_string(),
+            ) {
+                Ok(value) => {
+                    latest = serde_json::to_value(value).expect("serialize episode");
+                    if matches!(
+                        latest["status"].as_str(),
+                        Some("ready" | "failed" | "cancelled")
+                    ) {
+                        return latest;
+                    }
+                }
+                Err(error) => {
+                    latest =
+                        json!({ "id": episode_id, "status": "failed", "error": error.to_string() })
+                }
+            }
+            std::thread::sleep(Duration::from_millis(750));
+        }
+        latest
+    }
+
+    fn classify_provider_error(error: &str) -> &'static str {
+        let lowered = error.to_ascii_lowercase();
+        if lowered.contains("api key")
+            || lowered.contains("provider")
+            || lowered.contains("model")
+            || lowered.contains("assignment")
+            || lowered.contains("credential")
+            || lowered.contains("unauthorized")
+        {
+            "blocked"
+        } else {
+            "failed"
+        }
+    }
+
+    fn classify_run_status(run: &Value) -> &'static str {
+        match run["status"].as_str() {
+            Some("completed") => "passed_real",
+            Some("failed") => classify_provider_error(run["errorMessage"].as_str().unwrap_or("")),
+            Some("cancelled") => "failed",
+            _ => "failed",
+        }
+    }
+
+    fn write_smoke_fixture(app: &tauri::App) -> PathBuf {
+        let fixture_dir = app
+            .path()
+            .app_data_dir()
+            .expect("resolve native smoke app data dir")
+            .join("native-smoke-fixtures");
+        fs::create_dir_all(&fixture_dir).expect("create smoke fixture dir");
+        let fixture_path = fixture_dir.join("tauri-native-smoke-fixture.md");
+        fs::write(
+            &fixture_path,
+            "# Native Smoke Fixture\n\nThis fixture verifies the native Library to Parse to Embedding chain.\n\nIt includes retrieval augmented generation, spaced repetition card generation, question answering, and podcast synthesis markers.\n\nNative entities: XueJian, Native IPC, Python orchestration, Host Gateway.\n",
+        )
+        .expect("write smoke fixture");
+        fixture_path
+    }
+
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .canonicalize()
+            .expect("resolve repo root")
+    }
+
+    fn compact_json(value: &Value) -> String {
+        let raw = serde_json::to_string(value).unwrap_or_else(|_| "<unserializable>".to_string());
+        if raw.len() > 900 {
+            format!("{}...", &raw[..900])
+        } else {
+            raw
+        }
+    }
+
+    fn escape_markdown_table(value: &str) -> String {
+        value
+            .replace('|', "\\|")
+            .replace('\r', " ")
+            .replace('\n', " ")
+    }
 }

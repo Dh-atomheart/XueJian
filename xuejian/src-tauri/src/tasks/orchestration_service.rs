@@ -43,6 +43,10 @@ pub struct ServiceHealthStatus {
     pub checked_at: String,
     pub protocol_compatible: bool,
     pub error_message: Option<String>,
+    pub host_gateway_configured: bool,
+    pub host_gateway_endpoint: Option<String>,
+    pub dependencies_ready: bool,
+    pub missing_dependencies: Vec<String>,
 }
 
 impl ServiceHealthStatus {
@@ -57,6 +61,10 @@ impl ServiceHealthStatus {
             checked_at: chrono::Utc::now().to_rfc3339(),
             protocol_compatible: false,
             error_message,
+            host_gateway_configured: false,
+            host_gateway_endpoint: None,
+            dependencies_ready: true,
+            missing_dependencies: Vec::new(),
         }
     }
 }
@@ -143,6 +151,7 @@ struct OrchestrationServiceManager {
     script_path: PathBuf,
     log_dir: Option<PathBuf>,
     host_gateway_port: Option<u16>,
+    python: Option<PythonCommandSpec>,
     process: Option<Child>,
     endpoint: Option<String>,
     started_at: Option<String>,
@@ -155,10 +164,24 @@ impl OrchestrationServiceManager {
             script_path,
             log_dir,
             host_gateway_port,
+            python: None,
             process: None,
             endpoint: None,
             started_at: None,
             last_health: ServiceHealthStatus::stopped(None),
+        }
+    }
+
+    fn stopped_status(&self, error_message: Option<String>) -> ServiceHealthStatus {
+        let dependency_probe = self.probe_python_dependencies();
+        ServiceHealthStatus {
+            host_gateway_configured: self.host_gateway_port.is_some(),
+            host_gateway_endpoint: self
+                .host_gateway_port
+                .map(|port| format!("http://127.0.0.1:{port}")),
+            dependencies_ready: dependency_probe.missing_dependencies.is_empty(),
+            missing_dependencies: dependency_probe.missing_dependencies,
+            ..ServiceHealthStatus::stopped(error_message)
         }
     }
 
@@ -170,6 +193,7 @@ impl OrchestrationServiceManager {
         }
 
         let python = detect_python_command()?;
+        self.python = Some(python.clone());
         let port = allocate_local_port()?;
         let endpoint = format!("http://127.0.0.1:{port}");
         let started_at = chrono::Utc::now().to_rfc3339();
@@ -208,6 +232,12 @@ impl OrchestrationServiceManager {
             checked_at: chrono::Utc::now().to_rfc3339(),
             protocol_compatible: false,
             error_message: None,
+            host_gateway_configured: self.host_gateway_port.is_some(),
+            host_gateway_endpoint: self
+                .host_gateway_port
+                .map(|port| format!("http://127.0.0.1:{port}")),
+            dependencies_ready: true,
+            missing_dependencies: Vec::new(),
         };
 
         let mut last_error = None;
@@ -234,7 +264,7 @@ impl OrchestrationServiceManager {
 
         let error = last_error.unwrap_or_else(|| "health check timed out".to_string());
         self.stop()?;
-        self.last_health = ServiceHealthStatus::stopped(Some(error.clone()));
+        self.last_health = self.stopped_status(Some(error.clone()));
         Err(ServiceError::Startup(error))
     }
 
@@ -278,6 +308,12 @@ impl OrchestrationServiceManager {
                     checked_at: chrono::Utc::now().to_rfc3339(),
                     protocol_compatible: false,
                     error_message: Some(error.to_string()),
+                    host_gateway_configured: self.host_gateway_port.is_some(),
+                    host_gateway_endpoint: self
+                        .host_gateway_port
+                        .map(|port| format!("http://127.0.0.1:{port}")),
+                    dependencies_ready: true,
+                    missing_dependencies: Vec::new(),
                 };
                 self.last_health = degraded.clone();
                 Ok(degraded)
@@ -298,7 +334,7 @@ impl OrchestrationServiceManager {
 
         self.endpoint = None;
         self.started_at = None;
-        self.last_health = ServiceHealthStatus::stopped(None);
+        self.last_health = self.stopped_status(None);
         Ok(())
     }
 
@@ -311,7 +347,7 @@ impl OrchestrationServiceManager {
             self.process = None;
             self.endpoint = None;
             self.started_at = None;
-            self.last_health = ServiceHealthStatus::stopped(Some(format!(
+            self.last_health = self.stopped_status(Some(format!(
                 "Python orchestration service exited unexpectedly: {exit_status}"
             )));
         }
@@ -321,17 +357,36 @@ impl OrchestrationServiceManager {
 
     fn status_from_payload(&self, payload: HealthPayload) -> ServiceHealthStatus {
         let protocol_compatible = payload.protocol_version == ORCHESTRATION_PROTOCOL_VERSION;
-        let error_message = if protocol_compatible {
-            None
-        } else {
-            Some(format!(
+        let dependency_probe = self.probe_python_dependencies();
+        let host_gateway_configured = self.host_gateway_port.is_some();
+        let host_gateway_endpoint = self
+            .host_gateway_port
+            .map(|port| format!("http://127.0.0.1:{port}"));
+        let mut issues = Vec::new();
+
+        if !protocol_compatible {
+            issues.push(format!(
                 "Protocol mismatch: host expects {}, service reports {}",
                 ORCHESTRATION_PROTOCOL_VERSION, payload.protocol_version
-            ))
-        };
+            ));
+        }
+
+        if !host_gateway_configured {
+            issues.push(
+                "Host gateway port is not configured; orchestration workflow endpoints will return 503"
+                    .to_string(),
+            );
+        }
+
+        if !dependency_probe.missing_dependencies.is_empty() {
+            issues.push(format!(
+                "Python orchestration dependencies missing: {}",
+                dependency_probe.missing_dependencies.join(", ")
+            ));
+        }
 
         ServiceHealthStatus {
-            status: if protocol_compatible {
+            status: if issues.is_empty() {
                 payload.status
             } else {
                 "degraded".to_string()
@@ -343,9 +398,60 @@ impl OrchestrationServiceManager {
             started_at: self.started_at.clone(),
             checked_at: chrono::Utc::now().to_rfc3339(),
             protocol_compatible,
-            error_message,
+            error_message: (!issues.is_empty()).then(|| issues.join(" | ")),
+            host_gateway_configured,
+            host_gateway_endpoint,
+            dependencies_ready: dependency_probe.missing_dependencies.is_empty(),
+            missing_dependencies: dependency_probe.missing_dependencies,
         }
     }
+
+    fn probe_python_dependencies(&self) -> DependencyProbe {
+        let Some(python) = self.python.clone().or_else(|| detect_python_command().ok()) else {
+            return DependencyProbe {
+                missing_dependencies: vec!["python_runtime".to_string()],
+            };
+        };
+
+        let mut command = Command::new(&python.executable);
+        command
+            .args(&python.base_args)
+            .arg("-c")
+            .arg(build_dependency_probe_script())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+
+        let Ok(output) = command.output() else {
+            return DependencyProbe {
+                missing_dependencies: vec!["dependency_probe_failed".to_string()],
+            };
+        };
+
+        if !output.status.success() {
+            return DependencyProbe {
+                missing_dependencies: vec!["dependency_probe_failed".to_string()],
+            };
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let missing_dependencies = stdout
+            .trim()
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(ToString::to_string)
+            .collect();
+
+        DependencyProbe {
+            missing_dependencies,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct DependencyProbe {
+    missing_dependencies: Vec<String>,
 }
 
 async fn fetch_health(endpoint: &str) -> Result<HealthPayload> {
@@ -443,6 +549,31 @@ fn detect_python_command() -> Result<PythonCommandSpec> {
     Err(ServiceError::PythonRuntimeNotFound)
 }
 
+fn build_dependency_probe_script() -> String {
+    let modules = REQUIRED_PYTHON_MODULES
+        .iter()
+        .map(|(import_name, label)| format!("({import_name:?}, {label:?})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "import importlib\nmodules=[{modules}]\nmissing=[]\nfor import_name,label in modules:\n    try:\n        importlib.import_module(import_name)\n    except Exception:\n        missing.append(label)\nprint(','.join(missing))"
+    )
+}
+
+const REQUIRED_PYTHON_MODULES: [(&str, &str); 10] = [
+    ("langchain_anthropic", "langchain-anthropic"),
+    ("litellm", "litellm"),
+    ("pydantic_ai", "pydantic-ai"),
+    ("docling", "docling"),
+    ("fitz", "pymupdf"),
+    ("genanki", "genanki"),
+    ("edge_tts", "edge-tts"),
+    ("pydub", "pydub"),
+    ("elevenlabs", "elevenlabs"),
+    ("fish_audio_sdk", "fish-audio-sdk"),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -454,12 +585,13 @@ mod tests {
         let mut manager = OrchestrationServiceManager::new(script_path, None, None);
 
         let health = manager.start().await.expect("start service");
-        assert_eq!(health.status, "healthy");
+        assert_eq!(health.status, "degraded");
         assert!(health.protocol_compatible);
         assert_eq!(
             health.protocol_version.as_deref(),
             Some(ORCHESTRATION_PROTOCOL_VERSION)
         );
+        assert!(!health.host_gateway_configured);
 
         manager.stop().expect("stop service");
     }

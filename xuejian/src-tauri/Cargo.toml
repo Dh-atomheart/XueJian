@@ -2,6 +2,7 @@
 name = "app"
 version = "0.1.0"
 description = "学笺 - AI驱动的智能学习记忆应用"
+default-run = "app"
 authors = ["xuejian-team"]
 license = "MIT"
 repository = "https://github.com/yourusername/xuejian"

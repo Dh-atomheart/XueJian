@@ -47,7 +47,7 @@ export function HomePage() {
         { label: '待复习卡片', value: reviewCards + newCards },
         { label: '本周时长', value: `${studyStats?.weekMinutes ?? 0} 分钟` },
       ]}
-      heatmap={chunkHeatmap(heatmapEntries, 9, 7)}
+      heatmap={heatmapEntries}
       recentDocuments={readyDocuments.map((document) => ({
         id: document.id,
         title: document.title,
@@ -63,7 +63,6 @@ export function HomePage() {
         { label: '上传文档', description: '接入新的 PDF 资料', icon: homePageIcons.upload, onClick: () => setActiveNavItem('library') },
         { label: '卡片工坊', description: '整理与审核候选卡片', icon: homePageIcons.cards, onClick: () => setActiveNavItem('cards') },
         { label: 'AI 问答', description: hasApiConfig ? '基于文档进行提问' : '先配置 AI 后接通', icon: homePageIcons.qa, onClick: () => setActiveNavItem(hasApiConfig ? 'knowledge' : 'settings') },
-        { label: '知识图谱', description: '查看概念关系网络', icon: homePageIcons.graph, onClick: () => setActiveNavItem('graph') },
       ]}
       weeklySignals={[
         { label: `本周学习 ${studyStats?.weekMinutes ?? 0} 分钟`, trend: 'up' },
@@ -84,13 +83,5 @@ export function HomePage() {
         openReader(document.id, document.pageCount ?? 1)
       }}
     />
-  )
-}
-
-function chunkHeatmap<T>(items: T[], weekCount: number, daysPerWeek: number) {
-  const padded = [...items]
-  while (padded.length < weekCount * daysPerWeek) padded.push(undefined as T)
-  return Array.from({ length: weekCount }, (_, weekIndex) =>
-    padded.slice(weekIndex * daysPerWeek, (weekIndex + 1) * daysPerWeek)
   )
 }

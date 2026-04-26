@@ -14,8 +14,6 @@ function makeCompletedEvent(retrievalStatus: string): WorkflowEvent {
         answer: 'fallback answer',
         answerMode: 'excerpt_fallback',
         retrievalStatus,
-        graphEnhanced: true,
-        graphContextSummary: 'Graph summary',
         citations: [
           {
             documentId: 'doc-1',
@@ -34,8 +32,6 @@ describe('extractKnowledgeQaResult', () => {
 
     expect(result.answerMode).toBe('excerpt_fallback')
     expect(result.retrievalStatus).toBe('embedding_missing')
-    expect(result.graphEnhanced).toBe(true)
-    expect(result.graphContextSummary).toBe('Graph summary')
     expect(result.citations).toEqual([
       {
         id: 'doc-1-0',

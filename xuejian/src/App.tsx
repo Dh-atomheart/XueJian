@@ -3,7 +3,7 @@ import { StickyNotesPanel } from '@/components/documents'
 import { CardStudioPage } from '@/features/cards'
 import { HomePage } from '@/features/dashboard'
 import { LibraryPage, ReaderPage } from '@/features/documents'
-import { KnowledgeGraphPage, KnowledgeQaPage } from '@/features/knowledge'
+import { KnowledgeQaPage } from '@/features/knowledge'
 import { PodcastPage } from '@/features/podcast'
 import { ProfilePage } from '@/features/profile'
 import { ReviewPage } from '@/features/review'
@@ -50,8 +50,6 @@ function CurrentPage({ activeNavItem }: { activeNavItem: NavItemId }) {
       return <KnowledgeQaPage />
     case 'podcast':
       return <PodcastPage />
-    case 'graph':
-      return <KnowledgeGraphPage />
     case 'settings':
       return <SettingsPage />
     case 'profile':

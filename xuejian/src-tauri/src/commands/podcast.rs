@@ -35,6 +35,9 @@ pub struct PodcastEpisodeDto {
     pub outline_json: Option<String>,
     pub evaluation_json: Option<String>,
     pub audio_path: Option<String>,
+    pub audio_exists: bool,
+    pub audio_file_size: Option<i64>,
+    pub audio_mime_hint: Option<String>,
     pub duration_ms: i64,
     pub status: String,
     pub stage_key: String,
@@ -53,8 +56,26 @@ impl From<PodcastEpisode> for PodcastEpisodeDto {
     fn from(episode: PodcastEpisode) -> Self {
         let stage_key = derive_stage_key(&episode.status, episode.current_stage).to_string();
         let error_message = episode.error_message.clone();
-        let error_code = derive_error_code(&stage_key, error_message.as_deref()).map(str::to_string);
-        let error_stage = derive_error_stage(&stage_key).map(str::to_string);
+        let error_code =
+            derive_error_code(&stage_key, error_message.as_deref()).map(str::to_string);
+        let error_stage =
+            derive_error_stage(&stage_key, error_message.as_deref()).map(str::to_string);
+        let audio_metadata = episode
+            .audio_path
+            .as_ref()
+            .and_then(|path| fs::metadata(path).ok());
+        let audio_mime_hint = episode.audio_path.as_ref().and_then(|path| {
+            PathBuf::from(path)
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| match ext.to_ascii_lowercase().as_str() {
+                    "mp3" => "audio/mpeg".to_string(),
+                    "wav" => "audio/wav".to_string(),
+                    "m4a" => "audio/mp4".to_string(),
+                    other => format!("audio/{other}"),
+                })
+        });
+
         Self {
             id: episode.id,
             document_ids: episode.document_ids,
@@ -70,6 +91,9 @@ impl From<PodcastEpisode> for PodcastEpisodeDto {
             outline_json: episode.outline_json,
             evaluation_json: episode.evaluation_json,
             audio_path: episode.audio_path,
+            audio_exists: audio_metadata.is_some(),
+            audio_file_size: audio_metadata.map(|metadata| metadata.len() as i64),
+            audio_mime_hint,
             duration_ms: episode.duration_ms,
             status: episode.status,
             stage_key: stage_key.clone(),
@@ -109,12 +133,11 @@ fn derive_stage_key(status: &str, current_stage: i64) -> &'static str {
 }
 
 fn derive_error_code(stage_key: &str, error_message: Option<&str>) -> Option<&'static str> {
-    if !matches!(stage_key, "failed" | "cancelled") {
-        return None;
-    }
-
     if let Some(message) = error_message {
         let lowered = message.to_lowercase();
+        if lowered.contains("fallback_used:") {
+            return Some("fallback_used");
+        }
         if lowered.contains("budget") {
             return Some("budget_exceeded");
         }
@@ -126,6 +149,10 @@ fn derive_error_code(stage_key: &str, error_message: Option<&str>) -> Option<&'s
         }
     }
 
+    if !matches!(stage_key, "failed" | "cancelled") {
+        return None;
+    }
+
     Some(if stage_key == "cancelled" {
         "cancelled"
     } else {
@@ -133,7 +160,15 @@ fn derive_error_code(stage_key: &str, error_message: Option<&str>) -> Option<&'s
     })
 }
 
-fn derive_error_stage(stage_key: &str) -> Option<&'static str> {
+fn derive_error_stage(stage_key: &str, error_message: Option<&str>) -> Option<&'static str> {
+    if stage_key == "ready"
+        && error_message
+            .map(|message| message.to_lowercase().contains("fallback_used:"))
+            .unwrap_or(false)
+    {
+        return Some("fallback");
+    }
+
     match stage_key {
         "failed" => Some("audio"),
         "cancelled" => Some("retrieval"),
@@ -554,7 +589,7 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
     let context_text =
         build_context_text(&episode.title, &episode.scope_description, &document_titles);
 
-    let result = match try_orchestration_podcast(
+    let (result, fallback_message) = match try_orchestration_podcast(
         app_handle,
         &run_id,
         episode_id,
@@ -569,13 +604,19 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
     )
     .await
     {
-        Ok(result) => normalize_workflow_result(result, &episode.title, &context_text),
+        Ok(result) => (
+            normalize_workflow_result(result, &episode.title, &context_text),
+            None,
+        ),
         Err(error) => {
             log::warn!(
                 "Podcast orchestration unavailable, using fallback: {}",
                 error
             );
-            build_fallback_podcast_result(&episode.title, &context_text)
+            (
+                build_fallback_podcast_result(&episode.title, &context_text),
+                Some(format!("fallback_used: {error}")),
+            )
         }
     };
 
@@ -609,7 +650,7 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
                 audio_path: Some(result.audio_path.clone()),
                 duration_ms: Some(duration_ms),
                 status: Some(episode_status.clone()),
-                error_message: Some(None),
+                error_message: Some(fallback_message.clone()),
                 current_stage: Some(current_stage),
                 completed_segments: Some(result.completed_segments.unwrap_or(0)),
                 total_segments: Some(result.total_segments.unwrap_or(0)),
@@ -647,7 +688,7 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
                     checkpoint_ref,
                     approval_payload: None,
                     cost_usd: None,
-                    error_message: None,
+                    error_message: fallback_message.clone(),
                     started_at: None,
                     finished_at: if run_status == "completed" || run_status == "failed" {
                         Some(chrono::Utc::now().to_rfc3339())
@@ -662,7 +703,12 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
                 event_type: event_type.to_string(),
                 message: Some(format!("Podcast {}", episode_status)),
                 progress,
-                payload: None,
+                payload: fallback_message.as_ref().map(|message| {
+                    serde_json::json!({
+                        "fallbackUsed": true,
+                        "fallbackReason": message,
+                    })
+                }),
             })?;
         }
     }

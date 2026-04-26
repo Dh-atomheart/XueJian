@@ -1,0 +1,24 @@
+# Tauri Native Smoke Report
+
+- Generated at: `2026-04-26T02:58:13.132494500+00:00`
+- Fixture: `C:\Users\86137\AppData\Roaming\com.xuejian.app\native-smoke-fixtures\tauri-native-smoke-fixture.md`
+- Document ID: `b5aaff36-8001-4162-b8c4-e601e5f19581`
+
+| Step | Status | Details |
+| --- | --- | --- |
+| app_boot | passed_native | Tauri app initialized with AppState |
+| orchestration_health | passed_native | status=healthy, endpoint=Some("http://127.0.0.1:56758"), hostGatewayConfigured=true, dependenciesReady=true, missingDependencies=[] |
+| library_import | passed_native | document id=b5aaff36-8001-4162-b8c4-e601e5f19581, title=tauri-native-smoke-fixture.md, status=uploading |
+| parse | passed_real | document status=parsed, pageCount=Number(1) |
+| embedding | passed_real | document status=ready, response={"contentHash":"a6b2cb265b3cc2d800167fdea56486a166fb590309fe9c875960c15a36301c84","createdAt":"2026-04-26T02:58:37.492918400+00:00","filePath":"C:\\Users\\86137\\AppData\\Roaming\\com.xuejian.app\\documents\\a6b2cb265b3c-tauri-native-smoke-fixture.md","fileSize":327,"fileType":"md","id":"b5aaff36-8001-4162-b8c4-e601e5f19581","pageCount":1,"status":"ready","title":"tauri-native-smoke-fixture.md","updatedAt":"2026-04-26T02:59:28.706451200+00:00"} |
+| card_generation | passed_real | run=c18d1440-fa1e-4a1e-bc90-45c23e22f8f2, finalRun={"approvalPayload":{"acceptedCount":0,"chunkCursor":0,"documentId":"b5aaff36-8001-4162-b8c4-e601e5f19581","documentTitle":"tauri-native-smoke-fixture.md","duplicateCount":0,"fallbackReason":null,"generatedCount":3,"generationMode":"model","lastChunkIndex":null,"maxCandidates":4,"pendingCount":0,"phase":"completed","rejectedCount":0,"totalChunks":1},"checkpointRef":"completed","costUsd":null,"createdAt":"2026-04-26T02:59:28.709023+00:00","errorMessage":null,"finishedAt":"2026-04-26T03:00:13.329157+00:00","id":"c18d1440-fa1e-4a1e-bc90-45c23e22f8f2","presetId":"m3-card-production-line","startedAt":"2026-04-26T02:59:28.717361+00:00","status":"completed","threadId":"card-generation:b5aaff36-8001-4162-b8c4-e601e5f19581","updatedAt":"2026-04-26T03:00:13.329260100+00:00","workflowType":"card_generation"}, candidates=[] |
+| knowledge_qa | passed_real | run=3c71ed0d-ea67-42b8-a115-17a588a14533, finalRun={"approvalPayload":null,"checkpointRef":null,"costUsd":null,"createdAt":"2026-04-26T03:00:13.754658100+00:00","errorMessage":null,"finishedAt":"2026-04-26T03:00:43.123250100+00:00","id":"3c71ed0d-ea67-42b8-a115-17a588a14533","presetId":null,"startedAt":"2026-04-26T03:00:13.759139200+00:00","status":"completed","threadId":"knowledge-qa:b5aaff36-8001-4162-b8c4-e601e5f19581","updatedAt":"2026-04-26T03:00:43.125195+00:00","workflowType":"knowledge_qa"} |
+| podcast | passed_real | initial={"audioFormat":"mp3","audioPath":null,"completedSegments":0,"createdAt":"2026-04-26 03:01:39","currentStage":0,"documentIds":["b5aaff36-8001-4162-b8c4-e601e5f19581"],"durationMs":0,"durationTier":"short","errorCode":null,"errorMessage":null,"errorStage":null,"evaluationJson":null,"id":"d3db5d04-1efd-48a3-bba4-71f347469d6f","language":"en-US","outlineJson":null,"retryable":true,"runId":"84ea16fe-1a28-4a3b-8b96-048b0c87872e","scopeDescription":"Native smoke podcast over the imported fixture","scriptJson":"{}","stageKey":"retrieval","status":"queued","style":"interview","title":"Native smoke podcast over the imported f","totalSegments":0,"ttsProvider":"auto","updatedAt":"2026-04-26 03:01:39"}, final={"audioFormat":"mp3","audioPath":"C:\\Users\\86137\\AppData\\Roaming\\com.xuejian.app\\podcasts\\d3db5d04-1efd-48a3-bba4-71f347469d6f\\episode.mp3","completedSegments":2,"createdAt":"2026-04-26 03:01:39","currentStage":6,"documentIds":["b5aaff36-8001-4162-b8c4-e601e5f19581"],"durationMs":12302,"durationTier":"short","errorCode":null,"errorMessage":null,"errorStage":null,"evaluationJson":"{\"coherence\": 8.0, \"accuracy\": 7.0, \"styleConsistency\": 7.5, \"naturalness\": 7.5, \"overallScore\": 7.5, \"issues\": [], \"suggestions\": [\"模型评估失败，建议人工抽查。\"], \"revised\": false}","id":"d3db5d04-1efd-48a3-bba4-71f347469d6f","language":"en-US","outlineJson":"{\"title\": \"Native smoke podcast over the imported f\", \"description\": \"en-US 学习播客，围�?Native smoke podcast over the imported f 进行结构化讲解。\", \"totalTargetDurationMs\": 180000, \"segm... |
+
+## Classification Rules
+
+- `passed_real`: native command completed through Rust/AppState/orchestration and produced non-fallback persisted output.
+- `passed_native`: native command/database/orchestration dispatch path is executable, but the step does not require model output.
+- `blocked`: native path is wired, but external provider credentials or model assignments are missing.
+- `fallback_detected`: command completed only because a rule-based fallback path ran; this is not accepted as real workflow success.
+- `failed`: native infrastructure or command execution failed.

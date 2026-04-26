@@ -32,19 +32,28 @@ def run_document_embedding_workflow(
         }
 
     chunks = host.list_chunks(document_id)
-    child_chunks = [chunk for chunk in chunks if chunk.get("chunkKind") == "child"]
-    if not child_chunks:
+    embeddable_chunks = [
+        chunk
+        for chunk in chunks
+        if chunk.get("chunkKind") == "child" and chunk.get("content", "").strip()
+    ]
+    if not embeddable_chunks:
+        embeddable_chunks = [
+            chunk for chunk in chunks if chunk.get("content", "").strip()
+        ]
+
+    if not embeddable_chunks:
         host.update_document_status(document_id, "embedding_failed")
         return {
             "status": "failed",
-            "error": "No child chunks available for embedding",
+            "error": "No document chunks available for embedding",
             "profileId": profile.get("id"),
         }
 
     host.update_document_status(document_id, "embedding")
 
     stored_count = 0
-    for batch in _batched(child_chunks, EMBEDDING_BATCH_SIZE):
+    for batch in _batched(embeddable_chunks, EMBEDDING_BATCH_SIZE):
         texts = [chunk.get("content", "") for chunk in batch]
         vectors = embed_texts(host, profile, texts, task_type="RETRIEVAL_DOCUMENT")
         payload = [
@@ -63,4 +72,5 @@ def run_document_embedding_workflow(
         "profileId": profile.get("id"),
         "profileModel": profile.get("model"),
         "embeddedChunkCount": stored_count,
+        "sourceChunkCount": len(embeddable_chunks),
     }

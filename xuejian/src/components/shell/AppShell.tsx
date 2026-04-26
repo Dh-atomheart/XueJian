@@ -1,7 +1,12 @@
 import type { ReactNode } from 'react'
 import { useMemo } from 'react'
-import { hasUsableApiConfig, useApiConfigsQuery } from '@/queries'
+import {
+  hasUsableApiConfig,
+  useApiConfigsQuery,
+  useOrchestrationServiceHealthQuery,
+} from '@/queries'
 import { cn } from '@/lib/utils'
+import { isTauriEnvironment } from '@/services/gateway'
 import { useAppUiStore, type NavItemId } from '@/store'
 
 interface AppShellProps {
@@ -23,7 +28,6 @@ const NAV_ITEMS: NavItemDefinition[] = [
   { id: 'cards', label: '卡片工坊', shortLabel: '卡片', icon: <CardsIcon /> },
   { id: 'learning', label: '复习', shortLabel: '复习', icon: <StudyIcon /> },
   { id: 'knowledge', label: '知识问答', shortLabel: '问答', icon: <KnowledgeIcon /> },
-  { id: 'graph', label: '知识图谱', shortLabel: '图谱', icon: <GraphIcon /> },
   { id: 'podcast', label: '播客工坊', shortLabel: '播客', icon: <PodcastIcon /> },
   { id: 'profile', label: '我的', shortLabel: '我的', icon: <ProfileIcon /> },
 ]
@@ -34,7 +38,6 @@ const PAGE_META: Record<NavItemId, { eyebrow: string; description: string }> = {
   cards: { eyebrow: 'CARDS WORKSHOP', description: '卡片生成、整理和进入学习队列。' },
   learning: { eyebrow: 'SPACED REVIEW', description: '单卡片主舞台与评分驱动的复习会话。' },
   knowledge: { eyebrow: 'AI ASSISTANT', description: '基于文档上下文的问答工作区。' },
-  graph: { eyebrow: 'KNOWLEDGE GRAPH', description: '概念关系和结构化知识浏览。' },
   podcast: { eyebrow: 'PODCAST WORKSHOP', description: '播客脚本与音频生成流程。' },
   profile: { eyebrow: 'PROFILE', description: '个人统计、进度和学习回顾。' },
   settings: { eyebrow: 'SETTINGS', description: 'BYOK、工作流分配和体验配置。' },
@@ -45,6 +48,8 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const reader = useAppUiStore((state) => state.reader)
   const { data: apiConfigs = [], isLoading: isLoadingApiConfigs } = useApiConfigsQuery()
+  const tauriRuntime = isTauriEnvironment()
+  const { data: orchestrationHealth } = useOrchestrationServiceHealthQuery()
 
   const pageMeta = useMemo(() => {
     if (reader.documentId) {
@@ -123,6 +128,15 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
               ) : null}
             </div>
 
+            <RuntimeStatusBanner
+              tauriRuntime={tauriRuntime}
+              errorMessage={orchestrationHealth?.errorMessage ?? null}
+              healthStatus={orchestrationHealth?.status ?? null}
+              hostGatewayConfigured={orchestrationHealth?.hostGatewayConfigured ?? false}
+              dependenciesReady={orchestrationHealth?.dependenciesReady ?? true}
+              missingDependencies={orchestrationHealth?.missingDependencies ?? []}
+            />
+
             <nav className="mt-4 flex gap-2 overflow-x-auto md:hidden">
               {NAV_ITEMS.map((item) => (
                 <button
@@ -180,6 +194,62 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
           </div>
         </main>
       </div>
+    </div>
+  )
+}
+
+function RuntimeStatusBanner({
+  tauriRuntime,
+  healthStatus,
+  errorMessage,
+  hostGatewayConfigured,
+  dependenciesReady,
+  missingDependencies,
+}: {
+  tauriRuntime: boolean
+  healthStatus: 'starting' | 'healthy' | 'degraded' | 'stopped' | null
+  errorMessage: string | null
+  hostGatewayConfigured: boolean
+  dependenciesReady: boolean
+  missingDependencies: string[]
+}) {
+  if (!tauriRuntime) {
+    return (
+      <div
+        className="mt-4 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground"
+        data-testid="runtime-status-banner"
+      >
+        <span className="font-medium">Web Mock</span>
+        <span className="ml-2">
+          This session is not using Tauri native commands. Frontend success here does not prove
+          backend connectivity.
+        </span>
+      </div>
+    )
+  }
+
+  const issues = [
+    healthStatus === 'stopped' ? 'orchestration stopped' : null,
+    healthStatus === 'degraded' ? 'orchestration degraded' : null,
+    !hostGatewayConfigured ? 'host gateway not configured' : null,
+    !dependenciesReady ? `missing deps: ${missingDependencies.join(', ')}` : null,
+  ].filter(Boolean)
+
+  const toneClass =
+    issues.length > 0
+      ? 'border-border bg-card text-foreground'
+      : 'border-border bg-card text-foreground'
+
+  return (
+    <div
+      className={cn('mt-4 rounded-2xl border px-4 py-3 text-sm', toneClass)}
+      data-testid="runtime-status-banner"
+    >
+      <span className="font-medium">Tauri Native</span>
+      <span className="ml-2">
+        {issues.length > 0 ? issues.join(' | ') : 'native IPC and orchestration health are visible'}
+      </span>
+      {errorMessage ? <p className="mt-2 text-xs opacity-90">{errorMessage}</p> : null}
     </div>
   )
 }
@@ -266,19 +336,6 @@ function KnowledgeIcon() {
   return (
     <svg {...iconProps()}>
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  )
-}
-
-function GraphIcon() {
-  return (
-    <svg {...iconProps()}>
-      <circle cx="6" cy="7" r="2" />
-      <circle cx="18" cy="6" r="2" />
-      <circle cx="12" cy="18" r="2" />
-      <path d="m8 7.5 8-1" />
-      <path d="m7.5 8.5 3.5 7" />
-      <path d="m16.8 7.8-3.2 8" />
     </svg>
   )
 }
