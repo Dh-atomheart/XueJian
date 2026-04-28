@@ -370,8 +370,6 @@ export type WorkflowType =
   | 'card_generation'
   | 'document_embedding'
   | 'knowledge_qa'
-  | 'podcast_generation'
-  | 'card_animation'
 
 export interface ModelCapabilities {
   vision: boolean
@@ -510,7 +508,7 @@ export interface KnowledgeScope {
 
 export interface AgentPreset {
   id: string
-  type: 'card_generation' | 'knowledge_qa' | 'podcast_generation'
+  type: 'card_generation' | 'knowledge_qa'
   name: string
   modelProfileId: string
   knowledgeScopeId: string | null

@@ -136,17 +136,8 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
       label: '知识问答',
       description: '用于基于文档的问答。',
     },
-    {
-      workflowType: 'podcast_generation',
-      label: '播客生成',
-      description: '用于播客脚本与音频流程。',
-    },
-    {
-      workflowType: 'card_animation',
-      label: '卡片动效',
-      description: '用于卡片动画脚本生成。',
-    },
-  ].map((item) => ({
+  ]
+    .map((item) => ({
     ...item,
     modelProfileId:
       workflowAssignmentsData.find((assignment) => assignment.workflowType === item.workflowType)

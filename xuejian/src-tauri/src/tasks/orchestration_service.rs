@@ -109,7 +109,11 @@ pub struct OrchestrationService {
 }
 
 impl OrchestrationService {
-    pub fn new(app_handle: &AppHandle, host_gateway_port: Option<u16>) -> Result<Self> {
+    pub fn new(
+        app_handle: &AppHandle,
+        host_gateway_port: Option<u16>,
+        host_gateway_token: Option<String>,
+    ) -> Result<Self> {
         let script_path = resolve_script_path(app_handle)?;
         let log_dir = resolve_log_dir(app_handle);
         if let Some(log_dir) = &log_dir {
@@ -126,6 +130,7 @@ impl OrchestrationService {
                 script_path,
                 log_dir,
                 host_gateway_port,
+                host_gateway_token,
             )),
         })
     }
@@ -151,28 +156,37 @@ struct OrchestrationServiceManager {
     script_path: PathBuf,
     log_dir: Option<PathBuf>,
     host_gateway_port: Option<u16>,
+    host_gateway_token: Option<String>,
     python: Option<PythonCommandSpec>,
     process: Option<Child>,
     endpoint: Option<String>,
     started_at: Option<String>,
     last_health: ServiceHealthStatus,
+    dependency_probe_cache: Option<(std::time::Instant, DependencyProbe)>,
 }
 
 impl OrchestrationServiceManager {
-    fn new(script_path: PathBuf, log_dir: Option<PathBuf>, host_gateway_port: Option<u16>) -> Self {
+    fn new(
+        script_path: PathBuf,
+        log_dir: Option<PathBuf>,
+        host_gateway_port: Option<u16>,
+        host_gateway_token: Option<String>,
+    ) -> Self {
         Self {
             script_path,
             log_dir,
             host_gateway_port,
+            host_gateway_token,
             python: None,
             process: None,
             endpoint: None,
             started_at: None,
             last_health: ServiceHealthStatus::stopped(None),
+            dependency_probe_cache: None,
         }
     }
 
-    fn stopped_status(&self, error_message: Option<String>) -> ServiceHealthStatus {
+    fn stopped_status(&mut self, error_message: Option<String>) -> ServiceHealthStatus {
         let dependency_probe = self.probe_python_dependencies();
         ServiceHealthStatus {
             host_gateway_configured: self.host_gateway_port.is_some(),
@@ -211,6 +225,9 @@ impl OrchestrationServiceManager {
 
         if let Some(log_dir) = &self.log_dir {
             command.env("XUEJIAN_LOG_DIR", log_dir);
+        }
+        if let Some(token) = &self.host_gateway_token {
+            command.env("XUEJIAN_HOST_GATEWAY_TOKEN", token);
         }
 
         command
@@ -355,7 +372,7 @@ impl OrchestrationServiceManager {
         Ok(())
     }
 
-    fn status_from_payload(&self, payload: HealthPayload) -> ServiceHealthStatus {
+    fn status_from_payload(&mut self, payload: HealthPayload) -> ServiceHealthStatus {
         let protocol_compatible = payload.protocol_version == ORCHESTRATION_PROTOCOL_VERSION;
         let dependency_probe = self.probe_python_dependencies();
         let host_gateway_configured = self.host_gateway_port.is_some();
@@ -406,11 +423,20 @@ impl OrchestrationServiceManager {
         }
     }
 
-    fn probe_python_dependencies(&self) -> DependencyProbe {
+    fn probe_python_dependencies(&mut self) -> DependencyProbe {
+        let _now = std::time::Instant::now();
+        if let Some((cached_at, ref cached)) = self.dependency_probe_cache {
+            if cached_at.elapsed() < Duration::from_secs(60) {
+                return cached.clone();
+            }
+        }
+
         let Some(python) = self.python.clone().or_else(|| detect_python_command().ok()) else {
-            return DependencyProbe {
+            let result = DependencyProbe {
                 missing_dependencies: vec!["python_runtime".to_string()],
             };
+            self.dependency_probe_cache = Some((std::time::Instant::now(), result.clone()));
+            return result;
         };
 
         let mut command = Command::new(&python.executable);
@@ -423,15 +449,19 @@ impl OrchestrationServiceManager {
             .stderr(Stdio::null());
 
         let Ok(output) = command.output() else {
-            return DependencyProbe {
+            let result = DependencyProbe {
                 missing_dependencies: vec!["dependency_probe_failed".to_string()],
             };
+            self.dependency_probe_cache = Some((std::time::Instant::now(), result.clone()));
+            return result;
         };
 
         if !output.status.success() {
-            return DependencyProbe {
+            let result = DependencyProbe {
                 missing_dependencies: vec!["dependency_probe_failed".to_string()],
             };
+            self.dependency_probe_cache = Some((std::time::Instant::now(), result.clone()));
+            return result;
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -443,13 +473,15 @@ impl OrchestrationServiceManager {
             .map(ToString::to_string)
             .collect();
 
-        DependencyProbe {
+        let result = DependencyProbe {
             missing_dependencies,
-        }
+        };
+        self.dependency_probe_cache = Some((std::time::Instant::now(), result.clone()));
+        result
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct DependencyProbe {
     missing_dependencies: Vec<String>,
 }
@@ -561,17 +593,13 @@ fn build_dependency_probe_script() -> String {
     )
 }
 
-const REQUIRED_PYTHON_MODULES: [(&str, &str); 10] = [
+const REQUIRED_PYTHON_MODULES: [(&str, &str); 6] = [
     ("langchain_anthropic", "langchain-anthropic"),
     ("litellm", "litellm"),
     ("pydantic_ai", "pydantic-ai"),
     ("docling", "docling"),
     ("fitz", "pymupdf"),
     ("genanki", "genanki"),
-    ("edge_tts", "edge-tts"),
-    ("pydub", "pydub"),
-    ("elevenlabs", "elevenlabs"),
-    ("fish_audio_sdk", "fish-audio-sdk"),
 ];
 
 #[cfg(test)]
@@ -582,7 +610,7 @@ mod tests {
     async fn health_roundtrip_succeeds() {
         let script_path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../orchestration_service/main.py");
-        let mut manager = OrchestrationServiceManager::new(script_path, None, None);
+        let mut manager = OrchestrationServiceManager::new(script_path, None, None, None);
 
         let health = manager.start().await.expect("start service");
         assert_eq!(health.status, "degraded");

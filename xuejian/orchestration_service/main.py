@@ -46,8 +46,6 @@ class _REMOVED:
 #   providers/runtime.py
 #   workflows/card_generation.py
 #   workflows/knowledge_qa.py
-#   workflows/card_animation.py
-#   workflows/podcast.py
 #   server.py
 #
 # This file is now a thin shim. The old code is preserved in git history.

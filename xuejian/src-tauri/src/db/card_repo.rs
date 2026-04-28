@@ -464,57 +464,60 @@ impl<'a> CardRepository<'a> {
             params![today],
             |row| row.get(0),
         )?;
-        let today_minutes = if today_review_count > 0 {
-            Some(today_review_count as i64)
-        } else {
-            Some(0)
-        };
+        let today_minutes = Some(today_review_count);
 
-        let week_minutes: i64 = self.db.connection().query_row(
-            "SELECT COUNT(*)
-             FROM review_logs
-             WHERE date(reviewed_at, 'localtime') BETWEEN date(?1, '-6 days') AND ?1",
-            params![today],
-            |row| row.get(0),
-        )?;
+        // Single query for week stats: total reviews + distinct active days
+        let (week_minutes, active_days_this_week): (i64, i64) = self.db
+            .connection()
+            .query_row(
+                "SELECT COUNT(*), COUNT(DISTINCT date(reviewed_at, 'localtime'))
+                 FROM review_logs
+                 WHERE date(reviewed_at, 'localtime') BETWEEN date(?1, '-6 days') AND ?1",
+                params![today],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
 
-        let total_minutes: i64 =
-            self.db
-                .connection()
-                .query_row("SELECT COUNT(*) FROM review_logs", [], |row| row.get(0))?;
+        let total_minutes: i64 = self.db
+            .connection()
+            .query_row("SELECT COUNT(*) FROM review_logs", [], |row| row.get(0))?;
 
-        let active_days_this_week: i64 = self.db.connection().query_row(
-            "SELECT COUNT(DISTINCT date(reviewed_at, 'localtime'))
-             FROM review_logs
-             WHERE date(reviewed_at, 'localtime') BETWEEN date(?1, '-6 days') AND ?1",
-            params![today],
-            |row| row.get(0),
-        )?;
-
-        let dates: Vec<String> = {
+        // Streak: only look at last 366 days, stop at first gap
+        let mut streak_days = 0_i64;
+        {
             let mut stmt = self.db.connection().prepare(
                 "SELECT DISTINCT date(reviewed_at, 'localtime')
                  FROM review_logs
                  WHERE reviewed_at IS NOT NULL
+                   AND date(reviewed_at, 'localtime') >= date(?1, '-366 days')
                  ORDER BY date(reviewed_at, 'localtime') DESC",
             )?;
-            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-            rows.collect::<std::result::Result<Vec<_>, _>>()?
-        };
+            let rows = stmt.query_map(params![today], |row| row.get::<_, String>(0))?;
+            let dates: Vec<String> = rows
+                .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        let mut streak_days = 0_i64;
-        let mut cursor = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d").map_err(|e| {
-            crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-        })?;
-        for date in dates {
-            let parsed = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|e| {
-                crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-            })?;
-            if parsed == cursor {
-                streak_days += 1;
-                cursor = cursor.pred_opt().unwrap_or(cursor);
-            } else if parsed < cursor {
-                break;
+            let mut cursor =
+                chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d").map_err(|e| {
+                    crate::db::DbError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        e,
+                    ))
+                })?;
+            for date in dates {
+                let parsed = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|e| {
+                    crate::db::DbError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        e,
+                    ))
+                })?;
+                if parsed == cursor {
+                    streak_days += 1;
+                    cursor = match cursor.pred_opt() {
+                        Some(prev) => prev,
+                        None => break,
+                    };
+                } else if parsed < cursor {
+                    break;
+                }
             }
         }
 
@@ -1649,6 +1652,10 @@ mod tests {
             .expect("apply v14 migration");
         conn.execute_batch(include_str!("../migrations/V15__highlight_metadata.sql"))
             .expect("apply v15 migration");
+        conn.execute_batch(include_str!(
+            "../migrations/V20__card_candidate_page_source.sql"
+        ))
+        .expect("apply v20 migration");
 
         Database { conn }
     }

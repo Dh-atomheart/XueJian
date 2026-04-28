@@ -432,8 +432,6 @@ export const workflowTypeSchema = z.enum([
   'card_generation',
   'document_embedding',
   'knowledge_qa',
-  'podcast_generation',
-  'card_animation',
 ])
 
 export const apiConfigSchema = z.object({
@@ -521,6 +519,7 @@ export const documentSchema = z.object({
     'embedding_failed',
     'embedding_stale',
     'error',
+    'deleted',
   ]),
   createdAt: dateValueSchema,
   updatedAt: dateValueSchema,

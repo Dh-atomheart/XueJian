@@ -6,7 +6,6 @@ import {
   HeartPulse,
   KeyRound,
   Loader2,
-  Mic,
   Palette,
   Plus,
   Settings,
@@ -242,7 +241,6 @@ function SettingsNav({
   const items = [
     { id: 'ai', icon: Settings, label: 'AI 模型' },
     { id: 'learning', icon: BookOpen, label: '学习偏好' },
-    { id: 'podcast', icon: Mic, label: '播客与语音' },
     { id: 'general', icon: Palette, label: '通用' },
   ] as const
 
@@ -253,7 +251,7 @@ function SettingsNav({
         return (
           <button
             key={item.id}
-            aria-label={item.id === 'podcast' ? 'Podcast' : item.label}
+            aria-label={item.label}
             onClick={() => onTabChange(item.id)}
             className={cn(
               'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',

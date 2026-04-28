@@ -4,7 +4,7 @@
 This module is the thin server shell. All business logic lives in submodules:
 - clients/   — HostGatewayClient
 - providers/  — model runtime helpers
-- workflows/  — card_generation, knowledge_qa, card_animation, podcast
+- workflows/  — card_generation, knowledge_qa
 """
 from __future__ import annotations
 
@@ -22,11 +22,9 @@ from .exports.annotated_pdf_exporter import export_annotated_pdf
 from .exports.genanki_exporter import export_cards_to_apkg
 from .exports.apkg_importer import import_apkg
 from .parsing.docling_pipeline import run_document_parse_workflow
-from .workflows.card_animation import run_card_animation_workflow
 from .workflows.card_generation import run_card_generation_workflow
 from .workflows.document_embedding import run_document_embedding_workflow
 from .workflows.knowledge_qa import run_knowledge_qa_workflow
-from .workflows.podcast import run_podcast_workflow
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -110,8 +108,6 @@ def build_handler(start_time: float):
                                 "document-parse",
                                 "document-embedding",
                                 "knowledge-qa",
-                                "card-animation",
-                                "podcast",
                                 "anki-export",
                                 "anki-import",
                                 "annotated-pdf-export",
@@ -145,14 +141,6 @@ def build_handler(start_time: float):
 
                 if self.path == "/workflows/knowledge-qa":
                     self._handle_knowledge_qa()
-                    return
-
-                if self.path == "/workflows/card-animation":
-                    self._handle_card_animation()
-                    return
-
-                if self.path == "/workflows/podcast":
-                    self._handle_podcast()
                     return
 
                 if self.path == "/exports/apkg":
@@ -298,94 +286,6 @@ def build_handler(start_time: float):
                 self._write_json(200, result)
             except Exception as exc:
                 logger.error("Knowledge QA workflow failed: %s", exc, exc_info=True)
-                self._write_json(500, {"error": str(exc)})
-
-        def _handle_card_animation(self) -> None:
-            if _host_gateway is None:
-                self._write_json(503, {"error": "host_gateway_unavailable"})
-                return
-
-            try:
-                body = json.loads(self._read_body())
-            except (json.JSONDecodeError, ValueError):
-                self._write_json(400, {"error": "invalid_json"})
-                return
-
-            run_id = body.get("runId", "")
-            card_id = body.get("cardId", "").strip()
-            front = body.get("front", "").strip()
-            back = body.get("back", "").strip()
-            tags = body.get("tags") or []
-            anim_type = body.get("animType", "flashcard_reveal").strip()
-            mode = body.get("mode", "quick_preview").strip() or "quick_preview"
-
-            if not card_id or not front:
-                self._write_json(400, {"error": "missing cardId or front"})
-                return
-
-            logger.info(
-                "Starting card animation: run=%s card=%s type=%s mode=%s",
-                run_id[:8] if run_id else "none", card_id[:8], anim_type, mode,
-            )
-            try:
-                result = run_card_animation_workflow(
-                    run_id, card_id, front, back, tags, anim_type, mode, _host_gateway,
-                )
-                self._write_json(200, result)
-            except Exception as exc:
-                logger.error("Card animation workflow failed: %s", exc, exc_info=True)
-                self._write_json(500, {"error": str(exc)})
-
-        def _handle_podcast(self) -> None:
-            if _host_gateway is None:
-                self._write_json(503, {"error": "host_gateway_unavailable"})
-                return
-
-            try:
-                body = json.loads(self._read_body())
-            except (json.JSONDecodeError, ValueError):
-                self._write_json(400, {"error": "invalid_json"})
-                return
-
-            run_id = body.get("runId", "")
-            episode_id = body.get("episodeId", "")
-            title = body.get("title", "").strip()
-            document_ids = body.get("documentIds") or []
-            prompt = body.get("prompt", "").strip()
-            style = body.get("style", "interview").strip() or "interview"
-            language = body.get("language", "zh-CN").strip() or "zh-CN"
-            duration_tier = body.get("durationTier", "medium").strip() or "medium"
-            tts_provider = body.get("ttsProvider", "auto").strip() or "auto"
-            audio_format = body.get("audioFormat", "mp3").strip() or "mp3"
-
-            if not episode_id or not document_ids:
-                self._write_json(400, {"error": "missing episodeId or documentIds"})
-                return
-
-            logger.info(
-                "Starting podcast generation: run=%s episode=%s docs=%d style=%s",
-                run_id[:8] if run_id else "none",
-                episode_id[:8] if episode_id else "none",
-                len(document_ids),
-                style,
-            )
-            try:
-                result = run_podcast_workflow(
-                    run_id,
-                    episode_id,
-                    title,
-                    document_ids,
-                    prompt,
-                    style,
-                    language,
-                    duration_tier,
-                    tts_provider,
-                    audio_format,
-                    _host_gateway,
-                )
-                self._write_json(200, result)
-            except Exception as exc:
-                logger.error("Podcast workflow failed: %s", exc, exc_info=True)
                 self._write_json(500, {"error": str(exc)})
 
         def _handle_export_apkg(self) -> None:

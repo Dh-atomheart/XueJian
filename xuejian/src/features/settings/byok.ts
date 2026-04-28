@@ -252,18 +252,6 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     description: '构建向量索引用于检索。',
   },
   { type: 'knowledge_qa', name: '知识问答', icon: '❓', description: '基于检索上下文生成答案。' },
-  {
-    type: 'podcast_generation',
-    name: '播客生成',
-    icon: '🎙️',
-    description: '大纲、脚本和音频生成。',
-  },
-  {
-    type: 'card_animation',
-    name: 'Card Animation',
-    icon: 'motion',
-    description: 'Generates animation scripts for review cards.',
-  },
 ]
 
 export function getProviderDefinition(provider: ApiProvider) {

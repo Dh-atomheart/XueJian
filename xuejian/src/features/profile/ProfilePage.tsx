@@ -66,9 +66,9 @@ export function ProfilePage() {
           onClick: () => setActiveNavItem('library'),
         },
         {
-          label: '打开播客工坊',
-          description: '把当前知识面转成可听节目',
-          onClick: () => setActiveNavItem('podcast'),
+          label: '打开知识问答',
+          description: '围绕当前资料继续追问和整理',
+          onClick: () => setActiveNavItem('knowledge'),
         },
         {
           label: '查看设置',

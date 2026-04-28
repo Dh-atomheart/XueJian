@@ -18,36 +18,54 @@ logger = logging.getLogger(__name__)
 
 CARD_GENERATION_SYSTEM_PROMPT = """\
 You are a flashcard generation assistant for a spaced-repetition learning app.
-Given a text passage from a document, generate flashcard candidates of varying types.
+Given a text passage from a document, generate flashcard candidates.
 
-Card types:
-- "qa": Question & answer. Front is a question, back is the answer.
-- "cloze": Fill-in-the-blank. Front contains {{c1::hidden text}} syntax. Back is the full sentence.
-- "fact": A key fact. Front is a topic/heading, back is the fact content.
-- "choice": Multiple choice. Front is the question. Back is a JSON object: {"options": ["A", "B", "C", "D"], "answer": "A"}.
+--- HIGH-QUALITY CARD DEFINITION ---
+A good card has a front that is a clear description of a knowledge point or a precise question,
+and a back that gives the detailed explanation or answer. One card = one atomic fact worth remembering.
 
-Rules:
-- Each card must have a concise "front" (question or prompt) and a substantive "back" (answer).
-- Front should be 8-120 characters. Back should be 12-500 characters.
-- Generate 1-4 cards per passage, depending on content density.
-- Use a mix of card types appropriate for the content:
-  * Definitions → "qa" or "cloze"
-  * Key facts → "fact"
-  * Lists of options / comparisons → "choice"
-  * Fill-in-the-blank for important terms → "cloze"
-- Assign a confidence score between 0.0 and 1.0.
-- Tag each card with relevant topic tags.
-- Output valid JSON only: an array of objects with keys "front", "back", "cardType", "confidence", "tags".
+--- WHAT TO SKIP ---
+Do NOT generate cards from:
+- Document metadata (titles, authors, copyright, edition, publication info)
+- Table of contents entries, page headers/footers, page numbers
+- Bibliographic references, citation lists
+- Boilerplate text (disclaimers, licenses, navigation instructions)
+- Generic location references ("on page X, the key idea is...")
+
+--- ALLOWED CARD TYPES ---
+- "qa": Question & Answer. Front is a question; back is the answer.
+- "cloze": Fill-in-the-blank. Front uses {{c1::term}} syntax; back is the full sentence.
+- "fact": A key fact. Front is a topic/heading; back is the fact content.
+
+Do NOT use "choice" cards.
+
+--- QUALITY RULES ---
+- Fronts must be self-contained and specific. Avoid vague fronts like "What is this about?".
+  Instead use "What is X?", "How does X work?", "What are the characteristics of X?".
+- Definitions (e.g. "X is Y" or "X refers to Y") should become "qa" cards with "What is X?" as the front.
+- Confidence >= 0.85: directly grounded in the passage, central fact.
+- Confidence 0.65–0.84: useful but slightly inferred or secondary detail.
+- Confidence < 0.65: uncertain, likely to be discarded.
+- Generate 1–4 cards per passage. Quality over quantity.
+
+--- OUTPUT FORMAT ---
+Output valid JSON only: an array of objects with keys "front", "back", "cardType", "confidence", "tags".
+Front: 8–500 chars. Back: 12–2000 chars.
 """
 
 CARD_GENERATION_USER_TEMPLATE = """\
-Document: {title}
-Section: {section_heading}
-Hierarchy: {hierarchy_path}
-Page range: {page_range}
-Source quote: {quote}
+Source context:
+- Document: {title}
+- Section: {section_heading}
+- Hierarchy: {hierarchy_path}
+- Page range: {page_range}
 
-Generate flashcard candidates from this passage. Output a JSON array only.
+Passage to generate cards from:
+{quote}
+
+Generate flashcard candidates from the passage above. Output a JSON array only.
+
+REMEMBER: Skip metadata, TOC entries, references, boilerplate. Use ONLY qa/cloze/fact types.
 """
 
 
@@ -59,6 +77,39 @@ def _check_cancelled(host: HostGatewayClient, run_id: str) -> None:
     """Poll host for cancellation; raise WorkflowCancelled if so."""
     if host.is_run_cancelled(run_id):
         raise WorkflowCancelled(run_id)
+
+
+RATE_LIMIT_RETRY_BACKOFF_SECONDS = [2, 4, 8, 15, 30]
+
+
+def _parse_rate_limit_delay(exc: Exception) -> float | None:
+    """Extract retry delay from a rate-limit error message, if applicable."""
+    msg = str(exc)
+    if "RESOURCE_EXHAUSTED" not in msg and "429" not in msg:
+        return None
+    # Try to extract retryDelay from the error JSON embedded in the message
+    match = re.search(r'retryDelay["\']?\s*:\s*["\']?(\d+(?:\.\d+)?)s?', msg)
+    if match:
+        return float(match.group(1))
+    return None
+
+
+def _wait_rate_limit(exc: Exception, consecutive: int) -> bool:
+    """Handle a rate-limit error: wait if delay is reasonable, else skip.
+
+    Returns True if caller should retry the chunk (waited), False if caller should skip it.
+    """
+    delay = _parse_rate_limit_delay(exc)
+    if delay is None:
+        return False  # not a rate limit error
+    if delay > 60:
+        logger.warning("Rate limit delay of %.1fs exceeds max wait, skipping chunk", delay)
+        return False
+    wait = max(delay, RATE_LIMIT_RETRY_BACKOFF_SECONDS[min(consecutive, len(RATE_LIMIT_RETRY_BACKOFF_SECONDS) - 1)])
+    logger.info("Rate limited, waiting %.1fs before next chunk (consecutive=%d)", wait, consecutive)
+    import time
+    time.sleep(wait)
+    return True
 
 
 def _compute_dedupe_key(document_id: str, anchor_id: str | None, front: str, back: str) -> str:
@@ -155,6 +206,7 @@ def _try_langchain_generation(
     anchor_by_hash = {a.get("hash", ""): a for a in anchors if a.get("hash")}
     total_persisted = 0
     total_processed = 0
+    consecutive_rate_limits = 0
 
     for chunk in chunks:
         if total_persisted >= max_candidates or total_processed >= max_candidates:
@@ -209,6 +261,9 @@ def _try_langchain_generation(
             else:
                 logger.warning("LangChain agent produced no cards for chunk %s", chunk.get("chunkIndex"))
         except Exception as exc:
+            if _wait_rate_limit(exc, consecutive_rate_limits):
+                consecutive_rate_limits += 1
+                continue
             logger.warning(
                 "LangChain agent failed for chunk %s, falling back to direct LLM: %s",
                 chunk.get("chunkIndex"),
@@ -228,14 +283,33 @@ def _try_langchain_generation(
                     HumanMessage(content=prompt),
                 ])
                 raw = response.content
+                if isinstance(raw, list):
+                    text_parts = [p for p in raw if isinstance(p, str)]
+                    raw = "\n".join(text_parts) if text_parts else ""
+                if not isinstance(raw, str):
+                    logger.warning("Unexpected LLM response type for chunk %s: %s", chunk.get("chunkIndex"), type(raw).__name__)
+                    continue
                 match = re.search(r"\[.*\]", raw, re.DOTALL)
                 if not match:
                     logger.warning("No JSON array found in LLM response for chunk %s", chunk.get("chunkIndex"))
                     continue
                 items = json.loads(match.group())
             except Exception as llm_exc:
+                if _wait_rate_limit(llm_exc, consecutive_rate_limits):
+                    consecutive_rate_limits += 1
+                else:
+                    consecutive_rate_limits = 0
                 logger.error("LLM invocation failed for chunk %s: %s", chunk.get("chunkIndex"), llm_exc)
                 continue
+
+        # Filter out "choice" cards — both prompt paths may still produce them
+        _filtered_items = []
+        for _item in (items or []):
+            if isinstance(_item, dict) and str(_item.get("cardType", "qa")).lower() == "choice":
+                logger.debug("Filtered out a 'choice' type card from chunk %s", chunk.get("chunkIndex"))
+                continue
+            _filtered_items.append(_item)
+        items = _filtered_items
 
         batch = CardDraftBatch.from_llm_json(items, anchor.get("id") if anchor else None, document["id"])
         if batch.invalid_count:
@@ -262,6 +336,7 @@ def _try_langchain_generation(
                 chunk.get("chunkIndex"),
                 processed_count,
             )
+            consecutive_rate_limits = 0
 
     return total_persisted
 

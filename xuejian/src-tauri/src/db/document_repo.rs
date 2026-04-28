@@ -195,7 +195,7 @@ impl<'a> DocumentRepository<'a> {
     pub fn find_by_id(&self, id: &str) -> Result<Option<Document>> {
         let mut stmt = self.db.connection().prepare(
             "SELECT id, title, file_path, file_type, file_size, page_count, content_hash, status, created_at, updated_at
-             FROM documents WHERE id = ?1",
+             FROM documents WHERE id = ?1 AND deleted_at IS NULL",
         )?;
 
         let document = stmt.query_row(params![id], map_document_row).optional()?;
@@ -209,6 +209,7 @@ impl<'a> DocumentRepository<'a> {
         let mut stmt = self.db.connection().prepare(
             "SELECT id, title, file_path, file_type, file_size, page_count, content_hash, status, created_at, updated_at
              FROM documents
+             WHERE deleted_at IS NULL
              ORDER BY created_at DESC
              LIMIT ?1",
         )?;
@@ -485,16 +486,31 @@ impl<'a> DocumentRepository<'a> {
 
     pub fn delete(&self, id: &str) -> Result<()> {
         let transaction = self.db.connection().unchecked_transaction()?;
+        let now = chrono::Utc::now().to_rfc3339();
 
         transaction.execute(
-            "DELETE FROM document_anchors WHERE document_id = ?1",
+            "DELETE FROM document_chunk_embedding_state
+             WHERE chunk_id IN (SELECT id FROM document_chunks WHERE document_id = ?1)",
             params![id],
         )?;
         transaction.execute(
             "DELETE FROM document_chunks WHERE document_id = ?1",
             params![id],
         )?;
-        transaction.execute("DELETE FROM documents WHERE id = ?1", params![id])?;
+        transaction.execute(
+            "DELETE FROM document_sections WHERE document_id = ?1",
+            params![id],
+        )?;
+        transaction.execute(
+            "DELETE FROM document_anchors WHERE document_id = ?1",
+            params![id],
+        )?;
+        transaction.execute(
+            "UPDATE documents
+             SET status = 'deleted', deleted_at = ?1, updated_at = ?1
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![&now, id],
+        )?;
 
         transaction.commit()?;
         Ok(())
@@ -905,6 +921,8 @@ mod tests {
             .expect("apply v14 migration");
         conn.execute_batch(include_str!("../migrations/V15__highlight_metadata.sql"))
             .expect("apply v15 migration");
+        conn.execute_batch(include_str!("../migrations/V24__document_soft_delete.sql"))
+            .expect("apply v24 migration");
 
         Database { conn }
     }
@@ -1066,6 +1084,70 @@ mod tests {
             .search_chunks("checkpoint", Some(10))
             .expect("search after delete");
         assert!(deleted_results.is_empty());
+    }
+
+    #[test]
+    fn delete_soft_deletes_document_and_keeps_cards() {
+        let db = test_db();
+        let repo = DocumentRepository::new(&db);
+
+        let document = repo
+            .create(CreateDocumentRequest {
+                title: "Source.pdf".to_string(),
+                file_path: "E:/docs/source.pdf".to_string(),
+                file_type: "pdf".to_string(),
+                file_size: None,
+                page_count: Some(1),
+                content_hash: None,
+            })
+            .expect("create document");
+
+        db.connection()
+            .execute(
+                "INSERT INTO document_chunks (
+                    id, document_id, page_start, page_end, chunk_index, content, token_count, metadata
+                 ) VALUES (?1, ?2, 1, 1, 0, ?3, 4, NULL)",
+                params![Uuid::new_v4().to_string(), &document.id, "retrievable source text"],
+            )
+            .expect("insert chunk");
+        db.connection()
+            .execute(
+                "INSERT INTO cards (id, document_id, front, back) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    &document.id,
+                    "front",
+                    "back",
+                ],
+            )
+            .expect("insert card");
+
+        repo.delete(&document.id).expect("soft delete document");
+
+        assert!(repo.find_by_id(&document.id).expect("find deleted").is_none());
+        assert!(repo.list_all(None).expect("list documents").is_empty());
+        assert!(repo.list_chunks(&document.id).expect("list chunks").is_empty());
+
+        let card_count: i64 = db
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM cards WHERE document_id = ?1",
+                params![&document.id],
+                |row| row.get(0),
+            )
+            .expect("count cards");
+        assert_eq!(card_count, 1);
+
+        let deleted_status: Option<String> = db
+            .connection()
+            .query_row(
+                "SELECT status FROM documents WHERE id = ?1 AND deleted_at IS NOT NULL",
+                params![&document.id],
+                |row| row.get(0),
+            )
+            .optional()
+            .expect("read deleted document row");
+        assert_eq!(deleted_status.as_deref(), Some("deleted"));
     }
 
     #[test]

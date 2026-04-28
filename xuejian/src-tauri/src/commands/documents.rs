@@ -1,9 +1,4 @@
-use std::{
-    fs::File,
-    io::Read,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{fs::File, io::Read, path::{Path, PathBuf}, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -491,16 +486,7 @@ pub fn read_document_binary(state: State<'_, AppState>, id: String) -> CommandRe
 pub fn delete_document(state: State<'_, AppState>, id: String) -> CommandResult<()> {
     let db = state.lock_db()?;
     let repo = DocumentRepository::new(&db);
-    let document = repo.find_by_id(&id)?;
-
     repo.delete(&id)?;
-
-    if let Some(document) = document {
-        let path = PathBuf::from(document.file_path);
-        if path.exists() {
-            let _ = std::fs::remove_file(path);
-        }
-    }
 
     Ok(())
 }

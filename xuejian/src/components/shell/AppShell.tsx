@@ -28,7 +28,6 @@ const NAV_ITEMS: NavItemDefinition[] = [
   { id: 'cards', label: '卡片工坊', shortLabel: '卡片', icon: <CardsIcon /> },
   { id: 'learning', label: '复习', shortLabel: '复习', icon: <StudyIcon /> },
   { id: 'knowledge', label: '知识问答', shortLabel: '问答', icon: <KnowledgeIcon /> },
-  { id: 'podcast', label: '播客工坊', shortLabel: '播客', icon: <PodcastIcon /> },
   { id: 'profile', label: '我的', shortLabel: '我的', icon: <ProfileIcon /> },
 ]
 
@@ -38,7 +37,6 @@ const PAGE_META: Record<NavItemId, { eyebrow: string; description: string }> = {
   cards: { eyebrow: 'CARDS WORKSHOP', description: '卡片生成、整理和进入学习队列。' },
   learning: { eyebrow: 'SPACED REVIEW', description: '单卡片主舞台与评分驱动的复习会话。' },
   knowledge: { eyebrow: 'AI ASSISTANT', description: '基于文档上下文的问答工作区。' },
-  podcast: { eyebrow: 'PODCAST WORKSHOP', description: '播客脚本与音频生成流程。' },
   profile: { eyebrow: 'PROFILE', description: '个人统计、进度和学习回顾。' },
   settings: { eyebrow: 'SETTINGS', description: 'BYOK、工作流分配和体验配置。' },
 }
@@ -336,16 +334,6 @@ function KnowledgeIcon() {
   return (
     <svg {...iconProps()}>
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  )
-}
-
-function PodcastIcon() {
-  return (
-    <svg {...iconProps()}>
-      <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-      <path d="M12 19v3" />
     </svg>
   )
 }

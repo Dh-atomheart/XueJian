@@ -1,143 +1,143 @@
-# BYOK ϵͳ����??
+# BYOK 系统主规??
 
-## 1. �ĵ���λ���ͻ��??
+## 1. 文档定位与冲突规??
 
-### 1.1 �ĵ���ɫ
+### 1.1 文档角色
 
-���ĵ���ѩ���ֿ�??BYOK ϵͳ�����淶������� BYOK ��ȷ??**Bring Your Own Provider Credentials**�����û��Դ�ģ�ͷ�����ƾ�ݲ��ڱ���������������á�У�顢·��������??*??*ָ�Ƴ����ﾳ�е� CMEK / KMS / Customer-Managed Encryption Keys??
+本文档是雪见仓库??BYOK 系统的主规范。这里的 BYOK 明确??**Bring Your Own Provider Credentials**，即用户自带模型服务商凭据并在本地宿主中完成配置、校验、路由与治理??*??*指云厂商语境中的 CMEK / KMS / Customer-Managed Encryption Keys??
 
-���ĵ�������������ʵ����������??
+本文档用于驱动以下实现与评审工作??
 
-- ����ģ��ƾ�ݹ���
-- Provider / protocol / auth ���
-- ��������ģ�����õķ�??
-- ����У�顢ģ�ͷ��֡�����У??
-- Ԥ��ͳ������С��??
-- legacy `aiConfig` Ǩ��
+- 本地模型凭据管理
+- Provider / protocol / auth 设计
+- 工作流到模型配置的分??
+- 连接校验、模型发现、能力校??
+- 预算统计与最小审??
+- legacy `aiConfig` 迁移
 
-### 1.2 ���÷�Χ
+### 1.2 适用范围
 
-���ĵ����ǣ�
+本文档覆盖：
 
 - `api_configs`
 - workflow assignments
 - `EmbeddingProfile`
-- SecretStore / Stronghold ��Կ���
-- BYOK ����ҳ�������������
-- ���Ӳ�����ģ�ͷ�����??
+- SecretStore / Stronghold 密钥落点
+- BYOK 设置页与相关宿主命令
+- 连接测试与模型发现命??
 
-���ĵ�������??
+本文档不覆盖??
 
-- ��Ƭϵͳҵ�����
-- ����ҵ�����ϸ��
-- ͨ���ƶ� IAM / RBAC �ܹ�
-- ��ҵ�����⻧��Կ�йܷ���
+- 卡片系统业务规则
+- 播客业务编排细节
+- 通用云端 IAM / RBAC 架构
+- 企业级多租户密钥托管方案
 
-### 1.3 �������ĵ��Ĺ�ϵ
+### 1.3 与其他文档的关系
 
-- �������ĵ���??BYOK �ı߽硢״̬���ֶκ��塢���������䡢��Կ�洢���Ա��ĵ�Ϊ׼??
-- ��ʵ�ִ�������ĵ���ͻ���Ե�ǰ��������Ϊ���ߣ����ڱ��ĵ��ġ���ǰʵ�ֲ�����޸����ȼ����м�¼??
-- ���������Կھ��뱾�ĵ���ͻ��Ӧ�޶�����ھ������������ĵ����������ʱԼ��Ư��??
+- 若其他文档涉??BYOK 的边界、状态、字段含义、工作流分配、密钥存储，以本文档为准??
+- 若实现代码与旧文档冲突，以当前代码真相为基线，并在本文档的“当前实现差距与修复优先级”中记录??
+- 若评审或测试口径与本文档冲突，应修订评审口径，而不是让文档继续跟随过时约定漂移??
 
-## 2. ���������ӳ??
+## 2. 术语与代码映??
 
-### 2.1 ���ﶨ��
+### 2.1 术语定义
 
 - `provider family`
-  - ��������̼����Э����Դ����??`openai`��`anthropic`��`google`��`deepseek`??
+  - 对外服务商家族或协议来源，例??`openai`、`anthropic`、`google`、`deepseek`??
 - `protocol adapter`
-  - ��ǰ�������ڵ��ýӿڵ�Э������㣬���� OpenAI-compatible��Anthropic-compatible��Google Generative Language-compatible??
+  - 当前宿主用于调用接口的协议适配层，例如 OpenAI-compatible、Anthropic-compatible、Google Generative Language-compatible??
 - `auth mode`
-  - ƾ��ʹ�÷�ʽ����ǰ�淶���������� `api_key`��`adc` �ȣ���ǰ��������??GA ģʽ��Ϊ `api_key`??
+  - 凭据使用方式。当前规范概念上允许 `api_key`、`adc` 等；当前真正可用??GA 模式仅为 `api_key`??
 - `api config`
-  - һ���ɱ����������õ�����ʽģ�����ã���??provider��protocol��auth mode��base URL��Ĭ??model��Ԥ�����ޡ�����״̬����֤״̬��Ԫ����??
+  - 一个可被工作流引用的生成式模型配置，包??provider、protocol、auth mode、base URL、默??model、预算上限、启用状态、验证状态等元数据??
 - `workflow assignment`
-  - ĳ����������ĳ�� `api config` �İ󶨹�ϵ??
+  - 某个工作流到某个 `api config` 的绑定关系??
 - `embedding profile`
-  - ����Ƕ��ר�����ã������� generative workflow assignment����??provider��model��dimensions��distance metric��revision ��??
+  - 向量嵌入专用配置，独立于 generative workflow assignment，包??provider、model、dimensions、distance metric、revision 等??
 - `credential validation`
-  - ��֤ƾ���Ƿ�ɱ� provider ����??
+  - 验证凭据是否可被 provider 接受??
 - `model discovery`
-  - ͨ�� provider Ԫ���ݽӿڻ�ȡģ���б�??
+  - 通过 provider 元数据接口获取模型列表??
 - `capability validation`
-  - ���ĳһ������������̽�⣬�����Ӿ���JSON ������������û��ض�ģ�Ϳɵ�����??
+  - 针对某一项能力做额外探测，例如视觉、JSON 输出、函数调用或特定模型可调用性??
 
-### 2.2 �����뵱ǰ�����ֶ�ӳ??
+### 2.2 概念与当前代码字段映??
 
-| �淶���� | ��ǰ���� / ���� | ˵�� |
+| 规范概念 | 当前代码 / 类型 | 说明 |
 | --- | --- | --- |
-| provider family | `ApiConfig.provider` | ��ǰ�ֶμȳ�??provider ���壬Ҳ���� `custom_*` Э��������ʵ����ʶ����˲��ܰ���ֱ�ӵ�ͬ�ڴ�����??provider family??|
-| protocol adapter | `ApiConfig.protocol` | ��ǰֵ����Ϊ `native` ??`openai-compatible` ����??����ֶΣ����ڱ���ӿ�Э������??|
-| auth mode | `ApiConfig.authMode` | ��ǰ UI / ���Ͳ��Ѿ���??`api_key` ??`adc`��������ֻ�� `api_key` ��ʵ�����У��������??|
-| api config | `ApiConfig` | ����ʽ���õ������ö���??|
-| workflow assignment | `WorkflowType` + workflow assignment commands | ��ǰ�����������͵�������??`api_config_id`??|
-| embedding profile | `EmbeddingProfile` | �������⣬�� workflow assignment �ı���??|
-| credential state | `ApiConfig.keyStatus`, `ApiConfig.keyVerifiedAt`, `hasStoredKey` | ��ǰ�Ѿ���״̬�������֤ʱ���ֶ�??|
+| provider family | `ApiConfig.provider` | 当前字段既承??provider 家族，也包含 `custom_*` 协议适配器实例标识，因此不能把它直接等同于纯概念??provider family??|
+| protocol adapter | `ApiConfig.protocol` | 当前值体现为 `native` ??`openai-compatible` 等输??落库字段，用于表达接口协议类型??|
+| auth mode | `ApiConfig.authMode` | 当前 UI / 类型层已经暴??`api_key` ??`adc`。宿主端只有 `api_key` 可实际完成校验与运行??|
+| api config | `ApiConfig` | 生成式调用的主配置对象??|
+| workflow assignment | `WorkflowType` + workflow assignment commands | 当前按工作流类型单独分配??`api_config_id`??|
+| embedding profile | `EmbeddingProfile` | 独立表意，非 workflow assignment 的别名??|
+| credential state | `ApiConfig.keyStatus`, `ApiConfig.keyVerifiedAt`, `hasStoredKey` | 当前已经有状态与最近验证时间字段??|
 
-### 2.3 ��ǰ�����ӿ�ӳ��
+### 2.3 当前公开接口映射
 
-| �淶���� | ��ǰ�ӿ� |
+| 规范能力 | 当前接口 |
 | --- | --- |
-| ��ȡ / ���� / ���� API ���� | `apiConfigGateway` |
-| �洢 API key | `apiConfigGateway.storeApiKey` |
-| ɾ�� API key | `apiConfigGateway.deleteApiKey` |
-| �������� | `test_api_connection` / `apiConfigGateway.testConnection` |
-| ��ȡģ���б� | `fetch_provider_models` / `apiConfigGateway.fetchProviderModels` |
-| ���õ�����������??| `set_workflow_assignment` |
-| �������ù�������??| `set_all_workflow_assignments` |
-| ��¼Ԥ����??| `record_workflow_cost` |
-| Ƕ�����ù��� | `embeddingProfileGateway` |
+| 读取 / 创建 / 更新 API 配置 | `apiConfigGateway` |
+| 存储 API key | `apiConfigGateway.storeApiKey` |
+| 删除 API key | `apiConfigGateway.deleteApiKey` |
+| 测试连接 | `test_api_connection` / `apiConfigGateway.testConnection` |
+| 拉取模型列表 | `fetch_provider_models` / `apiConfigGateway.fetchProviderModels` |
+| 设置单个工作流分??| `set_workflow_assignment` |
+| 批量设置工作流分??| `set_all_workflow_assignments` |
+| 记录预算消??| `record_workflow_cost` |
+| 嵌入配置管理 | `embeddingProfileGateway` |
 
-### 2.4 Ŀ��ӿڲ�ַ���
+### 2.4 目标接口拆分方向
 
-��ǰ�ӿ��԰Ѷ���ְ������ڵ��������ڡ��������Ȳ�ַ������£������ֽ���ΪĿ����ƣ���������ʵ�֣�
+当前接口仍把多类职责耦合在单个命令内。后续优先拆分方向如下，但本轮仅作为目标设计，不宣称已实现：
 
 - `validate_credentials`
 - `discover_models`
 - `probe_capabilities`
 
-## 3. ϵͳĿ�����Ŀ��
+## 3. 系统目标与非目标
 
-### 3.1 Ŀ��
+### 3.1 目标
 
-BYOK ϵͳ��Ŀ����??
+BYOK 系统的目标是??
 
-- ���û��ڱ��������а�ȫ��??provider ƾ��
-- ������ʽ��������ʽ�󶨵�ĳ������Ƶ� API ����
-- ??embedding �����������ò�����������������??- �ڲ�й¶������Կ��ǰ�����ṩ���Ӳ��ԡ�ģ�ͷ�����״̬��??- �ṩ����޶�Ԥ��������ʹ�ù���
-- ֧��??legacy `aiConfig` ����Ǩ�Ƶ���������ϵ
-- Ϊ�ϲ�ҳ���ṩ����������״̬����������ҳ�������??
-��ҳ�潻����ص�ͳһ����??
-- `ҳ�����Ȩ��` ??`AI ������ִ����` �����������??- `no_ai_config` ��ʾ AI ����δ���ã�������ҳ�治�ɽ���??- `workflow_unassigned` ��ʾ���� AI ������δ��������������վ������??- `service_unavailable` ��ʾ�����쳣��Ӧ��ʾ�澯�����ԣ����Զ���д����??- ���⡰ǰ�����á�CTA ���ǿ�ѡ���������Ǹ�д������ȫ�� guard??
-### 3.2 ��Ŀ??
+- 让用户在本地宿主中安全保??provider 凭据
+- 让生成式工作流显式绑定到某个可审计的 API 配置
+- ??embedding 能力独立配置并管理向量索引兼容??- 在不泄露明文密钥的前提下提供连接测试、模型发现与状态反??- 提供最低限度预算治理与使用归因
+- 支持??legacy `aiConfig` 启动迁移到新配置体系
+- 为上层页面提供“能力启用状态”，而不是页面访问门??
+与页面交互相关的统一规则??
+- `页面访问权限` ??`AI 能力可执行性` 必须分离描述??- `no_ai_config` 表示 AI 能力未启用，不等于页面不可进入??- `workflow_unassigned` 表示部分 AI 工作流未就绪，不等于整站不可用??- `service_unavailable` 表示服务异常，应显示告警与重试，不自动改写导航??- 任意“前往设置”CTA 都是可选引导，不是改写导航的全局 guard??
+### 3.2 非目??
 
-�������ݲ��� BYOK ���淶Ŀ�꣺
+以下内容不是 BYOK 主规范目标：
 
-- ��������ƶ� IAM����֯�� RBAC�����ƽ??
-- ��ŵ��??provider ���߱�ͳһ����ģ��
-- ��ŵ��??auth mode �������������ʵ??
-- ��ŵ��??provider ���Ѿ߱��Զ�ģ�ͷ���������̽??
+- 设计完整云端 IAM、组织级 RBAC、审计平??
+- 承诺所??provider 都具备统一能力模型
+- 承诺所??auth mode 都已完成宿主端实??
+- 承诺所??provider 都已具备自动模型发现与能力探??
 
-## 4. ��ǰ���߿���
+## 4. 当前基线快照
 
-������������ **2026-04-23** �ֿ⵱ǰ�ɹ۲쵽��ʵ�����࣬�������Ƽ�Ŀ��??
+本节描述的是 **2026-04-23** 仓库当前可观察到的实现真相，不等于推荐目标??
 
-### 4.1 �Ѵ��ڵĺ��Ķ���
+### 4.1 已存在的核心对象
 
-- `api_configs` �Ѵ��ڣ����� provider��protocol��auth mode��base URL��Ĭ??model��budget limit��Ĭ�����á�����״̬��`key_status`��`key_verified_at` ��Ԫ����??
-- workflow assignments �Ѵ��ڣ�Rust ����ͨ��ͳһ�����������ʽ������??`api_config_id` �İ�??
-- `EmbeddingProfile` �Ѵ��ڣ���������ʽ�������������??
-- provider budget usage �Ѵ��ڣ���ǰ??`api_config_id` + period ����??
+- `api_configs` 已存在，承载 provider、protocol、auth mode、base URL、默??model、budget limit、默认配置、启用状态、`key_status`、`key_verified_at` 等元数据??
+- workflow assignments 已存在，Rust 宿主通过统一命令管理生成式工作流??`api_config_id` 的绑定??
+- `EmbeddingProfile` 已存在，且与生成式工作流分配分离??
+- provider budget usage 已存在，当前??`api_config_id` + period 记账??
 
-### 4.2 �Ѵ��ڵ�������ȫ�洢
+### 4.2 已存在的宿主安全存储
 
-- ��ǰ�ֿ��ѽ�??Tauri Stronghold??
-- `xuejian/src-tauri/Cargo.toml` �Ѱ�??`tauri-plugin-stronghold = "2"` ??`iota_stronghold = "2.1.0"`??
-- ��ǰ��ʽ��Կ���??Rust SecretStore / Stronghold������ǰ�˳��ڳ־û�??
+- 当前仓库已接??Tauri Stronghold??
+- `xuejian/src-tauri/Cargo.toml` 已包??`tauri-plugin-stronghold = "2"` ??`iota_stronghold = "2.1.0"`??
+- 当前正式密钥落点??Rust SecretStore / Stronghold，而非前端长期持久化??
 
-### 4.3 ��ǰͳһ��������??
+### 4.3 当前统一工作流集??
 
-Rust ��ǰͳһ���伯��Ϊ��
+Rust 当前统一分配集合为：
 
 - `card_generation`
 - `document_embedding`
@@ -146,292 +146,292 @@ Rust ��ǰͳһ���伯��Ϊ��
 - `card_animation`
 `card_animation` is now part of the Rust unified workflow assignment set and is backfilled by migration plus `set_all_workflow_assignments`.
 
-### 4.4 ��ǰ provider ���ݹ�һ??
+### 4.4 当前 provider 兼容归一??
 
-Rust ��ǰ�Ὣ����������ݱ���ͳһ��һ��Ϊ `custom_openai`??
+Rust 当前会将以下输入兼容别名统一归一化为 `custom_openai`??
 
 - `openai_compatible`
 - `custom`
 - `qianfan`
 
-��˵??`openai_compatible` �ڵ�ǰϵͳ�и��ӽ���ʷ������ݲ㣬������δ���淶����??
+这说??`openai_compatible` 在当前系统中更接近历史输入兼容层，而不是未来规范主语??
 
-### 4.5 ��ǰ���Ӳ�����ģ�ͷ�����??
+### 4.5 当前连接测试与模型发现行??
 
-��ǰ������Ϊ����??
+当前宿主行为如下??
 
 - OpenAI / DeepSeek / `custom_openai`
-  - ���Ӳ��ԣ�`GET /models`
-  - ģ�ͷ��֣�`GET /models`
+  - 连接测试：`GET /models`
+  - 模型发现：`GET /models`
 - Anthropic / `custom_anthropic`
   - ?????????? `GET /v1/models`??? `x-api-key` ? `anthropic-version`
   - ?????????? `GET /v1/models`
 - Google / `custom_google`
-  - ���Ӳ��ԣ���ǰ�� `GET /models?key=...`
-  - ģ�ͷ��֣���ǰ�� `GET /models?key=...`
+  - 连接测试：当前走 `GET /models?key=...`
+  - 模型发现：当前走 `GET /models?key=...`
 - `authMode=adc`
   - UI / ??????
   - Rust ????? Google ADC ?????????????? `GOOGLE_APPLICATION_CREDENTIALS`????????? ADC ??
   - ????????????? GA ?????????????????????????????
 
-### 4.6 ��ǰ legacy Ǩ����Ϊ
+### 4.6 当前 legacy 迁移行为
 
-ǰ������ʱ�᳢��Ǩ�� legacy `aiConfig`??
+前端启动时会尝试迁移 legacy `aiConfig`??
 
-- legacy �洢Դ��`localStorage['xuejian-app-store']`
-- Ǩ�Ʊ�ǣ�`xuejian-byok-migrated`
-- ���� `api_configs` �Ѵ��ڣ�??legacy ����ִֻ??retirement / ���������ظ�����
-- ��Ǩ�Ƴɹ����ᴴ�������á���??API key����??Rust ��ǰͳһ����������ִ??`set_all_workflow_assignments`
-- Ǩ��ʧ�ܲ��������������������û���������
+- legacy 存储源：`localStorage['xuejian-app-store']`
+- 迁移标记：`xuejian-byok-migrated`
+- 若新 `api_configs` 已存在，??legacy 配置只执??retirement / 清理，不重复创建
+- 若迁移成功，会创建新配置、存??API key，并??Rust 当前统一工作流集合执??`set_all_workflow_assignments`
+- 迁移失败不会阻塞启动，但会向用户反馈错误
 
-## 5. ���α߽��밲ȫԭ??
+## 5. 信任边界与安全原??
 
-���ڶ���淶����򡣳���������ȷ˵�������¹���Ĭ����������??provider??
+本节定义规范层规则。除非另有明确说明，以下规则默认适用于所??provider??
 
-### 5.1 ���α߽�
+### 5.1 信任边界
 
-- ǰ�˱��������ڶ�������߽磬������Կ����ʽ�־û��߽�??
-- Tauri IPC ��ǰ���ͨ�ű߽磬����������������Կ�ش���ǰ��չʾ??
-- Rust SecretStore / Stronghold �ǵ�ǰΨһ��ʽ��Կ�־û��߽�??
-- SQLite / Ӧ�����ݿ�ɳ־û�����Ԫ���ݣ���������Կ�������??
+- 前端表单层属于短暂输入边界，不是密钥的正式持久化边界??
+- Tauri IPC 是前后端通信边界，不得用来把明文密钥回传给前端展示??
+- Rust SecretStore / Stronghold 是当前唯一正式密钥持久化边界??
+- SQLite / 应用数据库可持久化配置元数据，但不是密钥本体落点??
 
-### 5.2 MUST �������
+### 5.2 MUST 级别规则
 
-- API key ֻ����ǰ�����������ж���פ��������д��ǰ�˳־û�״̬��Ϊ������Դ??
-- �־û���Կ��Ψһ��ʽ������??Rust SecretStore / Stronghold??
-- ǰ�˲���ͨ�� IPC ��ȡ���� API key??
-- `localStorage` �е� legacy `aiConfig` ֻ������Ϊһ����Ǩ��Դ��Ǩ����ɺ�������??
-- ���ݿ�ֻ�����־û�����Ԫ���ݣ�provider��protocol��auth mode��display name��base URL��Ĭ??model��budget limit��key status��verified time��created at��assignment��budget usage??
-- ���Ӳ��ԡ�ģ�ͷ��֡�����̽������ð�ԭʼ��Կд����־��������Ϣ��ǰ�˵������??
+- API key 只能在前端输入流程中短暂驻留，不能写入前端持久化状态作为长期来源??
+- 持久化密钥的唯一正式落点必须??Rust SecretStore / Stronghold??
+- 前端不得通过 IPC 读取明文 API key??
+- `localStorage` 中的 legacy `aiConfig` 只允许作为一次性迁移源，迁移完成后必须清空??
+- 数据库只允许持久化以下元数据：provider、protocol、auth mode、display name、base URL、默??model、budget limit、key status、verified time、created at、assignment、budget usage??
+- 连接测试、模型发现、能力探测命令不得把原始密钥写入日志、错误消息或前端调试输出??
 
-### 5.3 SHOULD �������
+### 5.3 SHOULD 级别规则
 
-- ���Ӳ���Ӧ����ʹ??provider ??metadata endpoint��������Ĭ�Ϸ�����С��������??
-- �Ƽ�??provider ֧��ʱʹ������Ȩ�ޡ�����ơ��ɵ����ֻ���ƾ��??
-- �Ƽ���Ԥ�㡢�����֤ʱ�䡢�������������¶Ϊֻ�������Ϣ??
-- �Ƽ���ʧ�ܲ��Խ������Ϊ��֤ʧ�ܡ�����ʧ�ܡ�Э�鲻���ݡ�ģ�Ͳ���������??
+- 连接测试应优先使??provider ??metadata endpoint，而不是默认发送最小生成请求??
+- 推荐??provider 支持时使用受限权限、可审计、可单独轮换的凭据??
+- 推荐将预算、最后验证时间、工作流绑定情况暴露为只读审计信息??
+- 推荐对失败测试结果区分为认证失败、网络失败、协议不兼容、模型不存在四类??
 
-## 6. ��Կ��������??SecretStore �淶
+## 6. 密钥生命周期??SecretStore 规范
 
-### 6.1 �淶״̬��
+### 6.1 规范状态机
 
-`credential state` �淶����Ϊ��
+`credential state` 规范定义为：
 
 - `none`
-  - δ�洢�κ���Чƾ??
+  - 未存储任何有效凭??
 - `stored`
-  - �Ѵ洢ƾ�ݣ�����δ��ɳɹ���֤������֤��Ϣδ??
+  - 已存储凭据，但尚未完成成功验证，或验证信息未??
 - `verified`
-  - ���һ��ƾ����֤��??
+  - 最近一次凭据验证成??
 - `invalid`
-  - ���һ��У����ȷʧ�ܣ����� key ���ܾ���Ȩ�޲��㡢ǩ�����Ϸ�
+  - 最近一次校验明确失败，例如 key 被拒绝、权限不足、签名不合法
 - `expired`
-  - ƾ�ݱ���ʧЧ������������������ȷ���ж��䲻�ɼ���ʹ��
+  - 凭据本身失效、被撤销，或宿主明确可判定其不可继续使用
 
-### 6.2 �뵱ǰʵ�ֵĹ�ϵ
+### 6.2 与当前实现的关系
 
-- ��ǰ�ֿ��Ѿ�??`key_status` ??`key_verified_at` �ֶΣ�����ĵ��е��������ڲ���ƾ������??
-- ���ֻ����ѡ���Ӧ��ģΪ�µĳ־û�״̬�������ڻ�??`verified_at`��Ԥ�����ά�����Ƶ�������ʾ??
+- 当前仓库已经??`key_status` ??`key_verified_at` 字段，因此文档中的生命周期不是凭空新造??
+- “轮换提醒”不应建模为新的持久化状态；它属于基??`verified_at`、预算或运维策略推导出的提示??
 
-### 6.3 SecretStore �淶
+### 6.3 SecretStore 规范
 
-- �洢��Կʱ����ֻ����������һ���������룬��������??SecretStore / Stronghold??
-- �б��ӿڷ���??`ApiConfigDto` ֻ��??`hasStoredCredential`��`hasStoredKey`��`keyStatus`��`keyVerifiedAt` ��ֻ��Ԫ����??
-- `from_config_without_key` ���� DTO �任���������֤ǰ���޷��������� key??
+- 存储密钥时必须只向宿主发送一次明文输入，并立即交??SecretStore / Stronghold??
+- 列表接口返回??`ApiConfigDto` 只能??`hasStoredCredential`、`hasStoredKey`、`keyStatus`、`keyVerifiedAt` 等只读元数据??
+- `from_config_without_key` 这类 DTO 变换必须继续保证前端无法读回明文 key??
 
-## 7. Provider / Protocol / Auth ��ƾ���
+## 7. Provider / Protocol / Auth 设计矩阵
 
-### 7.1 ���ԭ��
+### 7.1 设计原则
 
-- `provider family` ���������û�����ķ�����Դ??
-- `protocol adapter` �����������������÷���ͨ��??
-- `custom_*` Ӧ��ΪЭ������������������ǡ���ȷ�����Զ��峧�̡�??
-- ��ʷ����??`openai_compatible` ����Ϊ������ݲ㱣����������Ϊ�淶����??
+- `provider family` 用来表达用户理解的服务来源??
+- `protocol adapter` 用来表达宿主如何与该服务通信??
+- `custom_*` 应视为协议兼容适配器，而不是“不确定的自定义厂商”??
+- 历史别名??`openai_compatible` 仅作为输入兼容层保留，不再作为规范主语??
 
-### 7.2 Provider ��ƾ���
+### 7.2 Provider 设计矩阵
 
-| Provider | �ٷ�Э�� / ����Э�� | ��ǰ֧�� auth mode | ģ�ͷ��ַ�ʽ | ����У�鷽ʽ | Ĭ�� base URL ���� | �������� |
+| Provider | 官方协议 / 兼容协议 | 当前支持 auth mode | 模型发现方式 | 连接校验方式 | 默认 base URL 策略 | 生产建议 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `openai` | OpenAI �ٷ� API | `api_key` | `GET /models` | `GET /models` | Ĭ�� `https://api.openai.com/v1` | ʹ�ö��� key������ǰ�˱�¶�����ȹ̶����ȶ�ģ�Ϳ��ջ���ȷģ�ͱ�ʶ??|
-| `anthropic` | Anthropic �ٷ� API | `api_key` | �ٷ� `GET /v1/models` | �Ƽ� `GET /v1/models`����Ҫʱ���� capability probe | Ĭ�� `https://api.anthropic.com/v1` | ���ٰѡ���С����������ΪĬ����ͨ�Բ��ԣ�������??`x-api-key` ??`anthropic-version`??|
-| `google` | Google Generative Language API | `api_key` Ϊ��??GA��`adc` ΪԤ??| `GET /v1beta/models` | �Ƽ� metadata У�飻��Ҫʱ��������̽�� | Ĭ�� `https://generativelanguage.googleapis.com/v1beta` | API key ??ADC �����ײ�ͬ��֤���塣������??header / �ٷ� client library / key restrictions����??query param ����Ϊʵ����״??|
-| `deepseek` | OpenAI-compatible | `api_key` | `GET /models` | `GET /models` | Ĭ�� `https://api.deepseek.com/v1` | ��Ϊ OpenAI Э����崦�������Ա�����??provider family �Ա���Ĭ??base URL ���Ƽ�ģ��??|
-| `custom_openai` | OpenAI-compatible adapter | `api_key` | ���� `GET /models` | ���� `GET /models` | ������ʽ�ṩ base URL | ����˽�����ء����������ݷ��񣻼���ʧ��Ӧ����ΪЭ�鲻���ݣ����� provider ������??|
-| `custom_anthropic` | Anthropic-compatible adapter | `api_key` | ���� `GET /v1/models`���޸ýӿ�ʱ��??| ���� metadata endpoint��ȱʧʱ��ʹ??capability probe | ������ʽ�ṩ base URL | ���ݲ㲻ӦĬ�ϼ���ٷ��ӿ�ȫ�����ڣ�Ӧ������ fallback ��ʽУ��??|
-| `custom_google` | Google-compatible adapter | `api_key` | ���� `GET /v1beta/models` | ���� metadata endpoint | ������ʽ�ṩ base URL | �����ڼ�??Google Generative Language Э���˽������??|
+| `openai` | OpenAI 官方 API | `api_key` | `GET /models` | `GET /models` | 默认 `https://api.openai.com/v1` | 使用独立 key、避免前端暴露、优先固定到稳定模型快照或明确模型标识??|
+| `anthropic` | Anthropic 官方 API | `api_key` | 官方 `GET /v1/models` | 推荐 `GET /v1/models`；必要时再做 capability probe | 默认 `https://api.anthropic.com/v1` | 不再把“最小生成请求”作为默认连通性测试；请求需??`x-api-key` ??`anthropic-version`??|
+| `google` | Google Generative Language API | `api_key` 为当??GA；`adc` 为预??| `GET /v1beta/models` | 推荐 metadata 校验；必要时再做能力探测 | 默认 `https://generativelanguage.googleapis.com/v1beta` | API key ??ADC 是两套不同认证语义。长期推??header / 官方 client library / key restrictions；当??query param 仅视为实现现状??|
+| `deepseek` | OpenAI-compatible | `api_key` | `GET /models` | `GET /models` | 默认 `https://api.deepseek.com/v1` | 作为 OpenAI 协议家族处理，但仍保留单??provider family 以表达默??base URL 与推荐模型??|
+| `custom_openai` | OpenAI-compatible adapter | `api_key` | 优先 `GET /models` | 优先 `GET /models` | 必须显式提供 base URL | 面向私有网关、代理、兼容服务；兼容失败应归因为协议不兼容，而非 provider 不存在??|
+| `custom_anthropic` | Anthropic-compatible adapter | `api_key` | 优先 `GET /v1/models`，无该接口时退??| 优先 metadata endpoint；缺失时才使??capability probe | 必须显式提供 base URL | 兼容层不应默认假设官方接口全部存在，应允许以 fallback 方式校验??|
+| `custom_google` | Google-compatible adapter | `api_key` | 优先 `GET /v1beta/models` | 优先 metadata endpoint | 必须显式提供 base URL | 适用于兼??Google Generative Language 协议的私有网关??|
 
-### 7.3 ���� auth mode
+### 7.3 关于 auth mode
 
 - `api_key`
-  - ��ǰΨһ���������ڴ������洢�����Ӳ���������ʱ���õ� GA ����??
+  - 当前唯一真正可用于创建、存储、连接测试与运行时调用的 GA 方案??
 - `adc`
-  - ��ǰֻ������??/ UI / ��Լ��¶״̬??
-  - �ĵ����밴��Ԥ??/ ??GA������??
-  - ֻ����������??ADC ���֡�У�顢������ࡢ����ʱƾ�ݶ�ȡ�󣬲ſ�����Ϊ��ʽ֧��??
+  - 当前只处于类??/ UI / 契约暴露状态??
+  - 文档必须按“预??/ ??GA”处理??
+  - 只有在宿主完??ADC 发现、校验、错误分类、运行时凭据读取后，才可升级为正式支持??
 
-## 8. ������������ EmbeddingProfile �߽�
+## 8. 工作流分配与 EmbeddingProfile 边界
 
-### 8.1 ��ǰ������·��ģ??
+### 8.1 当前工作流路由模??
 
-��ǰͳһ����ģ��??Rust `WORKFLOW_TYPES` Ϊ׼??
+当前统一分配模型??Rust `WORKFLOW_TYPES` 为准??
 
 - `card_generation`
 - `document_embedding`
 - `knowledge_qa`
 - `podcast_generation`
 
-ÿ������ʽ�����������԰󶨵�ĳ�� `api_config_id`���ð󶨹�ϵ���ڿɳ־û����ã���Ӧ����������Ĭ??provider�������һ�β��Գɹ��� provider��??
+每个生成式工作流都可以绑定到某个 `api_config_id`。该绑定关系属于可持久化配置，不应隐含依赖“默??provider”或“最后一次测试成功的 provider”??
 
-### 8.2 `card_animation` �ĵ�ǰ��??
+### 8.2 `card_animation` 的当前定??
 
-- Python ������Ѿ����ڰ� workflow ȡ���õĺۼ�??
-- ����ǰ������ Rust ͳһ���������伯����??
-- ��������ڡ�ʵ�ֱ߽�δ��ȫ��������չ�������д������ϵ���������??
+- Python 侧可能已经存在按 workflow 取配置的痕迹??
+- 但当前它不在 Rust 统一工作流分配集合中??
+- 因此它属于“实现边界未完全收敛的扩展项”，不能写成主体系已完成能力??
 
-### 8.3 Ϊʲ??`EmbeddingProfile` �Զ�����??
+### 8.3 为什??`EmbeddingProfile` 仍独立存??
 
-`EmbeddingProfile` ���ܼ򵥵�ͬ��һ����??generative workflow assignment��ԭ�������
+`EmbeddingProfile` 不能简单等同于一个普??generative workflow assignment，原因包括：
 
-- ����??`dimensions`
-- ����??`distance metric`
-- ���� `revision`
-- ����ֱ��Ӱ���������������ԡ�ʧЧ���ؽ�����
-- ��������ʽģ���л�����ά�ɱ���ͬ
+- 它需??`dimensions`
+- 它需??`distance metric`
+- 它有 `revision`
+- 它会直接影响向量索引兼容性、失效与重建代价
+- 它与生成式模型切换的运维成本不同
 
-### 8.4 δ��ͳһ��׼����??
+### 8.4 未来统一的准入条??
 
-��δ��Ҫ??embedding ??workflow assignment ��һ��ͳһ��������������������
+若未来要??embedding ??workflow assignment 进一步统一，至少满足以下条件：
 
-- ͳһ����ɱ�??dimensions / metric / revision
-- ���������ؽ��������Ӱ��ɱ���ʽ��??
-- UI �������������Ϊͳһ��������Щ�߳ɱ����
-- ����ʽģ���л��� embedding ������ܱ�������??
+- 统一对象可表??dimensions / metric / revision
+- 向量索引重建与兼容性影响可被显式建??
+- UI 与宿主命令不会因为统一而隐藏这些高成本变更
+- 生成式模型切换与 embedding 变更仍能被单独审??
 
-�ڴﵽ��Щ����ǰ��`EmbeddingProfile` ���ֶ�������ȷ����??
+在达到这些条件前，`EmbeddingProfile` 保持独立是正确基线??
 
-## 9. ����У�顢ģ�ͷ���������У��
+## 9. 连接校验、模型发现与能力校验
 
-### 9.1 ���ද������ֿ�
+### 9.1 三类动作必须分开
 
-BYOK �ĵ����������������ද���������ٻ�д??
+BYOK 文档必须区分以下三类动作，不能再混写??
 
 - `credential validation`
-  - ��֤ƾ���Ƿ�??provider ����
+  - 验证凭据是否??provider 接受
 - `model discovery`
-  - ö�� provider ��ǰ�ɼ�ģ��
+  - 枚举 provider 当前可见模型
 - `capability validation`
-  - ��֤ĳ������ģ���Ƿ������ض�����
+  - 验证某个具体模型是否满足特定能力
 
-### 9.2 �Ƽ�����У�����
+### 9.2 推荐连接校验策略
 
 - OpenAI / DeepSeek / OpenAI-compatible
-  - Ĭ��ʹ�� `GET /models`
+  - 默认使用 `GET /models`
 - Anthropic
-  - Ĭ��ʹ�� `GET /v1/models`����??`anthropic-version`
-  - ������Ҫ��֤������Ϣ��������� endpoint ȱʧʱ���˻�Ϊ��??generation probe
+  - 默认使用 `GET /v1/models`，并??`anthropic-version`
+  - 仅在需要验证具体消息能力或兼容 endpoint 缺失时才退化为最??generation probe
 - Gemini / Google-compatible
-  - Ĭ��ʹ�� `GET /v1beta/models`
-  - API key �Ƽ�ͨ�� header ���??client library ��������??query param ������״����ʵ��
+  - 默认使用 `GET /v1beta/models`
+  - API key 推荐通过 header 或官??client library 管理；当??query param 属于现状兼容实现
 
-### 9.3 ģ�ͷ������Ƽ�ģ�Ͳ�??
+### 9.3 模型发现与推荐模型策??
 
-ϵͳ��Ҫ��������ģ����Դ��
+系统需要区分三类模型来源：
 
 - `preset models`
-  - �ɲ�Ʒ���õ��Ƽ��嵥�ṩ�������������顢��״̬�����Ͷ�������
+  - 由产品内置的推荐清单提供，用于首屏体验、空状态引导和断网回退
 - `fetched models`
-  - ??provider Ԫ���ݽӿڻ�ȡ��������ǰ�˺� / endpoint �ɼ�����
+  - ??provider 元数据接口获取，代表当前账号 / endpoint 可见集合
 - `recommended models`
-  - ??`preset` ??`fetched` �б���Ʒ���Ϊ�Ƽ���ģ��
+  - ??`preset` ??`fetched` 中被产品标记为推荐的模型
 
-�淶Ҫ��??
+规范要求??
 
-- ���������Ƽ� pin ���ȶ�ģ�Ϳ��ջ���ʽģ�ͱ�ʶ??
-- ��Ӧ�������� `latest`��ģ���������޷���Ƶ��Զ�Ư�Ʊ���??
-- ??provider ���ص�������Ϣ��������ǰ�˿���ʾ���ƶ������������������ĵ��б����䲻�� provider ԭ����ŵ??
+- 生产环境推荐 pin 到稳定模型快照或显式模型标识??
+- 不应长期依赖 `latest`、模糊别名或无法审计的自动漂移别名??
+- ??provider 返回的能力信息不完整，前端可显示“推断能力”，但必须在文档中标明其不是 provider 原生承诺??
 
-### 9.4 ��ǰʵ�����Ƽ��ھ���??
+### 9.4 当前实现与推荐口径差??
 
-- Anthropic �ٷ����� `GET /v1/models`����ˡ�Anthropic ??lightweight metadata endpoint���ľ�˵����ʧЧ??
-- ����С�������󡱲�Ӧ����ΪĬ�����Ӳ���??
-- capability probe ֻӦ����??
-  - provider û��Ԫ���ݽ�??
-  - ��Ҫ��֤ĳ����??
-  - custom adapter ��ȷ��ʵ��ģ��ö??
+- Anthropic 官方已有 `GET /v1/models`，因此“Anthropic ??lightweight metadata endpoint”的旧说法已失效??
+- “最小生成请求”不应再作为默认连接测试??
+- capability probe 只应用于??
+  - provider 没有元数据接??
+  - 需要验证某项能??
+  - custom adapter 明确不实现模型枚??
 
-## 10. Ԥ�������������ɹ۲�??
+## 10. 预算治理、审计与可观测??
 
-### 10.1 ��ǰ����
+### 10.1 当前基线
 
-��ǰ�ֿ��Ѿ�֧��??
+当前仓库已经支持??
 
-- ??`api_config_id` + period ��ȡԤ��ʹ��??
-- ͨ�� `record_workflow_cost` ��¼����ɱ�
-- ����??`budget_limit`
+- ??`api_config_id` + period 读取预算使用??
+- 通过 `record_workflow_cost` 记录估算成本
+- 配置??`budget_limit`
 
-### 10.2 �淶����
+### 10.2 规范定义
 
-���齫Ԥ����������̶�Ϊ??
+建议将预算治理术语固定为??
 
 - `period`
-  - ͳ�����ڡ���ǰ�Ƽ�ʹ���¶�����??
+  - 统计周期。当前推荐使用月度周期??
 - `soft limit`
-  - �ﵽ��ֵ����ʾ������ǿ�����??
+  - 达到阈值后提示，但不强制阻断??
 - `warning`
-  - �ӽ��򳬹����޶�ʱ���û�չʾ������??
+  - 接近或超过软限额时向用户展示的提醒??
 - `reset`
-  - ����ָ������ͳ��ֵ??
+  - 重置指定周期统计值??
 - `per-workflow attribution`
-  - ĳ�γɱ���¼���Թ��򵽾�??workflow����������??provider config??
+  - 某次成本记录可以归因到具??workflow，而不仅仅??provider config??
 
-### 10.3 ��ǰ��С���Ҫ??
+### 10.3 当前最小审计要??
 
-ϵͳ����Ӧ�ܻش���������??
+系统至少应能回答以下问题??
 
-- ˭�����������ĳ??config
-- ĳ�� config ��ʱ��֤�ɹ�
-- ĳ�� config Ԥ���ʱ�ۼ�����
-- �ĸ� workflow ��ǰ�󶨵���??config
+- 谁创建或更新了某??config
+- 某个 config 何时验证成功
+- 某个 config 预算何时累计增长
+- 哪个 workflow 当前绑定到哪??config
 
-��ǰ�ֿ��Ѿ��߱����в�������������˭���� / ���¡���ƫ�򱾵ص��û������������Ա����¼���¼�����ʱ�䲹�㣬������αװ���������ƽ̨??
+当前仓库已经具备其中部分能力，但“谁创建 / 更新”仍偏向本地单用户场景，可先以本地事件记录或更新时间补足，而不是伪装成完整审计平台??
 
-### 10.4 �ǵ�ǰ��ʵ��??
+### 10.4 非当前已实现??
 
-������������Ϊ��չ��������д�ɵ�ǰ�����??
+以下能力可作为扩展，但不得写成当前已完成??
 
-- Ӳ����??
-- ��ά��Ԥ���??
-- ��֯����ƹ�??
-- �Զ����ֻ�����ִ??
+- 硬性熔??
+- 多维度预算策??
+- 组织级审计归??
+- 自动化轮换策略执??
 
-## 11. legacy `aiConfig` Ǩ�ƹ淶
+## 11. legacy `aiConfig` 迁移规范
 
-### 11.1 Ǩ��Ŀ��
+### 11.1 迁移目标
 
-Ǩ�Ƶ�Ŀ���ǰѾ�ǰ�˱�����������Ϊ�� BYOK ��ģ�ͣ������ǳ��ڲ�������ϵͳ??
+迁移的目标是把旧前端本地配置升级为新 BYOK 主模型，而不是长期并存两套系统??
 
-### 11.2 Ǩ�ƹ���
+### 11.2 迁移规则
 
-- ����ʱ�ɼ�??legacy `aiConfig`
-- ���� `api_configs` �Ѵ��ڣ�??legacy ����ִֻ??retirement�����ظ���������??
-- ���������������� legacy ���ݿɽ�������
-  - �����µ� `ApiConfig`
-  - ??API key д�� SecretStore / Stronghold
-  - ??Rust ��ǰͳһ����������ָ�������
-- Ǩ��ʧ�ܲ�������������������ʾ��??
-- Ǩ�Ƴɹ�??retirement ��ɺ󣬱������� legacy �洢��Ǩ??flag ���屣��һ??
+- 启动时可检??legacy `aiConfig`
+- 若新 `api_configs` 已存在，??legacy 配置只执??retirement，不重复创建新配??
+- 若不存在新配置且 legacy 数据可解析，则：
+  - 创建新的 `ApiConfig`
+  - ??API key 写入 SecretStore / Stronghold
+  - ??Rust 当前统一工作流集合指向该配置
+- 迁移失败不阻塞启动，但必须提示用??
+- 迁移成功??retirement 完成后，必须清理 legacy 存储与迁??flag 语义保持一??
 
-### 11.3 ���ݱ�������
+### 11.3 兼容别名处理
 
 - legacy `openai_compatible`
-  - Ӧ��һ��Ϊ `custom_openai`
-- ���ݲ�Ŀ���Ǳ�֤Ǩ�Ƴɹ��������ǰѾ������������Ϊ�淶����
+  - 应归一化为 `custom_openai`
+- 兼容层目标是保证迁移成功，而不是把旧术语继续升级为规范主语
 
-## 12. ��ǰʵ�ֲ�����޸����ȼ�
+## 12. 当前实现差距与修复优先级
 
-����ֻ��¼��ǰ���Ƽ��淶֮�����ʵ��࣬��Ϊ���Ļ���??
+本节只记录当前与推荐规范之间的真实差距，作为整改基线??
 
-### 12.1 A �ࣺ��ʵʵ��ȱ��
+### 12.1 A 类：真实实现缺口
 1. Google ?? `authMode=adc` ???????????? JSON ?????????????????????????? GA?
 2. Google ?????????????? query param ? key????????? header / client-library ???
 
@@ -440,10 +440,10 @@ BYOK �ĵ����������������ද���������ٻ�д??
 1. `custom_*` ????????????????? provider??????????????????????
 2. ????????????????????? provider ???????????????
 
-1. ���ĵ���??Anthropic ����Ϊ���� lightweight metadata endpoint������˵���ѱ��ٷ��ĵ��Ʒ�??
-2. `custom_*` �ڲ����������Ա�д�ɡ��Զ��� provider�����������䱾������Э�������������һ��ʵ??
-3. `openai_compatible` �ڸ���㱻���ȷŴ�ʵ��Ӧ�˻�Ϊ������ݱ���??
-4. ģ�������ֶ�����һ�������ڲ�Ʒ�ƶ�ֵ������ provider ԭ������ֵ���ĵ�������ʽ����??
+1. 旧文档中??Anthropic 描述为“无 lightweight metadata endpoint”，该说法已被官方文档推翻??
+2. `custom_*` 在部分描述中仍被写成“自定义 provider”，弱化了其本质上是协议兼容适配器这一事实??
+3. `openai_compatible` 在概念层被过度放大，实际应退回为输入兼容别名??
+4. 模型能力字段中有一部分属于产品推断值，而非 provider 原生返回值；文档必须显式区分??
 
 ### 12.3 C ????????
 
@@ -460,21 +460,21 @@ BYOK �ĵ����������������ද���������ٻ�д??
 3. P1: ???? `validate_credentials` / `discover_models` / `probe_capabilities` ??????
 4. P2: ???? `openai_compatible` ? legacy ???????????????
 
-## 13. ��ƾ���ժҪ
+## 13. 设计决策摘要
 
-- BYOK �ڱ��ֿ���ָ provider credentials ������������ KMS �ﾳ??
-- `api_configs` ������ʽģ�������ã�`EmbeddingProfile` ���ֶ���??
-- Stronghold �ǵ�ǰ��ʽ��Կ�洢���ߣ����ٷ�������Ϊ����ȫ�洢��??
-- ǰ�˲��ܶ�ȡ����??API key??
-- ����У�顢ģ�ͷ��֡�����У����������ͬ������??
+- BYOK 在本仓库中指 provider credentials 管理，不是云 KMS 语境??
+- `api_configs` 是生成式模型主配置；`EmbeddingProfile` 保持独立??
+- Stronghold 是当前正式密钥存储基线，不再泛泛表述为“安全存储”??
+- 前端不能读取回明??API key??
+- 连接校验、模型发现、能力校验是三件不同的事情??
 - Anthropic ???????????????????????????????
 - Google ? `adc` ???????????????????? GA ?????
 - `card_animation` ????? workflow assignment ???
 - `custom_*` ???????`openai_compatible` ???????
 
-## 14. �ⲿ�ο���??
+## 14. 外部参考资??
 
-���½��йٷ���Ȩ����Դ������֧�ű��ĵ��е��Ƽ�������
+以下仅列官方或权威来源，用于支撑本文档中的推荐做法：
 
 - OpenAI Models API Reference
   - https://platform.openai.com/docs/api-reference/models/list

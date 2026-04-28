@@ -171,9 +171,9 @@ describe('BYOK workflow routing and budget tracking', () => {
     })
 
     const allAssignments = await apiConfigGateway.setAllWorkflowAssignments(profile.id)
-    expect(allAssignments).toHaveLength(6)
+    expect(allAssignments).toHaveLength(3)
     expect(allAssignments.every((item) => item.modelProfileId === profile.id)).toBe(true)
-    expect(allAssignments.some((item) => item.workflowType === 'card_animation')).toBe(true)
+    expect(allAssignments.some((item) => item.workflowType === 'knowledge_qa')).toBe(true)
 
     await apiConfigGateway.deleteWorkflowAssignment('knowledge_qa')
     await expect(apiConfigGateway.getWorkflowAssignment('knowledge_qa')).resolves.toBeNull()

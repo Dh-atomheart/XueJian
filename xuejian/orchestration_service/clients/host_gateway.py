@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -26,11 +28,22 @@ class HostGatewayClient:
 
     def __init__(self, base_url: str) -> None:
         self._base = base_url.rstrip("/")
+        self._token = os.environ.get("XUEJIAN_HOST_GATEWAY_TOKEN", "")
+
+    def _headers(self, content_type: bool = False) -> dict[str, str]:
+        headers = {
+            "X-XueJian-Gateway-Token": self._token,
+            "X-XueJian-Trace-Id": uuid.uuid4().hex,
+        }
+        if content_type:
+            headers["Content-Type"] = "application/json"
+        return headers
 
     def _get(self, path: str) -> dict:
         url = f"{self._base}{path}"
         try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            req = urllib.request.Request(url, headers=self._headers())
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
@@ -44,7 +57,7 @@ class HostGatewayClient:
         url = f"{self._base}{path}"
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
-            url, data=data, headers={"Content-Type": "application/json"}
+            url, data=data, headers=self._headers(content_type=True)
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:

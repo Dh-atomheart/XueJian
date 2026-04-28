@@ -16,6 +16,8 @@ export function usePointsSummaryQuery() {
   return useQuery({
     queryKey: pointsQueryKeys.summary(),
     queryFn: () => getPointsSummary(),
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
   })
 }
 

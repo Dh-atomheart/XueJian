@@ -152,7 +152,11 @@ pub fn run() {
             log::info!("Host HTTP gateway started on port {host_gateway_port}");
 
             let orchestration =
-                match tasks::OrchestrationService::new(app.handle(), Some(host_gateway_port)) {
+                match tasks::OrchestrationService::new(
+                    app.handle(),
+                    Some(host_gateway_port),
+                    Some(host_gateway.token()),
+                ) {
                     Ok(orchestration) => orchestration,
                     Err(error) => {
                         log::error!("Failed to initialize orchestration service: {}", error);
@@ -284,17 +288,6 @@ pub fn run() {
             commands::points::record_points,
             commands::points::list_points_ledger,
             commands::points::get_points_summary,
-            commands::animation::start_card_animation_workflow,
-            commands::animation::get_card_animation,
-            commands::animation::delete_card_animation,
-            commands::podcast::start_podcast_workflow,
-            commands::podcast::get_podcast_episode,
-            commands::podcast::list_podcast_episodes,
-            commands::podcast::cancel_podcast_episode,
-            commands::podcast::delete_podcast_episode,
-            commands::podcast::review_podcast_script,
-            commands::podcast::retry_podcast_episode,
-            commands::podcast::get_podcast_audio_segments,
             commands::logging::log_frontend_event,
         ])
         .build(tauri::generate_context!())
@@ -632,50 +625,6 @@ pub mod native_smoke {
             }
         }
 
-        match commands::podcast::start_podcast_workflow(
-            app.handle().clone(),
-            app.state::<app_state::AppState>(),
-            commands::podcast::StartPodcastDto {
-                document_ids: vec![report.document_id.as_deref().unwrap_or("").to_string()],
-                prompt: Some("Native smoke podcast over the imported fixture".to_string()),
-                style: Some("interview".to_string()),
-                language: Some("en-US".to_string()),
-                duration_tier: Some("short".to_string()),
-                tts_provider: Some("auto".to_string()),
-                audio_format: Some("mp3".to_string()),
-            },
-        ) {
-            Ok(episode) => {
-                let episode_value = serde_json::to_value(&episode).expect("serialize episode");
-                let final_episode = wait_for_podcast_episode(&app, &episode.id);
-                let fallback = final_episode["errorCode"].as_str() == Some("fallback_used")
-                    || final_episode["errorMessage"]
-                        .as_str()
-                        .unwrap_or("")
-                        .contains("fallback_used")
-                    || final_episode["audioPath"].is_null();
-                report.push(
-                    "podcast",
-                    if fallback {
-                        "fallback_detected"
-                    } else if final_episode["status"].as_str() == Some("ready") {
-                        "passed_real"
-                    } else {
-                        "failed"
-                    },
-                    format!(
-                        "initial={}, final={}",
-                        compact_json(&episode_value),
-                        compact_json(&final_episode)
-                    ),
-                );
-            }
-            Err(error) => {
-                let message = error.to_string();
-                report.push("podcast", classify_provider_error(&message), message)
-            }
-        }
-
         let markdown_path = report_dir.join("2026-04-26-tauri-native-smoke-report.md");
         let json_path = report_dir.join("2026-04-26-tauri-native-smoke-report.json");
         fs::write(&markdown_path, report.markdown()).expect("write native smoke markdown report");
@@ -716,8 +665,12 @@ pub mod native_smoke {
         let host_gateway = gateway::host_http::HostHttpGateway::new(app.handle().clone())
             .expect("create native smoke host gateway");
         let host_gateway_port = host_gateway.port();
-        let orchestration = tasks::OrchestrationService::new(app.handle(), Some(host_gateway_port))
-            .expect("initialize native smoke orchestration service");
+        let orchestration = tasks::OrchestrationService::new(
+            app.handle(),
+            Some(host_gateway_port),
+            Some(host_gateway.token()),
+        )
+        .expect("initialize native smoke orchestration service");
         app.manage(app_state::AppState::new(db, secrets, orchestration));
         host_gateway
             .start()
@@ -743,34 +696,6 @@ pub mod native_smoke {
                 }
                 Err(error) => {
                     latest = json!({ "id": run_id, "status": "failed", "error": error.to_string() })
-                }
-            }
-            std::thread::sleep(Duration::from_millis(750));
-        }
-        latest
-    }
-
-    fn wait_for_podcast_episode(app: &tauri::App, episode_id: &str) -> Value {
-        let deadline = Instant::now() + Duration::from_secs(180);
-        let mut latest = json!({ "id": episode_id, "status": "unknown" });
-        while Instant::now() < deadline {
-            match commands::podcast::get_podcast_episode(
-                app.handle().clone(),
-                app.state::<app_state::AppState>(),
-                episode_id.to_string(),
-            ) {
-                Ok(value) => {
-                    latest = serde_json::to_value(value).expect("serialize episode");
-                    if matches!(
-                        latest["status"].as_str(),
-                        Some("ready" | "failed" | "cancelled")
-                    ) {
-                        return latest;
-                    }
-                }
-                Err(error) => {
-                    latest =
-                        json!({ "id": episode_id, "status": "failed", "error": error.to_string() })
                 }
             }
             std::thread::sleep(Duration::from_millis(750));
@@ -812,7 +737,7 @@ pub mod native_smoke {
         let fixture_path = fixture_dir.join("tauri-native-smoke-fixture.md");
         fs::write(
             &fixture_path,
-            "# Native Smoke Fixture\n\nThis fixture verifies the native Library to Parse to Embedding chain.\n\nIt includes retrieval augmented generation, spaced repetition card generation, question answering, and podcast synthesis markers.\n\nNative entities: XueJian, Native IPC, Python orchestration, Host Gateway.\n",
+            "# Native Smoke Fixture\n\nThis fixture verifies the native Library to Parse to Embedding chain.\n\nIt includes retrieval augmented generation, spaced repetition card generation, and question answering markers.\n\nNative entities: XueJian, Native IPC, Python orchestration, Host Gateway.\n",
         )
         .expect("write smoke fixture");
         fixture_path

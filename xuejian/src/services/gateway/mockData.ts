@@ -41,43 +41,43 @@ const MOCK_WORKFLOW_RUN_ID = '11111111-1111-4111-8111-111111111111'
 const MOCK_PODCAST_EPISODE_ID = 'podcast-001'
 const MOCK_PODCAST_RUN_ID = 'run-podcast-001'
 
-function createMockPodcastScript(title = 'AI Ñ§Ï°²¥¿Í') {
+function createMockPodcastScript(title = 'AI å­¦ä¹ æ’­å®¢') {
   return {
     title,
-    description: '×Ô¶¯Éú³ÉµÄÑ§Ï°²¥¿Í',
-    speakers: ['Ö÷³ÖÈË', '×¨¼Ò'],
-    outline: ['»°Ìâ½éÉÜ', 'ºËĞÄ¸ÅÄî', 'Êµ¼ÊÓ¦ÓÃ'],
+    description: 'è‡ªåŠ¨ç”Ÿæˆçš„å­¦ä¹ æ’­å®¢',
+    speakers: ['ä¸»æŒäºº', 'ä¸“å®¶'],
+    outline: ['è¯é¢˜ä»‹ç»', 'æ ¸å¿ƒæ¦‚å¿µ', 'å®é™…åº”ç”¨'],
     segments: [
-      { id: 'seg1', speaker: 'Ö÷³ÖÈË', text: '»¶Ó­ÊÕÌı½ñÌìµÄ²¥¿Í£¡', durationMs: 5000 },
-      { id: 'seg2', speaker: '×¨¼Ò', text: '½ñÌìÎÒÃÇÀ´ÁÄÒ»ÁÄÑ§Ï°·½·¨¡£', durationMs: 6000 },
+      { id: 'seg1', speaker: 'ä¸»æŒäºº', text: 'æ¬¢è¿æ”¶å¬ä»Šå¤©çš„æ’­å®¢ï¼', durationMs: 5000 },
+      { id: 'seg2', speaker: 'ä¸“å®¶', text: 'ä»Šå¤©æˆ‘ä»¬æ¥èŠä¸€èŠå­¦ä¹ æ–¹æ³•ã€‚', durationMs: 6000 },
     ],
   }
 }
 
-function createMockPodcastOutline(title = 'AI Ñ§Ï°²¥¿Í') {
+function createMockPodcastOutline(title = 'AI å­¦ä¹ æ’­å®¢') {
   return {
     title,
-    description: '×Ô¶¯Éú³ÉµÄÑ§Ï°²¥¿ÍÌá¸Ù',
+    description: 'è‡ªåŠ¨ç”Ÿæˆçš„å­¦ä¹ æ’­å®¢æçº²',
     totalTargetDurationMs: 11000,
     segments: [
       {
         segmentIndex: 0,
-        topic: '»°Ìâ½éÉÜ',
-        keyPoints: ['½éÉÜÖ÷Ìâ', 'ËµÃ÷Ñ§Ï°¼ÛÖµ'],
+        topic: 'è¯é¢˜ä»‹ç»',
+        keyPoints: ['ä»‹ç»ä¸»é¢˜', 'è¯´æ˜å­¦ä¹ ä»·å€¼'],
         targetDurationMs: 5000,
         speakerAssignments: [
-          { speakerId: 'host', role: 'Ö÷³ÖÈË' },
-          { speakerId: 'expert', role: '×¨¼Ò' },
+          { speakerId: 'host', role: 'ä¸»æŒäºº' },
+          { speakerId: 'expert', role: 'ä¸“å®¶' },
         ],
       },
       {
         segmentIndex: 1,
-        topic: 'ºËĞÄ¸ÅÄî',
-        keyPoints: ['²ğ½â¸ÅÄî', '¸ø³öÀı×Ó'],
+        topic: 'æ ¸å¿ƒæ¦‚å¿µ',
+        keyPoints: ['æ‹†è§£æ¦‚å¿µ', 'ç»™å‡ºä¾‹å­'],
         targetDurationMs: 6000,
         speakerAssignments: [
-          { speakerId: 'expert', role: '×¨¼Ò' },
-          { speakerId: 'host', role: 'Ö÷³ÖÈË' },
+          { speakerId: 'expert', role: 'ä¸“å®¶' },
+          { speakerId: 'host', role: 'ä¸»æŒäºº' },
         ],
       },
     ],
@@ -92,13 +92,13 @@ function createMockPodcastEvaluation() {
     naturalness: 8,
     overallScore: 8,
     issues: [],
-    suggestions: ['¿É¼ÌĞø²¹³ä°¸Àı'],
+    suggestions: ['å¯ç»§ç»­è¡¥å……æ¡ˆä¾‹'],
     revised: false,
   }
 }
 
 function createMockPodcastEpisode(overrides: Partial<PodcastEpisode> = {}): PodcastEpisode {
-  const title = overrides.title ?? 'AI Ñ§Ï°²¥¿Í'
+  const title = overrides.title ?? 'AI å­¦ä¹ æ’­å®¢'
   const scriptJson = overrides.scriptJson ?? JSON.stringify(createMockPodcastScript(title))
   const outlineJson = overrides.outlineJson ?? JSON.stringify(createMockPodcastOutline(title))
   const evaluationJson = overrides.evaluationJson ?? JSON.stringify(createMockPodcastEvaluation())
@@ -110,7 +110,7 @@ function createMockPodcastEpisode(overrides: Partial<PodcastEpisode> = {}): Podc
     documentIds: [MOCK_DOCUMENT_ID],
     runId: MOCK_PODCAST_RUN_ID,
     title,
-    scopeDescription: '²âÊÔ²¥¿Í',
+    scopeDescription: 'æµ‹è¯•æ’­å®¢',
     style: 'interview',
     language: 'zh-CN',
     durationTier: 'medium',
@@ -173,14 +173,14 @@ function createMockCardAnimation(overrides: Partial<CardAnimation> = {}): CardAn
     mode,
     scriptJson: JSON.stringify({
       type: 'flashcard_reveal',
-      title: 'Ê²Ã´ÊÇ¹âºÏ×÷ÓÃ?',
+      title: 'ä»€ä¹ˆæ˜¯å…‰åˆä½œç”¨?',
       palette: 'default',
       steps: [
-        { id: 's1', type: 'text', content: 'Ê²Ã´ÊÇ¹âºÏ×÷ÓÃ?', emphasis: [], delay_ms: 0 },
+        { id: 's1', type: 'text', content: 'ä»€ä¹ˆæ˜¯å…‰åˆä½œç”¨?', emphasis: [], delay_ms: 0 },
         {
           id: 's2',
           type: 'reveal',
-          content: 'Ö²ÎïÀûÓÃ¹âÄÜ½«¶şÑõ»¯Ì¼ºÍË®×ª»¯ÎªÆÏÌÑÌÇºÍÑõÆøµÄ¹ı³Ì',
+          content: 'æ¤ç‰©åˆ©ç”¨å…‰èƒ½å°†äºŒæ°§åŒ–ç¢³å’Œæ°´è½¬åŒ–ä¸ºè‘¡è„ç³–å’Œæ°§æ°”çš„è¿‡ç¨‹',
           emphasis: [],
           delay_ms: 600,
         },
@@ -205,7 +205,7 @@ function createMockPodcastAudioSegments(episodeId: string): AudioSegment[] {
       id: 'pod-audio-001',
       episodeId,
       dialogueSegmentId: 'seg1',
-      speaker: 'Ö÷³ÖÈË',
+      speaker: 'ä¸»æŒäºº',
       filePath: `mock://podcasts/${episodeId}/seg1.mp3`,
       durationMs: 5000,
       ttsProvider: 'edge_tts',
@@ -215,7 +215,7 @@ function createMockPodcastAudioSegments(episodeId: string): AudioSegment[] {
       id: 'pod-audio-002',
       episodeId,
       dialogueSegmentId: 'seg2',
-      speaker: '×¨¼Ò',
+      speaker: 'ä¸“å®¶',
       filePath: `mock://podcasts/${episodeId}/seg2.mp3`,
       durationMs: 6000,
       ttsProvider: 'edge_tts',
@@ -296,8 +296,8 @@ function createInitialMockCards(): Card[] {
       groupId: null,
       documentId: MOCK_DOCUMENT_ID,
       anchorId: MOCK_ANCHOR_IDS[0],
-      front: 'ÎªÊ²Ã´ÔÄ¶ÁÇøÒª±£ÁôÎÈ¶¨Ãªµã£¿',
-      back: 'ÒòÎª¿¨Æ¬ÓëÔ­ÎÄµÄË«ÏòÌø×ª±ØĞë½¨Á¢ÔÚÎÈ¶¨Î»ÖÃÖ®ÉÏ£¬·ñÔò¶¨Î»»áÆ¯ÒÆ¡£',
+      front: 'ä¸ºä»€ä¹ˆé˜…è¯»åŒºè¦ä¿ç•™ç¨³å®šé”šç‚¹ï¼Ÿ',
+      back: 'å› ä¸ºå¡ç‰‡ä¸åŸæ–‡çš„åŒå‘è·³è½¬å¿…é¡»å»ºç«‹åœ¨ç¨³å®šä½ç½®ä¹‹ä¸Šï¼Œå¦åˆ™å®šä½ä¼šæ¼‚ç§»ã€‚',
       title: null,
       cardType: 'qa' as const,
       clusterId: null,
@@ -319,8 +319,8 @@ function createInitialMockCards(): Card[] {
       groupId: null,
       documentId: MOCK_DOCUMENT_ID,
       anchorId: MOCK_ANCHOR_IDS[1],
-      front: 'Ìù¼ãÀ¸ÎªÊ²Ã´Ó¦¶ÀÁ¢ÓÚÕıÎÄ£¿',
-      back: 'ÓÒ²àÌù¼ãÀ¸¿ÉÒÔ±£³ÖÉÏÏÂÎÄ¿É¼û£¬Í¬Ê±±ÜÃâÕÚµ²ÕıÎÄÓëÎÄ±¾Ñ¡Ôñ¡£',
+      front: 'è´´ç¬ºæ ä¸ºä»€ä¹ˆåº”ç‹¬ç«‹äºæ­£æ–‡ï¼Ÿ',
+      back: 'å³ä¾§è´´ç¬ºæ å¯ä»¥ä¿æŒä¸Šä¸‹æ–‡å¯è§ï¼ŒåŒæ—¶é¿å…é®æŒ¡æ­£æ–‡ä¸æ–‡æœ¬é€‰æ‹©ã€‚',
       title: null,
       cardType: 'qa' as const,
       clusterId: null,
@@ -348,13 +348,13 @@ function createInitialMockCardCandidates(): CardCandidate[] {
       documentId: MOCK_DOCUMENT_ID,
       sectionId: null,
       anchorId: MOCK_ANCHOR_IDS[0],
-      title: 'ÎÈ¶¨Ãªµã',
+      title: 'ç¨³å®šé”šç‚¹',
       cardType: 'qa',
       sourcePage: 1,
       sourceParagraph: 1,
       sourceQuote: mockAnchors[0].textQuote,
-      front: 'ÎªÊ²Ã´ÎÄµµ¿¨Æ¬¹¤×÷Á÷Ç¿µ÷ÎÈ¶¨Ãªµã£¿',
-      back: 'ÒòÎªºòÑ¡¿¨Æ¬±ØĞëÄÜ»Øµ½Ô­ÎÄ¶¨Î»£¬·ñÔòÈË¹¤ÉóÔÄºÍºóĞø¸´Ï°¶¼ÎŞ·¨¿É¿¿×·Ëİ¡£',
+      front: 'ä¸ºä»€ä¹ˆæ–‡æ¡£å¡ç‰‡å·¥ä½œæµå¼ºè°ƒç¨³å®šé”šç‚¹ï¼Ÿ',
+      back: 'å› ä¸ºå€™é€‰å¡ç‰‡å¿…é¡»èƒ½å›åˆ°åŸæ–‡å®šä½ï¼Œå¦åˆ™äººå·¥å®¡é˜…å’Œåç»­å¤ä¹ éƒ½æ— æ³•å¯é è¿½æº¯ã€‚',
       tags: ['workflow', 'anchor'],
       confidence: 0.93,
       dedupeKey: 'mock-candidate-anchor',
@@ -364,7 +364,7 @@ function createInitialMockCardCandidates(): CardCandidate[] {
       visibilityBucket: 'default',
       generationMode: 'llm',
       fallbackReason: null,
-      evaluationSummary: 'ÎÊÌâÇåÎú£¬À´Ô´ÃªµãÎÈ¶¨£¬ÊÊºÏÖ±½Ó½øÈëÈË¹¤È·ÈÏ¡£',
+      evaluationSummary: 'é—®é¢˜æ¸…æ™°ï¼Œæ¥æºé”šç‚¹ç¨³å®šï¼Œé€‚åˆç›´æ¥è¿›å…¥äººå·¥ç¡®è®¤ã€‚',
       sourceChunkIds: [mockChunks[0].id],
       createdAt: new Date(MOCK_NOW),
     },
@@ -374,13 +374,13 @@ function createInitialMockCardCandidates(): CardCandidate[] {
       documentId: MOCK_DOCUMENT_ID,
       sectionId: null,
       anchorId: MOCK_ANCHOR_IDS[1],
-      title: 'Ìù¼ã²¼¾Ö',
+      title: 'è´´ç¬ºå¸ƒå±€',
       cardType: 'fact',
       sourcePage: 1,
       sourceParagraph: 2,
       sourceQuote: mockAnchors[1].textQuote,
-      front: 'Ìù¼ã²»Ó¦¸²¸ÇÕıÎÄ',
-      back: 'Ìù¼ãÀ¸Ó¦¶ÀÁ¢ÓÚÕıÎÄ£¬¼È±£ÁôÉÏÏÂÎÄÓÖ²»Ó°ÏìÔÄ¶ÁÓëÑ¡Çø¡£',
+      front: 'è´´ç¬ºä¸åº”è¦†ç›–æ­£æ–‡',
+      back: 'è´´ç¬ºæ åº”ç‹¬ç«‹äºæ­£æ–‡ï¼Œæ—¢ä¿ç•™ä¸Šä¸‹æ–‡åˆä¸å½±å“é˜…è¯»ä¸é€‰åŒºã€‚',
       tags: ['layout'],
       confidence: 0.56,
       dedupeKey: 'mock-candidate-layout',
@@ -390,7 +390,7 @@ function createInitialMockCardCandidates(): CardCandidate[] {
       visibilityBucket: 'hidden_low_quality',
       generationMode: 'fallback_rule',
       fallbackReason: 'mock_browser_preview',
-      evaluationSummary: 'ĞÅÏ¢×¼È·µ«±í´ïÆ«Æ½£¬¿ÉÔÚĞèÒªÊ±Õ¹¿ª²é¿´¡£',
+      evaluationSummary: 'ä¿¡æ¯å‡†ç¡®ä½†è¡¨è¾¾åå¹³ï¼Œå¯åœ¨éœ€è¦æ—¶å±•å¼€æŸ¥çœ‹ã€‚',
       sourceChunkIds: [mockChunks[0].id],
       createdAt: new Date(MOCK_NOW),
     },
@@ -433,7 +433,7 @@ function createInitialMockWorkflowEvents(): WorkflowEvent[] {
     {
       runId: MOCK_WORKFLOW_RUN_ID,
       eventType: 'waiting_confirmation',
-      message: 'ºòÑ¡ÒÑÉú³É£¬µÈ´ıÈË¹¤È·ÈÏ',
+      message: 'å€™é€‰å·²ç”Ÿæˆï¼Œç­‰å¾…äººå·¥ç¡®è®¤',
       progress: 1,
       payload: null,
       createdAt: new Date(MOCK_NOW),
@@ -550,8 +550,6 @@ const MOCK_WORKFLOW_TYPES: WorkflowType[] = [
   'card_generation',
   'document_embedding',
   'knowledge_qa',
-  'podcast_generation',
-  'card_animation',
 ]
 
 function normalizeMockApiProvider(provider: ApiConfig['provider']): ApiConfig['provider'] {
@@ -852,7 +850,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       ? data.documentIds.filter((value): value is string => typeof value === 'string')
       : [MOCK_DOCUMENT_ID]
     const prompt = getString(data?.prompt)?.trim() ?? ''
-    const title = prompt || 'AI Ñ§Ï°²¥¿Í'
+    const title = prompt || 'AI å­¦ä¹ æ’­å®¢'
     const style = getPodcastStyle(data?.style) ?? 'interview'
     const language = getPodcastLanguage(data?.language) ?? 'zh-CN'
     const durationTier = getPodcastDurationTier(data?.durationTier) ?? 'medium'
@@ -931,7 +929,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       id: `podcast-${crypto.randomUUID()}`,
       runId: `run-${crypto.randomUUID()}`,
       documentIds: original?.documentIds ?? [MOCK_DOCUMENT_ID],
-      title: original?.title ?? 'AI Ñ§Ï°²¥¿Í',
+      title: original?.title ?? 'AI å­¦ä¹ æ’­å®¢',
       scopeDescription: original?.scopeDescription ?? '',
       style: original?.style ?? 'interview',
       language: original?.language ?? 'zh-CN',
@@ -1093,7 +1091,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
 
     if (target.workflowRunId) {
       syncMockWorkflowRunSummary(target.workflowRunId)
-      appendMockWorkflowEvent(target.workflowRunId, 'progress', 'ºòÑ¡ÄÚÈİÒÑ¸üĞÂ', {
+      appendMockWorkflowEvent(target.workflowRunId, 'progress', 'å€™é€‰å†…å®¹å·²æ›´æ–°', {
         candidateId: target.id,
         status: target.status,
       })
@@ -1134,7 +1132,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
 
     if (updated > 0) {
       syncMockWorkflowRunSummary(targetRunId)
-      appendMockWorkflowEvent(targetRunId, 'progress', 'ºòÑ¡×´Ì¬ÒÑÅúÁ¿¸üĞÂ', {
+      appendMockWorkflowEvent(targetRunId, 'progress', 'å€™é€‰çŠ¶æ€å·²æ‰¹é‡æ›´æ–°', {
         status: nextStatus,
         count: updated,
       })
@@ -1154,7 +1152,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     run.finishedAt = null
     run.updatedAt = new Date()
     syncMockWorkflowRunSummary(run.id)
-    appendMockWorkflowEvent(run.id, 'started', '¹¤×÷Á÷ÒÑ»Ö¸´£¬¼ÌĞø´¦ÀíÊ£ÓàºòÑ¡', { mode: 'mock' })
+    appendMockWorkflowEvent(run.id, 'started', 'å·¥ä½œæµå·²æ¢å¤ï¼Œç»§ç»­å¤„ç†å‰©ä½™å€™é€‰', { mode: 'mock' })
 
     return serializeWorkflowRun(run) as T
   }
@@ -1223,7 +1221,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     run.finishedAt = now
     run.updatedAt = now
     syncMockWorkflowRunSummary(run.id)
-    appendMockWorkflowEvent(run.id, 'completed', `ÒÑÍê³ÉÈë¿â£¬ĞÂÔö ${created} ÕÅ¿¨Æ¬`, {
+    appendMockWorkflowEvent(run.id, 'completed', `å·²å®Œæˆå…¥åº“ï¼Œæ–°å¢ ${created} å¼ å¡ç‰‡`, {
       createdCount: created,
     })
 
@@ -1536,8 +1534,8 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       exportGuid: crypto.randomUUID(),
       documentId: null,
       anchorId: null,
-      front: 'µ¼ÈëµÄ mock APKG ¿¨Æ¬ÊÇÊ²Ã´£¿',
-      back: 'ÕâÊÇÓÃÓÚÑéÖ¤µ¼ÈëÁ÷³ÌµÄ mock Êı¾İ¡£',
+      front: 'å¯¼å…¥çš„ mock APKG å¡ç‰‡æ˜¯ä»€ä¹ˆï¼Ÿ',
+      back: 'è¿™æ˜¯ç”¨äºéªŒè¯å¯¼å…¥æµç¨‹çš„ mock æ•°æ®ã€‚',
       sourcePage: null,
       sourceParagraph: null,
       sourceCoordinates: null,
@@ -1987,26 +1985,26 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     if (authMode === 'adc') {
       return {
         success: false,
-        message: `provider ${provider} Ôİ²»Ö§³Ö authMode=adc`,
+        message: `provider ${provider} æš‚ä¸æ”¯æŒ authMode=adc`,
       } as T
     }
 
     if (!apiKey) {
-      return { success: false, message: 'È±ÉÙ API Key¡£' } as T
+      return { success: false, message: 'ç¼ºå°‘ API Keyã€‚' } as T
     }
 
     if (provider === 'custom_openai') {
       if (!baseUrl) {
-        return { success: false, message: 'Custom (OpenAI-Compatible) ĞèÒªÌá¹© Base URL¡£' } as T
+        return { success: false, message: 'Custom (OpenAI-Compatible) éœ€è¦æä¾› Base URLã€‚' } as T
       }
 
       return {
         success: true,
-        message: `Custom (OpenAI-Compatible) ÅäÖÃ×Ö¶ÎÍêÕû£¬Base URL: ${baseUrl}`,
+        message: `Custom (OpenAI-Compatible) é…ç½®å­—æ®µå®Œæ•´ï¼ŒBase URL: ${baseUrl}`,
       } as T
     }
 
-    return { success: true, message: 'Á¬½Ó²âÊÔÍ¨¹ı (mock)' } as T
+    return { success: true, message: 'è¿æ¥æµ‹è¯•é€šè¿‡ (mock)' } as T
   }
 
   if (cmd === 'fetch_provider_models') {
@@ -2410,7 +2408,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         .map(serializeHighlight),
       limit
     ),
-    test_api_connection: { success: true, message: 'Á¬½Ó²âÊÔÍ¨¹ı (mock)' },
+    test_api_connection: { success: true, message: 'è¿æ¥æµ‹è¯•é€šè¿‡ (mock)' },
     update_settings: mockAppSettings,
     get_daily_stats: { newCards: 2, reviewCards: 0, correctRate: 1 },
     get_study_stats: {
@@ -2456,7 +2454,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         pageStart: 1,
         pageEnd: 1,
         content: "Chunking keeps the page readable while stable anchors hold the user's place.",
-        snippet: 'Chunking keeps the page readable¡­',
+        snippet: 'Chunking keeps the page readableâ€¦',
       },
     ],
     start_knowledge_qa_workflow: {
@@ -2619,14 +2617,14 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       mode: 'quick_preview',
       scriptJson: JSON.stringify({
         type: 'flashcard_reveal',
-        title: 'Ê²Ã´ÊÇ¹âºÏ×÷ÓÃ?',
+        title: 'ä»€ä¹ˆæ˜¯å…‰åˆä½œç”¨?',
         palette: 'default',
         steps: [
-          { id: 's1', type: 'text', content: 'Ê²Ã´ÊÇ¹âºÏ×÷ÓÃ?', emphasis: [], delay_ms: 0 },
+          { id: 's1', type: 'text', content: 'ä»€ä¹ˆæ˜¯å…‰åˆä½œç”¨?', emphasis: [], delay_ms: 0 },
           {
             id: 's2',
             type: 'reveal',
-            content: 'Ö²ÎïÀûÓÃ¹âÄÜ½«¶şÑõ»¯Ì¼ºÍË®×ª»¯ÎªÆÏÌÑÌÇºÍÑõÆøµÄ¹ı³Ì',
+            content: 'æ¤ç‰©åˆ©ç”¨å…‰èƒ½å°†äºŒæ°§åŒ–ç¢³å’Œæ°´è½¬åŒ–ä¸ºè‘¡è„ç³–å’Œæ°§æ°”çš„è¿‡ç¨‹',
             emphasis: [],
             delay_ms: 600,
           },
@@ -2650,14 +2648,14 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       mode: 'quick_preview',
       scriptJson: JSON.stringify({
         type: 'flashcard_reveal',
-        title: 'Ê²Ã´ÊÇ¹âºÏ×÷ÓÃ?',
+        title: 'ä»€ä¹ˆæ˜¯å…‰åˆä½œç”¨?',
         palette: 'default',
         steps: [
-          { id: 's1', type: 'text', content: 'Ê²Ã´ÊÇ¹âºÏ×÷ÓÃ?', emphasis: [], delay_ms: 0 },
+          { id: 's1', type: 'text', content: 'ä»€ä¹ˆæ˜¯å…‰åˆä½œç”¨?', emphasis: [], delay_ms: 0 },
           {
             id: 's2',
             type: 'reveal',
-            content: 'Ö²ÎïÀûÓÃ¹âÄÜ½«¶şÑõ»¯Ì¼ºÍË®×ª»¯ÎªÆÏÌÑÌÇºÍÑõÆøµÄ¹ı³Ì',
+            content: 'æ¤ç‰©åˆ©ç”¨å…‰èƒ½å°†äºŒæ°§åŒ–ç¢³å’Œæ°´è½¬åŒ–ä¸ºè‘¡è„ç³–å’Œæ°§æ°”çš„è¿‡ç¨‹',
             emphasis: [],
             delay_ms: 600,
           },
@@ -2675,21 +2673,21 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     },
     delete_card_animation: undefined,
 
-    // ©¤©¤©¤ Podcast ©¤©¤©¤
+    // â”€â”€â”€ Podcast â”€â”€â”€
     start_podcast_workflow: {
       id: 'podcast-001',
       documentId: null,
       runId: 'run-podcast-001',
-      title: 'AI Ñ§Ï°²¥¿Í',
-      scopeDescription: '²âÊÔ²¥¿Í',
+      title: 'AI å­¦ä¹ æ’­å®¢',
+      scopeDescription: 'æµ‹è¯•æ’­å®¢',
       scriptJson: JSON.stringify({
-        title: 'AI Ñ§Ï°²¥¿Í',
-        description: '×Ô¶¯Éú³ÉµÄÑ§Ï°²¥¿Í',
-        speakers: ['Ö÷³ÖÈË', '×¨¼Ò'],
-        outline: ['»°Ìâ½éÉÜ', 'ºËĞÄ¸ÅÄî', 'Êµ¼ÊÓ¦ÓÃ'],
+        title: 'AI å­¦ä¹ æ’­å®¢',
+        description: 'è‡ªåŠ¨ç”Ÿæˆçš„å­¦ä¹ æ’­å®¢',
+        speakers: ['ä¸»æŒäºº', 'ä¸“å®¶'],
+        outline: ['è¯é¢˜ä»‹ç»', 'æ ¸å¿ƒæ¦‚å¿µ', 'å®é™…åº”ç”¨'],
         segments: [
-          { id: 'seg1', speaker: 'Ö÷³ÖÈË', text: '»¶Ó­ÊÕÌı½ñÌìµÄ²¥¿Í£¡', durationMs: 5000 },
-          { id: 'seg2', speaker: '×¨¼Ò', text: '½ñÌìÎÒÃÇÀ´ÁÄÒ»ÁÄÑ§Ï°·½·¨¡£', durationMs: 6000 },
+          { id: 'seg1', speaker: 'ä¸»æŒäºº', text: 'æ¬¢è¿æ”¶å¬ä»Šå¤©çš„æ’­å®¢ï¼', durationMs: 5000 },
+          { id: 'seg2', speaker: 'ä¸“å®¶', text: 'ä»Šå¤©æˆ‘ä»¬æ¥èŠä¸€èŠå­¦ä¹ æ–¹æ³•ã€‚', durationMs: 6000 },
         ],
       }),
       audioPath: null,
@@ -2707,16 +2705,16 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       id: 'podcast-001',
       documentId: null,
       runId: 'run-podcast-001',
-      title: 'AI Ñ§Ï°²¥¿Í',
-      scopeDescription: '²âÊÔ²¥¿Í',
+      title: 'AI å­¦ä¹ æ’­å®¢',
+      scopeDescription: 'æµ‹è¯•æ’­å®¢',
       scriptJson: JSON.stringify({
-        title: 'AI Ñ§Ï°²¥¿Í',
-        description: '×Ô¶¯Éú³ÉµÄÑ§Ï°²¥¿Í',
-        speakers: ['Ö÷³ÖÈË', '×¨¼Ò'],
-        outline: ['»°Ìâ½éÉÜ', 'ºËĞÄ¸ÅÄî', 'Êµ¼ÊÓ¦ÓÃ'],
+        title: 'AI å­¦ä¹ æ’­å®¢',
+        description: 'è‡ªåŠ¨ç”Ÿæˆçš„å­¦ä¹ æ’­å®¢',
+        speakers: ['ä¸»æŒäºº', 'ä¸“å®¶'],
+        outline: ['è¯é¢˜ä»‹ç»', 'æ ¸å¿ƒæ¦‚å¿µ', 'å®é™…åº”ç”¨'],
         segments: [
-          { id: 'seg1', speaker: 'Ö÷³ÖÈË', text: '»¶Ó­ÊÕÌı½ñÌìµÄ²¥¿Í£¡', durationMs: 5000 },
-          { id: 'seg2', speaker: '×¨¼Ò', text: '½ñÌìÎÒÃÇÀ´ÁÄÒ»ÁÄÑ§Ï°·½·¨¡£', durationMs: 6000 },
+          { id: 'seg1', speaker: 'ä¸»æŒäºº', text: 'æ¬¢è¿æ”¶å¬ä»Šå¤©çš„æ’­å®¢ï¼', durationMs: 5000 },
+          { id: 'seg2', speaker: 'ä¸“å®¶', text: 'ä»Šå¤©æˆ‘ä»¬æ¥èŠä¸€èŠå­¦ä¹ æ–¹æ³•ã€‚', durationMs: 6000 },
         ],
       }),
       audioPath: null,
@@ -2939,9 +2937,7 @@ function getDate(value: unknown) {
 function getWorkflowType(value: unknown): WorkflowRun['workflowType'] | undefined {
   return value === 'card_generation' ||
     value === 'document_embedding' ||
-    value === 'knowledge_qa' ||
-    value === 'podcast_generation' ||
-    value === 'card_animation'
+    value === 'knowledge_qa'
     ? value
     : undefined
 }

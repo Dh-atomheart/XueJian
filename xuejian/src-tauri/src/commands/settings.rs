@@ -19,12 +19,10 @@ use crate::{
     },
 };
 
-const WORKFLOW_TYPES: [&str; 5] = [
+const WORKFLOW_TYPES: [&str; 3] = [
     "card_generation",
     "document_embedding",
     "knowledge_qa",
-    "podcast_generation",
-    "card_animation",
 ];
 
 const ANTHROPIC_VERSION_HEADER: &str = "2023-06-01";
@@ -2257,7 +2255,11 @@ mod tests {
     }
 
     #[test]
-    fn workflow_types_include_card_animation() {
-        assert!(WORKFLOW_TYPES.contains(&"card_animation"));
+    fn workflow_types_exclude_paused_workflows() {
+        assert!(WORKFLOW_TYPES.contains(&"card_generation"));
+        assert!(WORKFLOW_TYPES.contains(&"document_embedding"));
+        assert!(WORKFLOW_TYPES.contains(&"knowledge_qa"));
+        assert!(!WORKFLOW_TYPES.contains(&"podcast_generation"));
+        assert!(!WORKFLOW_TYPES.contains(&"card_animation"));
     }
 }

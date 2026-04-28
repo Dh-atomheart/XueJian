@@ -50,8 +50,8 @@ export interface CardStudioPageProps {
   onCreateCard: () => void
   onEditCard: (cardId: string) => void
   onDeleteCard: (cardId: string) => void
-  onQuickPreviewCard: (cardId: string) => void
-  onRenderVideoCard: (cardId: string) => void
+  onQuickPreviewCard?: (cardId: string) => void
+  onRenderVideoCard?: (cardId: string) => void
   onOpenLibrary: () => void
 }
 
@@ -281,26 +281,30 @@ export function CardStudioPage(props: CardStudioPageProps) {
                         <h3 className="mt-3 line-clamp-2 text-sm font-medium leading-6 text-foreground">{card.front}</h3>
                       </div>
                       <div className="flex shrink-0 gap-1">
+                        {props.onQuickPreviewCard ? (
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-8 w-8 p-0"
-                          onClick={() => props.onQuickPreviewCard(card.id)}
+                          onClick={() => props.onQuickPreviewCard?.(card.id)}
                           data-testid={`card-studio-quick-preview-${card.id}`}
                           title="快速演示"
                         >
                           <Sparkles className="h-4 w-4" />
                         </Button>
+                        ) : null}
+                        {props.onRenderVideoCard ? (
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-8 w-8 p-0"
-                          onClick={() => props.onRenderVideoCard(card.id)}
+                          onClick={() => props.onRenderVideoCard?.(card.id)}
                           data-testid={`card-studio-render-video-${card.id}`}
                           title="生成高质量视频"
                         >
                           <Clapperboard className="h-4 w-4" />
                         </Button>
+                        ) : null}
                         <Button
                           variant="ghost"
                           size="sm"

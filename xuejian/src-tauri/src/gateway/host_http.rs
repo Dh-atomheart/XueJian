@@ -36,6 +36,7 @@ type Result<T> = std::result::Result<T, HostGatewayError>;
 /// Shared state accessible from the HTTP handler.
 pub struct HostGatewayState {
     pub app_handle: AppHandle,
+    pub token: String,
 }
 
 /// A minimal HTTP gateway that the Python orchestration service can call
@@ -53,13 +54,20 @@ impl HostHttpGateway {
         drop(listener);
 
         Ok(Self {
-            state: Arc::new(HostGatewayState { app_handle }),
+            state: Arc::new(HostGatewayState {
+                app_handle,
+                token: uuid::Uuid::new_v4().to_string(),
+            }),
             port,
         })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    pub fn token(&self) -> String {
+        self.state.token.clone()
     }
 
     pub fn state(&self) -> Arc<HostGatewayState> {
@@ -97,58 +105,63 @@ impl HostHttpGateway {
 }
 
 fn handle_connection(mut stream: std::net::TcpStream, state: &HostGatewayState) {
-    use std::io::{BufRead, BufReader, Write};
+    use std::io::{BufRead, BufReader, Read, Write};
 
     let started_at = std::time::Instant::now();
-    let reader = BufReader::new(&stream);
-    let mut lines = reader.lines();
-
-    let request_line = match lines.next() {
-        Some(Ok(line)) => line,
-        _ => return,
-    };
-
+    let mut reader = BufReader::new(&stream);
+    let mut request_line = String::new();
+    let _ = reader.read_line(&mut request_line);
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     let method = parts.first().copied().unwrap_or("GET");
     let path = parts.get(1).copied().unwrap_or("/");
 
     // Read headers (we need Content-Length for POST bodies)
+    let mut headers = BTreeMap::new();
     let mut content_length: usize = 0;
-    for line in lines.by_ref() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => return,
-        };
-        if line.is_empty() {
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        if line.trim().is_empty() {
             break;
         }
-        if let Some(value) = line.strip_prefix("Content-Length:") {
-            content_length = value.trim().parse().unwrap_or(0);
+        if let Some((name, value)) = line.split_once(':') {
+            let name = name.trim().to_ascii_lowercase();
+            let value = value.trim().to_string();
+            if name == "content-length" {
+                content_length = value.parse().unwrap_or(0);
+            }
+            headers.insert(name, value);
         }
     }
 
-    // Read body if present
+    // Read body from the same reader (not stream directly) to use BufReader's buffered data
     let body: Vec<u8> = if content_length > 0 {
-        use std::io::Read;
         let mut body = vec![0u8; content_length];
-        let _ = stream.read(&mut body);
+        let _ = reader.read_exact(&mut body);
         body
     } else {
         Vec::new()
     };
 
-    let response = route_request(method, path, &body, state);
+    let response = route_request(method, path, &headers, &body, state);
     let status_code = response.status_code();
     let duration_ms = started_at.elapsed().as_secs_f64() * 1000.0;
+    let trace_id = headers
+        .get("x-xuejian-trace-id")
+        .map(String::as_str)
+        .unwrap_or("-");
     if status_code >= 500 {
         log::error!(
             target: "host_gateway",
-            "HTTP {method} {path} -> {status_code} ({duration_ms:.2}ms)"
+            "HTTP {method} {path} -> {status_code} trace={trace_id} ({duration_ms:.2}ms)"
         );
     } else {
         log::info!(
             target: "host_gateway",
-            "HTTP {method} {path} -> {status_code} ({duration_ms:.2}ms)"
+            "HTTP {method} {path} -> {status_code} trace={trace_id} ({duration_ms:.2}ms)"
         );
     }
     let response_bytes = format!(
@@ -166,6 +179,7 @@ enum GatewayResponse {
     Ok(String),
     NotFound(String),
     BadRequest(String),
+    Unauthorized(String),
     InternalError(String),
 }
 
@@ -175,13 +189,18 @@ impl GatewayResponse {
             Self::Ok(_) => 200,
             Self::NotFound(_) => 404,
             Self::BadRequest(_) => 400,
+            Self::Unauthorized(_) => 401,
             Self::InternalError(_) => 500,
         }
     }
 
     fn body(&self) -> &str {
         match self {
-            Self::Ok(s) | Self::NotFound(s) | Self::BadRequest(s) | Self::InternalError(s) => s,
+            Self::Ok(s)
+            | Self::NotFound(s)
+            | Self::BadRequest(s)
+            | Self::Unauthorized(s)
+            | Self::InternalError(s) => s,
         }
     }
 }
@@ -189,9 +208,14 @@ impl GatewayResponse {
 fn route_request(
     method: &str,
     path: &str,
+    headers: &BTreeMap<String, String>,
     body: &[u8],
     state: &HostGatewayState,
 ) -> GatewayResponse {
+    if !is_gateway_authorized(headers, &state.token) {
+        return GatewayResponse::Unauthorized(json!({"error": "unauthorized"}).to_string());
+    }
+
     let app_state = state.app_handle.state::<AppState>();
 
     match (method, path) {
@@ -766,6 +790,13 @@ fn route_request(
 
         _ => GatewayResponse::NotFound(json!({"error": "not_found", "path": path}).to_string()),
     }
+}
+
+fn is_gateway_authorized(headers: &BTreeMap<String, String>, expected_token: &str) -> bool {
+    headers
+        .get("x-xuejian-gateway-token")
+        .map(String::as_str)
+        .is_some_and(|provided_token| provided_token == expected_token)
 }
 
 // ── ModelGateway helpers ──────────────────────────────────
@@ -2128,4 +2159,30 @@ fn append_workflow_event_json(state: &AppState, run_id: &str, request: Value) ->
         "payload": event.payload,
         "createdAt": event.created_at,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gateway_auth_requires_exact_token() {
+        let expected = "host-token";
+        let empty_headers = BTreeMap::new();
+        assert!(!is_gateway_authorized(&empty_headers, expected));
+
+        let mut wrong_headers = BTreeMap::new();
+        wrong_headers.insert(
+            "x-xuejian-gateway-token".to_string(),
+            "wrong-token".to_string(),
+        );
+        assert!(!is_gateway_authorized(&wrong_headers, expected));
+
+        let mut correct_headers = BTreeMap::new();
+        correct_headers.insert(
+            "x-xuejian-gateway-token".to_string(),
+            expected.to_string(),
+        );
+        assert!(is_gateway_authorized(&correct_headers, expected));
+    }
 }

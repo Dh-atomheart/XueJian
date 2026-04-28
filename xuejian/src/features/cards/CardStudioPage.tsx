@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { AnimationPreviewModal } from '@/components/cards'
 import { CardCandidatePanel } from '@/components/cards/CardCandidatePanel'
 import { CardEditorModal, type CardEditorDraft } from '@/components/cards/CardEditorModal'
 import { Card, CardContent, Button } from '@/components/ui'
@@ -39,10 +38,6 @@ type FinalizeSummary = {
   highlightsUnlinked: number
 }
 
-type AnimationModalState =
-  | { cardId: string; cardFront: string; mode: 'quick_preview' | 'video_render' }
-  | null
-
 export function CardStudioPage() {
   const queryClient = useQueryClient()
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
@@ -62,7 +57,6 @@ export function CardStudioPage() {
   const [cardLimitInput, setCardLimitInput] = useState('24')
   const [searchQuery, setSearchQuery] = useState('')
   const [editorState, setEditorState] = useState<EditorState>(null)
-  const [animationModalState, setAnimationModalState] = useState<AnimationModalState>(null)
   const [finalizeSummary, setFinalizeSummary] = useState<FinalizeSummary | null>(null)
 
   useEffect(() => {
@@ -361,16 +355,6 @@ export function CardStudioPage() {
             if (card) setEditorState({ mode: 'edit-card', card })
           }}
           onDeleteCard={(cardId) => deleteMutation.mutate(cardId)}
-          onQuickPreviewCard={(cardId) => {
-            const card = cards.find((item) => item.id === cardId)
-            if (!card) return
-            setAnimationModalState({ cardId, cardFront: card.front, mode: 'quick_preview' })
-          }}
-          onRenderVideoCard={(cardId) => {
-            const card = cards.find((item) => item.id === cardId)
-            if (!card) return
-            setAnimationModalState({ cardId, cardFront: card.front, mode: 'video_render' })
-          }}
           onOpenLibrary={() => setActiveNavItem('library')}
         />
 
@@ -514,14 +498,6 @@ export function CardStudioPage() {
         />
       ) : null}
 
-      {animationModalState ? (
-        <AnimationPreviewModal
-          cardId={animationModalState.cardId}
-          cardFront={animationModalState.cardFront}
-          initialMode={animationModalState.mode}
-          onClose={() => setAnimationModalState(null)}
-        />
-      ) : null}
     </>
   )
 }

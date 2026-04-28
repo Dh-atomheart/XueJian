@@ -4,7 +4,6 @@ import { CardStudioPage } from '@/features/cards'
 import { HomePage } from '@/features/dashboard'
 import { LibraryPage, ReaderPage } from '@/features/documents'
 import { KnowledgeQaPage } from '@/features/knowledge'
-import { PodcastPage } from '@/features/podcast'
 import { ProfilePage } from '@/features/profile'
 import { ReviewPage } from '@/features/review'
 import { SettingsPage } from '@/features/settings'
@@ -48,8 +47,6 @@ function CurrentPage({ activeNavItem }: { activeNavItem: NavItemId }) {
       return <ReviewPage />
     case 'knowledge':
       return <KnowledgeQaPage />
-    case 'podcast':
-      return <PodcastPage />
     case 'settings':
       return <SettingsPage />
     case 'profile':

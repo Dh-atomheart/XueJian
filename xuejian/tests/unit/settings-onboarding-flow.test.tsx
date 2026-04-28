@@ -320,9 +320,10 @@ describe('settings onboarding flow', () => {
 
     renderWithProviders(<SettingsPage forcedOnboarding />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Podcast/i }))
+    expect(screen.queryByRole('button', { name: /Podcast/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '学习偏好' }))
 
-    expect(screen.getByRole('heading', { name: '播客与语音' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '学习偏好' })).toBeInTheDocument()
   })
 
   it('reports an error instead of failing silently when config save fails', async () => {

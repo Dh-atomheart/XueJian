@@ -33,6 +33,8 @@ export function useStudyStatsQuery() {
   return useQuery({
     queryKey: learningQueryKeys.studyStats(),
     queryFn: () => cardsGateway.getStudyStats(),
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
   })
 }
 
@@ -40,6 +42,8 @@ export function useMasteryBreakdownQuery() {
   return useQuery({
     queryKey: learningQueryKeys.masteryBreakdown(),
     queryFn: () => cardsGateway.getMasteryBreakdown(),
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
   })
 }
 
@@ -47,6 +51,8 @@ export function useReviewHeatmapQuery(days = 112) {
   return useQuery({
     queryKey: learningQueryKeys.reviewHeatmap(days),
     queryFn: () => cardsGateway.getReviewHeatmap(days),
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
   })
 }
 

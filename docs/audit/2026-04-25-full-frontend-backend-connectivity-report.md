@@ -1,49 +1,49 @@
-# Ç°ºó¶ËÁªÍ¨È«Ãæ²âÊÔ±¨??
-ÈÕÆÚ??026-04-25  
-Ö´ĞĞÈË£ºCodex  
-²Ö¿â£º`E:\XueJianProject`  
-Ç°¶ËÓ¦ÓÃ£º`xuejian/`  
-Éó¼Æ·¶Î§£ºWeb Ç°¶Ë¡¢Tauri IPC¡¢Rust commands¡¢host HTTP gateway¡¢Python orchestration service¡¢Õæ??provider ½ÓÈë¿ÉĞĞ??
-## 1. Ö´ĞĞÕªÒª
+# å‰åç«¯è”é€šå…¨é¢æµ‹è¯•æŠ¥??
+æ—¥æœŸ??026-04-25  
+æ‰§è¡Œäººï¼šCodex  
+ä»“åº“ï¼š`E:\XueJianProject`  
+å‰ç«¯åº”ç”¨ï¼š`xuejian/`  
+å®¡è®¡èŒƒå›´ï¼šWeb å‰ç«¯ã€Tauri IPCã€Rust commandsã€host HTTP gatewayã€Python orchestration serviceã€çœŸ??provider æ¥å…¥å¯è¡Œ??
+## 1. æ‰§è¡Œæ‘˜è¦
 
-±¾ÂÖÉó¼ÆÈ·ÈÏ??
-- Ç°¶Ë Web ²ã×Ô¶¯»¯»Ø¹éÊÇÂÌÉ«µÄ£º`build`¡¢`Vitest`¡¢`Playwright Web`¡¢`cargo check`¡¢`cargo test health_roundtrip_succeeds` ¾ùÍ¨¹ı??- µ«Õâ²»µÈÓÚ¡°Ç°¶ËÒÑÍêÈ«Óëºó¶ËÁªÍ¨¡±??- ä¯ÀÀÆ÷»·¾³ÏÂ£¬`src/services/gateway/index.ts` »áÔÚ??Tauri »·¾³×Ô¶¯»ØÍË??`mockData`£¬Òò??Web ¶Ë²âÊÔÖ÷ÒªÖ¤Ã÷Ò³ÃæºÍ mock ÆõÔ¼¿ÉÓÃ£¬²»ÄÜÖ¤Ã÷ÕæÊµºó¶ËÁ´Â·ÒÑ´òÍ¨??- Python orchestration service ¿ÉÒÔ¶ÀÁ¢Æô¶¯²¢Í¨¹ı `/health` ??`/handshake`£¬µ«ÔÚÎ´Á¬½Ó Rust host HTTP gateway Ê±£¬ÕæÊµ workflow endpoint »áÖ±½Ó·µ??`503 host_gateway_unavailable`??- µ±Ç° Python ÔËĞĞ»·¾³È±Ê§¶àÏî¹Ø¼üÒÀÀµ£¬Ö±½Ó×è¶ÏÖªÊ¶ÎÊ´ğ¡¢ÎÄµµ½âÎö¡¢Ç¶Èë¡¢²¥¿Í¡¢µ¼³ö¡¢TTS µÈ¸ß½×ÄÜÁ¦µÄÕæÊµ±Õ»·??- Tauri/Rust ²ãÒÑ¾­Îª´ó¶àÊıÒ³ÃæÌá¹©ÁËÕæÊµ command ³Ğ½Ó£»ÆäÖĞÒ»²¿·ÖÄÜÁ¦??fallback£¬Òò??UI ¿ÉÄÜ¡°¿´ÆğÀ´ÄÜÅÜ¡±£¬µ«Êµ¼ÊÉÏ×ßµÄÊÇ½µ¼¶Âß¼­£¬¶ø²»ÊÇÕæÊµÄ£ĞÍÁ´Â·??
-×ÛºÏÆÀ¼¶£º`Amber`
+æœ¬è½®å®¡è®¡ç¡®è®¤??
+- å‰ç«¯ Web å±‚è‡ªåŠ¨åŒ–å›å½’æ˜¯ç»¿è‰²çš„ï¼š`build`ã€`Vitest`ã€`Playwright Web`ã€`cargo check`ã€`cargo test health_roundtrip_succeeds` å‡é€šè¿‡??- ä½†è¿™ä¸ç­‰äºâ€œå‰ç«¯å·²å®Œå…¨ä¸åç«¯è”é€šâ€??- æµè§ˆå™¨ç¯å¢ƒä¸‹ï¼Œ`src/services/gateway/index.ts` ä¼šåœ¨??Tauri ç¯å¢ƒè‡ªåŠ¨å›é€€??`mockData`ï¼Œå› ??Web ç«¯æµ‹è¯•ä¸»è¦è¯æ˜é¡µé¢å’Œ mock å¥‘çº¦å¯ç”¨ï¼Œä¸èƒ½è¯æ˜çœŸå®åç«¯é“¾è·¯å·²æ‰“é€š??- Python orchestration service å¯ä»¥ç‹¬ç«‹å¯åŠ¨å¹¶é€šè¿‡ `/health` ??`/handshake`ï¼Œä½†åœ¨æœªè¿æ¥ Rust host HTTP gateway æ—¶ï¼ŒçœŸå® workflow endpoint ä¼šç›´æ¥è¿”??`503 host_gateway_unavailable`??- å½“å‰ Python è¿è¡Œç¯å¢ƒç¼ºå¤±å¤šé¡¹å…³é”®ä¾èµ–ï¼Œç›´æ¥é˜»æ–­çŸ¥è¯†é—®ç­”ã€æ–‡æ¡£è§£æã€åµŒå…¥ã€æ’­å®¢ã€å¯¼å‡ºã€TTS ç­‰é«˜é˜¶èƒ½åŠ›çš„çœŸå®é—­ç¯??- Tauri/Rust å±‚å·²ç»ä¸ºå¤§å¤šæ•°é¡µé¢æä¾›äº†çœŸå® command æ‰¿æ¥ï¼›å…¶ä¸­ä¸€éƒ¨åˆ†èƒ½åŠ›??fallbackï¼Œå› ??UI å¯èƒ½â€œçœ‹èµ·æ¥èƒ½è·‘â€ï¼Œä½†å®é™…ä¸Šèµ°çš„æ˜¯é™çº§é€»è¾‘ï¼Œè€Œä¸æ˜¯çœŸå®æ¨¡å‹é“¾è·¯??
+ç»¼åˆè¯„çº§ï¼š`Amber`
 
-Ô­Òò??
-- ºËĞÄ»ù´¡²ã¿É±àÒë¡¢¿É²âÊÔ¡¢¿ÉÆô¶¯??- ÕæÕıµÄ¡°Ô­??+ Python + provider¡±È«Á´Â·ÈÔÎ´Íê³É±Õ»·ÑéÖ¤??- ¶à¸ö¸ß¼¶Ò³Ãæ´æÔÚ¡°mock ¿ÉÓÃ¡±»ò¡°fallback ¿ÉÓÃ¡±ÑÚ¸ÇÕæ¶ÏÁ´µÄÇé¿ö??
-## 2. ²âÊÔ·½·¨ÓëÖ¤??
-### 2.1 ÒÑÖ´ĞĞÃü??
+åŸå› ??
+- æ ¸å¿ƒåŸºç¡€å±‚å¯ç¼–è¯‘ã€å¯æµ‹è¯•ã€å¯å¯åŠ¨??- çœŸæ­£çš„â€œåŸ??+ Python + providerâ€å…¨é“¾è·¯ä»æœªå®Œæˆé—­ç¯éªŒè¯??- å¤šä¸ªé«˜çº§é¡µé¢å­˜åœ¨â€œmock å¯ç”¨â€æˆ–â€œfallback å¯ç”¨â€æ©ç›–çœŸæ–­é“¾çš„æƒ…å†µ??
+## 2. æµ‹è¯•æ–¹æ³•ä¸è¯??
+### 2.1 å·²æ‰§è¡Œå‘½??
 1. `npm.cmd run build`
 2. `npm.cmd test -- --run`
 3. `npm.cmd run test:e2e`
 4. `cargo check`
 5. `cargo test health_roundtrip_succeeds -- --nocapture`
 6. `python --version`
-7. Python ÒÀÀµµ¼Èë¼ì²é½Å??8. `python orchestration_service/main.py --port 8787`
-9. ¶ÀÁ¢Æô¶¯ orchestration service ºó·ÃÎÊ£º
+7. Python ä¾èµ–å¯¼å…¥æ£€æŸ¥è„š??8. `python orchestration_service/main.py --port 8787`
+9. ç‹¬ç«‹å¯åŠ¨ orchestration service åè®¿é—®ï¼š
    - `GET /health`
    - `GET /handshake`
    - `POST /workflows/knowledge-qa`
 
-### 2.2 ¹Ø¼ü½á¹û
+### 2.2 å…³é”®ç»“æœ
 
-#### ×Ô¶¯»¯²ã
+#### è‡ªåŠ¨åŒ–å±‚
 
-- `npm run build`£ºÍ¨¹ı
-- `npm test -- --run`£º`42/42` ²âÊÔÎÄ¼şÍ¨¹ı£¬`240/240` ²âÊÔÍ¨¹ı
-- `npm run test:e2e`£º`13/13` Í¨¹ı
-- `cargo check`£ºÍ¨¹ı
-- `cargo test health_roundtrip_succeeds`£ºÍ¨¹ı
+- `npm run build`ï¼šé€šè¿‡
+- `npm test -- --run`ï¼š`42/42` æµ‹è¯•æ–‡ä»¶é€šè¿‡ï¼Œ`240/240` æµ‹è¯•é€šè¿‡
+- `npm run test:e2e`ï¼š`13/13` é€šè¿‡
+- `cargo check`ï¼šé€šè¿‡
+- `cargo test health_roundtrip_succeeds`ï¼šé€šè¿‡
 
 #### Python/orchestration ??
-- `python --version`£º`Python 3.11.5`
-- `python orchestration_service/main.py --port 8787`??  - ·şÎñ¿ÉÆô??  - ÈÕÖ¾Ã÷È·ÌáÊ¾£º`No --host-port provided; workflow endpoints will return 503`
-- `GET /health`£º·µ??`healthy`
-- `GET /handshake`£º·µ»ØĞ­Òé°æ??`xuejian-orchestration/v1` ¼°ÄÜÁ¦ÁĞ??- `POST /workflows/knowledge-qa`£º·µ??`{"error":"host_gateway_unavailable"}`£¬HTTP `503`
+- `python --version`ï¼š`Python 3.11.5`
+- `python orchestration_service/main.py --port 8787`??  - æœåŠ¡å¯å¯??  - æ—¥å¿—æ˜ç¡®æç¤ºï¼š`No --host-port provided; workflow endpoints will return 503`
+- `GET /health`ï¼šè¿”??`healthy`
+- `GET /handshake`ï¼šè¿”å›åè®®ç‰ˆ??`xuejian-orchestration/v1` åŠèƒ½åŠ›åˆ—??- `POST /workflows/knowledge-qa`ï¼šè¿”??`{"error":"host_gateway_unavailable"}`ï¼ŒHTTP `503`
 
-#### Python ÒÀÀµµ¼Èë¼ì??
-¿Éµ¼Èë£º
+#### Python ä¾èµ–å¯¼å…¥æ£€??
+å¯å¯¼å…¥ï¼š
 
 - `langchain`
 - `langchain_openai`
@@ -53,7 +53,7 @@
 - `pydantic`
 - `httpx`
 
-È±Ê§??
+ç¼ºå¤±??
 - `langchain_anthropic`
 - `litellm`
 - `pydantic_ai`
@@ -65,75 +65,75 @@
 - `elevenlabs`
 - `fish_audio_sdk`
 
-## 3. ¹Ø¼ü¼Ü¹¹ÊÂÊµ
+## 3. å…³é”®æ¶æ„äº‹å®
 
-### 3.1 ä¯ÀÀÆ÷»·¾³Ä¬ÈÏ²»Á¬Õæºó¶Ë
+### 3.1 æµè§ˆå™¨ç¯å¢ƒé»˜è®¤ä¸è¿çœŸåç«¯
 
-`xuejian/src/services/gateway/index.ts` ÖĞ£º
+`xuejian/src/services/gateway/index.ts` ä¸­ï¼š
 
-- ??Tauri »·¾³ÏÂ£¬`invoke(...)` ²»µ÷ÓÃÔ­ÉúÃü??- Ö±½Ó·µ»Ø `getMockGatewayResponse(...)`
+- ??Tauri ç¯å¢ƒä¸‹ï¼Œ`invoke(...)` ä¸è°ƒç”¨åŸç”Ÿå‘½??- ç›´æ¥è¿”å› `getMockGatewayResponse(...)`
 
-ÕâÒâÎ¶×Å??
-- Playwright Web Í¨¹ı£¬Ö»ÄÜÖ¤Ã÷Ò³ÃæÓë mock ÆõÔ¼Ò»??- ²»ÄÜ¾İ´ËµÃ³ö¡°ÒÑÓëÕæ??Rust/Tauri/Python ºó¶ËÁªÍ¨¡±µÄ½áÂÛ
+è¿™æ„å‘³ç€??
+- Playwright Web é€šè¿‡ï¼Œåªèƒ½è¯æ˜é¡µé¢ä¸ mock å¥‘çº¦ä¸€??- ä¸èƒ½æ®æ­¤å¾—å‡ºâ€œå·²ä¸çœŸ??Rust/Tauri/Python åç«¯è”é€šâ€çš„ç»“è®º
 
-### 3.2 Tauri ÊÇÕæÊµºó¶ËÈë??
-ÕæÊµÁ´Â·Îª£º
+### 3.2 Tauri æ˜¯çœŸå®åç«¯å…¥??
+çœŸå®é“¾è·¯ä¸ºï¼š
 
-Ç°¶ËÒ³Ãæ  
+å‰ç«¯é¡µé¢  
 -> React Query hooks  
 -> `services/gateway/*`  
 -> Tauri `invoke(...)`  
 -> Rust `commands/*`  
 -> SQLite / Secret Store / Host HTTP Gateway / Python orchestration service  
--> ¿ÉÑ¡µÄÍâ²¿ provider
+-> å¯é€‰çš„å¤–éƒ¨ provider
 
-### 3.3 Python service ×ÔÉí²¢²»µÈÓÚÍêÕûºó¶Ë
+### 3.3 Python service è‡ªèº«å¹¶ä¸ç­‰äºå®Œæ•´åç«¯
 
-Python ²à¼´Ê¹Æô¶¯³É¹¦£¬Ò²ÈÔÒÀÀµ??
-- Rust host gateway ¶Ë¿Ú `--host-port`
-- ¶ÔÓ¦ workflow ĞèÒªµÄ Python ??- provider Æ¾¾İÓëÄ£ĞÍÅä??
-·ñÔò workflow endpoint »áÊ§°Ü»ò??Rust ??fallback ÑÚ¸Ç??
-## 4. Ò³ÃæÓë¹Ø¼ü×é¼şÁªÍ¨¾Ø??
-ËµÃ÷??
-- `Web`£ºä¯ÀÀÆ÷»·¾³/Playwright ÑéÖ¤½á¹û
-- `Native`£ºTauri command ??Rust ºó¶Ë³Ğ½ÓÇé¿ö
-- `Python`£ºÊÇ·ñÒÀ??orchestration service
-- `Provider`£ºÊÇ·ñÒÀÀµÕæ??AI/TTS/embedding provider
-- `½áÂÛ`??  - `ÂÌ`£ºÕæÊµºó¶ËÖ÷ÒªÔÚ Rust ±¾µØ£¬Á´Â·ÇåÎú£¬·çÏÕ??  - `»Æ`£º´æÔÚÕæÊµ½ÓÏßµ«±¾ÂÖÎ´Íê³ÉÔ­ÉúÊµ²â£¬»ò´æ??fallback/mask ·çÏÕ
-  - `ºì`£ºÕæÁªÍ¨Ã÷È·ÊÜ×è»ò¸ß¶ÈÒÀÀµÈ±Ê§»·¾³
+Python ä¾§å³ä½¿å¯åŠ¨æˆåŠŸï¼Œä¹Ÿä»ä¾èµ–??
+- Rust host gateway ç«¯å£ `--host-port`
+- å¯¹åº” workflow éœ€è¦çš„ Python ??- provider å‡­æ®ä¸æ¨¡å‹é…??
+å¦åˆ™ workflow endpoint ä¼šå¤±è´¥æˆ–??Rust ??fallback æ©ç›–??
+## 4. é¡µé¢ä¸å…³é”®ç»„ä»¶è”é€šçŸ©??
+è¯´æ˜??
+- `Web`ï¼šæµè§ˆå™¨ç¯å¢ƒ/Playwright éªŒè¯ç»“æœ
+- `Native`ï¼šTauri command ??Rust åç«¯æ‰¿æ¥æƒ…å†µ
+- `Python`ï¼šæ˜¯å¦ä¾??orchestration service
+- `Provider`ï¼šæ˜¯å¦ä¾èµ–çœŸ??AI/TTS/embedding provider
+- `ç»“è®º`??  - `ç»¿`ï¼šçœŸå®åç«¯ä¸»è¦åœ¨ Rust æœ¬åœ°ï¼Œé“¾è·¯æ¸…æ™°ï¼Œé£é™©??  - `é»„`ï¼šå­˜åœ¨çœŸå®æ¥çº¿ä½†æœ¬è½®æœªå®ŒæˆåŸç”Ÿå®æµ‹ï¼Œæˆ–å­˜??fallback/mask é£é™©
+  - `çº¢`ï¼šçœŸè”é€šæ˜ç¡®å—é˜»æˆ–é«˜åº¦ä¾èµ–ç¼ºå¤±ç¯å¢ƒ
 
-| Ò³Ãæ/×é¼ş | Ç°¶ËÊı¾İÈë¿Ú | Rust/Tauri command ³Ğ½Ó | Python/Provider ÒÀÀµ | µ±Ç°½áÂÛ | ËµÃ÷ |
+| é¡µé¢/ç»„ä»¶ | å‰ç«¯æ•°æ®å…¥å£ | Rust/Tauri command æ‰¿æ¥ | Python/Provider ä¾èµ– | å½“å‰ç»“è®º | è¯´æ˜ |
 | --- | --- | --- | --- | --- | --- |
-| Home | `useDocumentsQuery` `useDailyStatsQuery` `useStudyStatsQuery` `usePointsSummaryQuery` `useReviewHeatmapQuery` `useApiConfigsQuery` | `list_documents` `get_daily_stats` `get_study_stats` `get_points_summary` `get_review_heatmap` `list_api_configs` | ??| ??| Web ÒÑÍ¨¹ı£»ÕæÊµÃüÁîÒÑ´æÔÚ£¬Ö÷ÒªÊÇ±¾µØ DB/ÅäÖÃ²éÑ¯£¬µ«±¾ÂÖÎ´ÔÚ GUI ÖĞÖğÒ³µãÑé??|
-| Library | `useDocumentsQuery` `useDocumentImport` | `list_documents` `pick_and_import_document` `run_document_parse_workflow` `run_document_embedding_workflow` `start_card_generation_workflow` | ½âÎö/Ç¶Èë/Éú³ÉÒÀÀµ Python£¬Éú³É¿ÉÄÜ½øÒ»²½ÒÀ??provider | ??| ÁĞ±í²éÑ¯±¾µØ¿ÉĞĞ£¬µ«µ¼ÈëºóµÄ½âÎö¡¢Ç¶Èë¡¢Éú³ÉÁ´Â·Î´Íê³ÉÕæ±Õ»·£»Python È±°ü»áÖ±½ÓÓ°Ïì??|
-| Reader | `useDocumentQuery` `useDocumentAnchorsQuery` `useCardsQuery` `useHighlightsQuery` `read_document_binary` | `get_document` `list_document_anchors` `list_cards` `list_highlights` `read_document_binary` | ÎŞÓ²??Python ÒÀÀµ | ??| ¶ÁÈ¡Ò³±¾ÉíÖ÷ÒªÒÀÀµ±¾??DB/ÎÄ¼ş£»ÈôÉÏÓÎµ¼Èë½âÎöÃ»´òÍ¨£¬ÕæÊµÊı¾İÑù±¾»á²»×ã??|
-| Card Studio | `useDocumentsQuery` `useCardsQuery` `useRecentWorkflowRunsQuery` `useWorkflowEventsQuery` `useCardCandidatesQuery` | `list_documents` `list_cards` `list_workflow_runs` `list_workflow_events` `list_card_candidates` `create_card` `update_card` `delete_card` `start_card_generation_workflow` `finalize_card_generation_workflow` | Éú³ÉÒÀÀµ Python£»Ê§°ÜÊ± Rust ??fallback µ½±¾µØ¹æÔòÉú??| ??| CRUD ??run/event/candidate Í¨Â·´æÔÚ£»µ«¡°ÄÜÉú³É¡±²»µÈÓÚÄ£ĞÍÁ´Â·Í¨£¬fallback »áÑÚ??orchestration ¹ÊÕÏ??|
-| Review | `useDueCardsQuery` `useDailyStatsQuery` `usePointsSummaryQuery` `useSubmitReviewMutation` | `list_due_cards` `update_card_review` `create_review_log` `record_points` | ??| ??| È«²¿??Rust/DB ³Ğ½Ó£¬×Ô¶¯»¯Í¨¹ı£¬ÕæÊµºó¶ËÒÀÀµ×îÇåÎú??|
-| Knowledge QA | `useKnowledgeSearchQuery` `useStartKnowledgeQaMutation` `useOrchestrationServiceHealthQuery` | `search_knowledge` `start_knowledge_qa_workflow` `get_orchestration_service_health` `get_workflow_run` `list_workflow_events` | Ç¿ÒÀ??Python£»Í¨³£ÒÀÀµ embedding/provider | ??| `search_knowledge` ¿ÉÓÉ±¾µØ¼ìË÷³Ğ½Ó£¬µ«ÎÊ??workflow ??fallback£»¶ÀÁ¢²âÊÔÒÑÖ¤Êµ??host gateway Ê±·µ??503??|
-| Podcast | `usePodcastEpisodesQuery` `usePodcastEpisodeQuery` `usePodcastAudioSegmentsQuery` `useStartPodcastMutation` | `list_podcast_episodes` `get_podcast_episode` `get_podcast_audio_segments` `start_podcast_workflow` `review_podcast_script` `retry_podcast_episode` | Ç¿ÒÀ??Python£»ÒôÆµ½×¶ÎÒÀ??TTS/provider/ÒôÆµ??| ??| ÁĞ±íÓë×´Ì¬¹ÜÀíÃüÁîÍê±¸£¬µ«ÕæÊµÉú³ÉÒÀÀµÈ±°üÓë provider£»Rust ´æÔÚ fallback ½Å±¾½á¹û£¬²»ÄÜÊÓÎªÒÑ´òÍ¨??|
-| Settings | `useApiConfigsQuery` `useModelProfilesQuery` `useWorkflowAssignmentsQuery` `useAppSettingsQuery` | `get_settings` `update_settings` `list_api_configs` `create_api_config` `test_api_connection` `fetch_provider_models` `list_workflow_assignments` ??| provider ÑéÖ¤ÒÀÀµÕæÊµÃÜÔ¿ÓëÍø??| ??| ÉèÖÃÒ³ºó¶ËÃæºÜÍêÕû£¬µ«±¾ÂÖÎ´³ÖÓĞ¿ÉÓÃ key£¬Òò´Ë¡°Á¬½Ó²â??Ä£ĞÍ·¢ÏÖ¡±Î´×öÕæÑéÖ¤??|
-| Profile | `useDocumentsQuery` `useStudyStatsQuery` `useMasteryBreakdownQuery` `useReviewHeatmapQuery` `usePointsSummaryQuery` `usePointsLedgerQuery` | `list_documents` `get_study_stats` `get_mastery_breakdown` `get_review_heatmap` `get_points_summary` `list_points_ledger` | ??| ??| ±¾µØÍ³¼Æ/ÕË±¾Àà½Ó¿ÚÍêÕû£¬ÒÀÀµµÍ??|
-| `ImportDocumentButton` | `useDocumentImport` | ??Library µ¼ÈëÁ´Â· | ÒÀÀµ Python/embedding/provider | ??| UI ÒÑ½ÓÏß£¬µ«ÕæÊµµ¼Èë±Õ»·ÈÔ??Python ??host gateway ×èÈû??|
-| `StickyNotesPanel` | `useDocumentQuery` `useCardsQuery` `useHighlightsQuery` `useUpdateCardMutation` `useDeleteCardMutation` | `get_document` `list_cards` `list_highlights` `update_card` `delete_card` | ÎŞÓ²??Python ÒÀÀµ | ??| ±¾µØÃüÁîÆëÈ«£¬µ«ÒÀÀµÇ°ÖÃÎÄµµ/¿¨Æ¬ÕæÊµ´æÔÚ??|
-| `CardEditorModal` | ??Card Studio / StickyNotes Çı¶¯ | `create_card` `update_card` | ??| ??| ÕæÊµºó¶ËÖ÷Òª??Rust DB??|
-| `AnimationPreviewModal` | `useCardAnimationQuery` `useStartCardAnimationMutation` `useDeleteCardAnimationMutation` | `get_card_animation` `start_card_animation_workflow` `delete_card_animation` | ÒÀÀµ Python£»`quick_preview` ??fallback£¬`video_render` Ê§°ÜÊ±ÏÔÊ½±¨??| ??| ¡°¿ìËÙÔ¤ÀÀ¡±¿ÉÔÚÊ§°ÜÊ±Éú³É±¾µØ½Å±¾£»¡°ÊÓÆµäÖÈ¾¡±Î´Ö¤Êµ¿ÉÓÃ??|
-| `PodcastPlayerModal` | `usePodcastEpisodeQuery` `usePodcastAudioSegmentsQuery` | `get_podcast_episode` `get_podcast_audio_segments` | ÒÀÀµÉÏÓÎ²¥¿ÍÉú³É½á¹û | ??| ²¥·Å²ãÓĞÃüÁî³Ğ½Ó£¬µ«ÕæÊµÒôÆµ×ÊÔ´Éú³ÉÎ´±Õ»·??|
+| Home | `useDocumentsQuery` `useDailyStatsQuery` `useStudyStatsQuery` `usePointsSummaryQuery` `useReviewHeatmapQuery` `useApiConfigsQuery` | `list_documents` `get_daily_stats` `get_study_stats` `get_points_summary` `get_review_heatmap` `list_api_configs` | ??| ??| Web å·²é€šè¿‡ï¼›çœŸå®å‘½ä»¤å·²å­˜åœ¨ï¼Œä¸»è¦æ˜¯æœ¬åœ° DB/é…ç½®æŸ¥è¯¢ï¼Œä½†æœ¬è½®æœªåœ¨ GUI ä¸­é€é¡µç‚¹éªŒ??|
+| Library | `useDocumentsQuery` `useDocumentImport` | `list_documents` `pick_and_import_document` `run_document_parse_workflow` `run_document_embedding_workflow` `start_card_generation_workflow` | è§£æ/åµŒå…¥/ç”Ÿæˆä¾èµ– Pythonï¼Œç”Ÿæˆå¯èƒ½è¿›ä¸€æ­¥ä¾??provider | ??| åˆ—è¡¨æŸ¥è¯¢æœ¬åœ°å¯è¡Œï¼Œä½†å¯¼å…¥åçš„è§£æã€åµŒå…¥ã€ç”Ÿæˆé“¾è·¯æœªå®ŒæˆçœŸé—­ç¯ï¼›Python ç¼ºåŒ…ä¼šç›´æ¥å½±å“??|
+| Reader | `useDocumentQuery` `useDocumentAnchorsQuery` `useCardsQuery` `useHighlightsQuery` `read_document_binary` | `get_document` `list_document_anchors` `list_cards` `list_highlights` `read_document_binary` | æ— ç¡¬??Python ä¾èµ– | ??| è¯»å–é¡µæœ¬èº«ä¸»è¦ä¾èµ–æœ¬??DB/æ–‡ä»¶ï¼›è‹¥ä¸Šæ¸¸å¯¼å…¥è§£ææ²¡æ‰“é€šï¼ŒçœŸå®æ•°æ®æ ·æœ¬ä¼šä¸è¶³??|
+| Card Studio | `useDocumentsQuery` `useCardsQuery` `useRecentWorkflowRunsQuery` `useWorkflowEventsQuery` `useCardCandidatesQuery` | `list_documents` `list_cards` `list_workflow_runs` `list_workflow_events` `list_card_candidates` `create_card` `update_card` `delete_card` `start_card_generation_workflow` `finalize_card_generation_workflow` | ç”Ÿæˆä¾èµ– Pythonï¼›å¤±è´¥æ—¶ Rust ??fallback åˆ°æœ¬åœ°è§„åˆ™ç”Ÿ??| ??| CRUD ??run/event/candidate é€šè·¯å­˜åœ¨ï¼›ä½†â€œèƒ½ç”Ÿæˆâ€ä¸ç­‰äºæ¨¡å‹é“¾è·¯é€šï¼Œfallback ä¼šæ©??orchestration æ•…éšœ??|
+| Review | `useDueCardsQuery` `useDailyStatsQuery` `usePointsSummaryQuery` `useSubmitReviewMutation` | `list_due_cards` `update_card_review` `create_review_log` `record_points` | ??| ??| å…¨éƒ¨??Rust/DB æ‰¿æ¥ï¼Œè‡ªåŠ¨åŒ–é€šè¿‡ï¼ŒçœŸå®åç«¯ä¾èµ–æœ€æ¸…æ™°??|
+| Knowledge QA | `useKnowledgeSearchQuery` `useStartKnowledgeQaMutation` `useOrchestrationServiceHealthQuery` | `search_knowledge` `start_knowledge_qa_workflow` `get_orchestration_service_health` `get_workflow_run` `list_workflow_events` | å¼ºä¾??Pythonï¼›é€šå¸¸ä¾èµ– embedding/provider | ??| `search_knowledge` å¯ç”±æœ¬åœ°æ£€ç´¢æ‰¿æ¥ï¼Œä½†é—®??workflow ??fallbackï¼›ç‹¬ç«‹æµ‹è¯•å·²è¯å®??host gateway æ—¶è¿”??503??|
+| Podcast | `usePodcastEpisodesQuery` `usePodcastEpisodeQuery` `usePodcastAudioSegmentsQuery` `useStartPodcastMutation` | `list_podcast_episodes` `get_podcast_episode` `get_podcast_audio_segments` `start_podcast_workflow` `review_podcast_script` `retry_podcast_episode` | å¼ºä¾??Pythonï¼›éŸ³é¢‘é˜¶æ®µä¾??TTS/provider/éŸ³é¢‘??| ??| åˆ—è¡¨ä¸çŠ¶æ€ç®¡ç†å‘½ä»¤å®Œå¤‡ï¼Œä½†çœŸå®ç”Ÿæˆä¾èµ–ç¼ºåŒ…ä¸ providerï¼›Rust å­˜åœ¨ fallback è„šæœ¬ç»“æœï¼Œä¸èƒ½è§†ä¸ºå·²æ‰“é€š??|
+| Settings | `useApiConfigsQuery` `useModelProfilesQuery` `useWorkflowAssignmentsQuery` `useAppSettingsQuery` | `get_settings` `update_settings` `list_api_configs` `create_api_config` `test_api_connection` `fetch_provider_models` `list_workflow_assignments` ??| provider éªŒè¯ä¾èµ–çœŸå®å¯†é’¥ä¸ç½‘??| ??| è®¾ç½®é¡µåç«¯é¢å¾ˆå®Œæ•´ï¼Œä½†æœ¬è½®æœªæŒæœ‰å¯ç”¨ keyï¼Œå› æ­¤â€œè¿æ¥æµ‹??æ¨¡å‹å‘ç°â€æœªåšçœŸéªŒè¯??|
+| Profile | `useDocumentsQuery` `useStudyStatsQuery` `useMasteryBreakdownQuery` `useReviewHeatmapQuery` `usePointsSummaryQuery` `usePointsLedgerQuery` | `list_documents` `get_study_stats` `get_mastery_breakdown` `get_review_heatmap` `get_points_summary` `list_points_ledger` | ??| ??| æœ¬åœ°ç»Ÿè®¡/è´¦æœ¬ç±»æ¥å£å®Œæ•´ï¼Œä¾èµ–ä½??|
+| `ImportDocumentButton` | `useDocumentImport` | ??Library å¯¼å…¥é“¾è·¯ | ä¾èµ– Python/embedding/provider | ??| UI å·²æ¥çº¿ï¼Œä½†çœŸå®å¯¼å…¥é—­ç¯ä»??Python ??host gateway é˜»å¡??|
+| `StickyNotesPanel` | `useDocumentQuery` `useCardsQuery` `useHighlightsQuery` `useUpdateCardMutation` `useDeleteCardMutation` | `get_document` `list_cards` `list_highlights` `update_card` `delete_card` | æ— ç¡¬??Python ä¾èµ– | ??| æœ¬åœ°å‘½ä»¤é½å…¨ï¼Œä½†ä¾èµ–å‰ç½®æ–‡æ¡£/å¡ç‰‡çœŸå®å­˜åœ¨??|
+| `CardEditorModal` | ??Card Studio / StickyNotes é©±åŠ¨ | `create_card` `update_card` | ??| ??| çœŸå®åç«¯ä¸»è¦??Rust DB??|
+| `AnimationPreviewModal` | `useCardAnimationQuery` `useStartCardAnimationMutation` `useDeleteCardAnimationMutation` | `get_card_animation` `start_card_animation_workflow` `delete_card_animation` | ä¾èµ– Pythonï¼›`quick_preview` ??fallbackï¼Œ`video_render` å¤±è´¥æ—¶æ˜¾å¼æŠ¥??| ??| â€œå¿«é€Ÿé¢„è§ˆâ€å¯åœ¨å¤±è´¥æ—¶ç”Ÿæˆæœ¬åœ°è„šæœ¬ï¼›â€œè§†é¢‘æ¸²æŸ“â€æœªè¯å®å¯ç”¨??|
+| `PodcastPlayerModal` | `usePodcastEpisodeQuery` `usePodcastAudioSegmentsQuery` | `get_podcast_episode` `get_podcast_audio_segments` | ä¾èµ–ä¸Šæ¸¸æ’­å®¢ç”Ÿæˆç»“æœ | ??| æ’­æ”¾å±‚æœ‰å‘½ä»¤æ‰¿æ¥ï¼Œä½†çœŸå®éŸ³é¢‘èµ„æºç”Ÿæˆæœªé—­ç¯??|
 
-## 5. ¸ß·çÏÕ·¢??
-### F1. Web ×Ô¶¯»¯Í¨¹ı£¬µ«´óÃæ»ı×ß mock£¬²»×ãÒÔÖ¤Ã÷ÕæÊµºó¶ËÁª??
-ÑÏÖØ¼¶±ğ£º`P0`
+## 5. é«˜é£é™©å‘??
+### F1. Web è‡ªåŠ¨åŒ–é€šè¿‡ï¼Œä½†å¤§é¢ç§¯èµ° mockï¼Œä¸è¶³ä»¥è¯æ˜çœŸå®åç«¯è”??
+ä¸¥é‡çº§åˆ«ï¼š`P0`
 
-Ö¤¾İ??
-- `Vitest` stderr ¶à´Î³öÏÖ£º`[Gateway] Tauri not available, command "..." will return mock data`
-- `src/services/gateway/index.ts` ??Tauri »·¾³Ö±½Ó??`mockData`
+è¯æ®??
+- `Vitest` stderr å¤šæ¬¡å‡ºç°ï¼š`[Gateway] Tauri not available, command "..." will return mock data`
+- `src/services/gateway/index.ts` ??Tauri ç¯å¢ƒç›´æ¥??`mockData`
 
-Ó°Ïì??
-- Ä¿Ç°ÈÎºÎ¡°Ò³ÃæÄÜ´ò¿ª¡¢²âÊÔÄÜÍ¨¹ı¡±µÄ½áÂÛ£¬¶¼±ØĞëÏÈÅÅ??mock??- Èç¹û²»Çø·Ö»·¾³£¬¼«Ò×ÎóÅĞÏîÄ¿ÒÑ¾­ÁªÍ¨??
-### F2. Python orchestration service È±Ê§¹Ø¼üÒÀÀµ
+å½±å“??
+- ç›®å‰ä»»ä½•â€œé¡µé¢èƒ½æ‰“å¼€ã€æµ‹è¯•èƒ½é€šè¿‡â€çš„ç»“è®ºï¼Œéƒ½å¿…é¡»å…ˆæ’??mock??- å¦‚æœä¸åŒºåˆ†ç¯å¢ƒï¼Œææ˜“è¯¯åˆ¤é¡¹ç›®å·²ç»è”é€š??
+### F2. Python orchestration service ç¼ºå¤±å…³é”®ä¾èµ–
 
-ÑÏÖØ¼¶±ğ£º`P0`
+ä¸¥é‡çº§åˆ«ï¼š`P0`
 
-È±Ê§Ïî£º
+ç¼ºå¤±é¡¹ï¼š
 
 - `langchain_anthropic`
 - `litellm`
@@ -146,78 +146,78 @@ Python ²à¼´Ê¹Æô¶¯³É¹¦£¬Ò²ÈÔÒÀÀµ??
 - `elevenlabs`
 - `fish_audio_sdk`
 
-Ó°Ïì??
-### F3. Python service µ¥¶ÀÆô¶¯??workflow endpoint ¹Ì¶¨ 503
+å½±å“??
+### F3. Python service å•ç‹¬å¯åŠ¨??workflow endpoint å›ºå®š 503
 
-ÑÏÖØ¼¶±ğ£º`P0`
+ä¸¥é‡çº§åˆ«ï¼š`P0`
 
-Ö¤¾İ??
-- `/health` Õı³£
-- `/handshake` Õı³£
-- `/workflows/knowledge-qa` ·µ»Ø `503 host_gateway_unavailable`
+è¯æ®??
+- `/health` æ­£å¸¸
+- `/handshake` æ­£å¸¸
+- `/workflows/knowledge-qa` è¿”å› `503 host_gateway_unavailable`
 
-Ó°Ïì??
-- ËµÃ÷ orchestration service ²»ÊÇ¶ÀÁ¢±Õ»··şÎñ£¬±ØĞëÒÀ??Rust host gateway??- Ô­ÉúÆô¶¯Á´Â·??host gateway Î´³É¹¦À­Æğ£¬Ëù??workflow ¶¼»áÊ§°Ü??
-### F4. ¶à¸ö¸ß¼¶Ò³Ãæ´æÔÚ fallback£¬ÈİÒ×ÑÚ¸ÇÕæÁ´Â·ÎÊÌâ
+å½±å“??
+- è¯´æ˜ orchestration service ä¸æ˜¯ç‹¬ç«‹é—­ç¯æœåŠ¡ï¼Œå¿…é¡»ä¾??Rust host gateway??- åŸç”Ÿå¯åŠ¨é“¾è·¯??host gateway æœªæˆåŠŸæ‹‰èµ·ï¼Œæ‰€??workflow éƒ½ä¼šå¤±è´¥??
+### F4. å¤šä¸ªé«˜çº§é¡µé¢å­˜åœ¨ fallbackï¼Œå®¹æ˜“æ©ç›–çœŸé“¾è·¯é—®é¢˜
 
-ÑÏÖØ¼¶±ğ£º`P1`
+ä¸¥é‡çº§åˆ«ï¼š`P1`
 
-ÒÑÈ·ÈÏ´æ??fallback µÄÄÜÁ¦£º
+å·²ç¡®è®¤å­˜??fallback çš„èƒ½åŠ›ï¼š
 
-- ¿¨Æ¬Éú³É£ºPython Ê§°ÜÊ±»ØÍËµ½±¾??rule-based generation
-- ²¥¿ÍÉú³É£ºPython Ê§°ÜÊ±»ØÍË??fallback script/result
-- ¶¯»­Éú³É£º`quick_preview` Ê§°ÜÊ±»ØÍËµ½±¾µØ½Å??
-Ó°Ïì??
-- Ò³Ãæ¡°ÓĞ½á¹û¡±²»´ú±íÕæÊµÄ£ĞÍÁ´Â·¿ÉÓÃ??- ĞèÒªÔÚ UI ºÍÈÕÖ¾ÖĞÃ÷È·±êÊ¶µ±Ç°ÊÇ·ñ??fallback ½á¹û??
-### F5. Knowledge QA Ã»ÓĞµÈ¼Û fallback£¬ÊÇÕæ×èÈûÄÜ??
-ÑÏÖØ¼¶±ğ£º`P1`
+- å¡ç‰‡ç”Ÿæˆï¼šPython å¤±è´¥æ—¶å›é€€åˆ°æœ¬??rule-based generation
+- æ’­å®¢ç”Ÿæˆï¼šPython å¤±è´¥æ—¶å›é€€??fallback script/result
+- åŠ¨ç”»ç”Ÿæˆï¼š`quick_preview` å¤±è´¥æ—¶å›é€€åˆ°æœ¬åœ°è„š??
+å½±å“??
+- é¡µé¢â€œæœ‰ç»“æœâ€ä¸ä»£è¡¨çœŸå®æ¨¡å‹é“¾è·¯å¯ç”¨??- éœ€è¦åœ¨ UI å’Œæ—¥å¿—ä¸­æ˜ç¡®æ ‡è¯†å½“å‰æ˜¯å¦??fallback ç»“æœ??
+### F5. Knowledge QA æ²¡æœ‰ç­‰ä»· fallbackï¼Œæ˜¯çœŸé˜»å¡èƒ½??
+ä¸¥é‡çº§åˆ«ï¼š`P1`
 
-Ö¤¾İ??
-- Rust `knowledge.rs` Ö±½ÓÒÀÀµ orchestration health ??`/workflows/knowledge-qa`
-- ±¾ÂÖ¶ÀÁ¢ workflow ÇëÇóÒÑÃ÷È··µ??`503`
+è¯æ®??
+- Rust `knowledge.rs` ç›´æ¥ä¾èµ– orchestration health ??`/workflows/knowledge-qa`
+- æœ¬è½®ç‹¬ç«‹ workflow è¯·æ±‚å·²æ˜ç¡®è¿”??`503`
 
-Ó°Ïì??
-- ÖªÊ¶ÎÊ´ğÊÇ×î½Ó½ü¡°Ç°¶Ë¿´ÆğÀ´ÓĞÈë¿Ú£¬µ«ÕæÊµÄÜÁ¦²¢Î´Ö¤Êµ¡±µÄÒ³Ãæ??
-### F6. Settings/BYOK Ò³Ãæºó¶Ë³Ğ½ÓÍêÕû£¬µ« provider ÕæÁ¬½ÓÎ´ÑéÖ¤
+å½±å“??
+- çŸ¥è¯†é—®ç­”æ˜¯æœ€æ¥è¿‘â€œå‰ç«¯çœ‹èµ·æ¥æœ‰å…¥å£ï¼Œä½†çœŸå®èƒ½åŠ›å¹¶æœªè¯å®â€çš„é¡µé¢??
+### F6. Settings/BYOK é¡µé¢åç«¯æ‰¿æ¥å®Œæ•´ï¼Œä½† provider çœŸè¿æ¥æœªéªŒè¯
 
-ÑÏÖØ¼¶±ğ£º`P1`
+ä¸¥é‡çº§åˆ«ï¼š`P1`
 
-Ö¤¾İ??
-- Rust commands ÒÑÌá??`test_api_connection`¡¢`fetch_provider_models`¡¢workflow assignment ??- µ«±¾ÂÖÃ»ÓĞ¿É??key£¬ÎŞ·¨Íê??OpenAI/Anthropic ??smoke
+è¯æ®??
+- Rust commands å·²æ??`test_api_connection`ã€`fetch_provider_models`ã€workflow assignment ??- ä½†æœ¬è½®æ²¡æœ‰å¯??keyï¼Œæ— æ³•å®Œ??OpenAI/Anthropic ??smoke
 
-Ó°Ïì??
-- ²»ÄÜĞû³Æ¡°BYOK ÒÑ´òÍ¨??- Ö»ÄÜĞû³Æ¡°ÉèÖÃÒ³ºó¶ËÃæÍêÕû£¬´ıÕæ??provider ÑéÖ¤??
-## 6. ·Ö²ã½áÂÛ
+å½±å“??
+- ä¸èƒ½å®£ç§°â€œBYOK å·²æ‰“é€š??- åªèƒ½å®£ç§°â€œè®¾ç½®é¡µåç«¯é¢å®Œæ•´ï¼Œå¾…çœŸ??provider éªŒè¯??
+## 6. åˆ†å±‚ç»“è®º
 
-### 6.1 ÒÑÖ¤ÊµÎªÂÌÉ«µÄ²ã
+### 6.1 å·²è¯å®ä¸ºç»¿è‰²çš„å±‚
 
-- Ç°¶Ë¹¹½¨
-- Web UI ×Ô¶¯»¯»Ø??- Rust ±àÒë
-- Rust ÄÚ²¿ orchestration health roundtrip ²âÊÔ
-- ±¾µØ DB/Í³¼Æ/¸´Ï°/ÅäÖÃÀàÃüÁîµÄ´úÂë³Ğ½Ó??
-### 6.2 ÒÑÖ¤Êµ´æÔÚÕæÊµ×èÈûµÄ??
-- Python ÒÀÀµ°²×°ÍêÕû??- Python workflow ¶ÀÁ¢¿ÉÖ´ĞĞ??- host gateway ??Python workflow Áª¶¯ÍêÕû??- Knowledge QA ÕæÁ´??- Podcast/TTS ÕæÁ´??- µ¼³öÄÜÁ¦??`genanki` / `PyMuPDF` µÄÕæÊµÒÀ??
-### 6.3 Ä¿Ç°×îÈİÒ×±»ÎóÅĞµÄ??
-- ¿¨Æ¬Éú³É
-- ²¥¿ÍÉú³É
-- ¶¯»­¿ìËÙÔ¤??
-¹²Í¬ÎÊÌâ??
-- Ò³Ãæ¿ÉÄÜ·µ»Ø¡°¿´ÆğÀ´ºÏÀíµÄ½á¹û??- µ«ÕæÊµÄ£??ÕæÊµ Python ¹¤×÷Á÷²¢Î´³É¹¦Ö´??
-## 7. ½¨Òé½áÂÛ
+- å‰ç«¯æ„å»º
+- Web UI è‡ªåŠ¨åŒ–å›??- Rust ç¼–è¯‘
+- Rust å†…éƒ¨ orchestration health roundtrip æµ‹è¯•
+- æœ¬åœ° DB/ç»Ÿè®¡/å¤ä¹ /é…ç½®ç±»å‘½ä»¤çš„ä»£ç æ‰¿æ¥??
+### 6.2 å·²è¯å®å­˜åœ¨çœŸå®é˜»å¡çš„??
+- Python ä¾èµ–å®‰è£…å®Œæ•´??- Python workflow ç‹¬ç«‹å¯æ‰§è¡Œ??- host gateway ??Python workflow è”åŠ¨å®Œæ•´??- Knowledge QA çœŸé“¾??- Podcast/TTS çœŸé“¾??- å¯¼å‡ºèƒ½åŠ›??`genanki` / `PyMuPDF` çš„çœŸå®ä¾??
+### 6.3 ç›®å‰æœ€å®¹æ˜“è¢«è¯¯åˆ¤çš„??
+- å¡ç‰‡ç”Ÿæˆ
+- æ’­å®¢ç”Ÿæˆ
+- åŠ¨ç”»å¿«é€Ÿé¢„??
+å…±åŒé—®é¢˜??
+- é¡µé¢å¯èƒ½è¿”å›â€œçœ‹èµ·æ¥åˆç†çš„ç»“æœ??- ä½†çœŸå®æ¨¡??çœŸå® Python å·¥ä½œæµå¹¶æœªæˆåŠŸæ‰§??
+## 7. å»ºè®®ç»“è®º
 
-µ±Ç°ÏîÄ¿²»Ó¦±íÊöÎª¡°Ç°¶ËÒÑ¾­ÍêÈ«Óëºó¶ËÁªÍ¨¡±??
-¸ü×¼È·µÄ±íÊöÓ¦Îª??
-- »ù´¡Ç°¶Ë¡¢Rust/Tauri ±¾µØÃüÁî²ãÒÑ¾­»ù±¾½ÓÍ¨²¢¿É»Ø??- ä¯ÀÀÆ÷Ì¬²âÊÔÖ÷ÒªÑéÖ¤ÁË mock ÆõÔ¼
+å½“å‰é¡¹ç›®ä¸åº”è¡¨è¿°ä¸ºâ€œå‰ç«¯å·²ç»å®Œå…¨ä¸åç«¯è”é€šâ€??
+æ›´å‡†ç¡®çš„è¡¨è¿°åº”ä¸º??
+- åŸºç¡€å‰ç«¯ã€Rust/Tauri æœ¬åœ°å‘½ä»¤å±‚å·²ç»åŸºæœ¬æ¥é€šå¹¶å¯å›??- æµè§ˆå™¨æ€æµ‹è¯•ä¸»è¦éªŒè¯äº† mock å¥‘çº¦
 
-## 8. ¸½Â¼£ºÓë±¾ÂÖ½áÂÛÖ±½ÓÏà¹ØµÄ´úÂëÎ»??
-- Web/mock ·ÖÁ÷£º`xuejian/src/services/gateway/index.ts`
-- Ò³ÃæÈë¿Ú£º`xuejian/src/App.tsx`
-- Ò³Ãæ²éÑ¯²ã£º`xuejian/src/queries/*.ts`
-- Tauri command ×¢²á£º`xuejian/src-tauri/src/lib.rs`
-- orchestration ÆôÍ££º`xuejian/src-tauri/src/tasks/orchestration_service.rs`
-- Python server£º`xuejian/orchestration_service/server.py`
-- ¿¨Æ¬Éú³É fallback£º`xuejian/src-tauri/src/commands/cards.rs`
-- ²¥¿Í fallback£º`xuejian/src-tauri/src/commands/podcast.rs`
-- ¶¯»­ fallback£º`xuejian/src-tauri/src/commands/animation.rs`
-- ÎÄµµ½âÎö/Ç¶ÈëÇ¿ÒÀ??orchestration£º`xuejian/src-tauri/src/commands/documents.rs`
-- Knowledge QA Ç¿ÒÀ??orchestration£º`xuejian/src-tauri/src/commands/knowledge.rs`
+## 8. é™„å½•ï¼šä¸æœ¬è½®ç»“è®ºç›´æ¥ç›¸å…³çš„ä»£ç ä½??
+- Web/mock åˆ†æµï¼š`xuejian/src/services/gateway/index.ts`
+- é¡µé¢å…¥å£ï¼š`xuejian/src/App.tsx`
+- é¡µé¢æŸ¥è¯¢å±‚ï¼š`xuejian/src/queries/*.ts`
+- Tauri command æ³¨å†Œï¼š`xuejian/src-tauri/src/lib.rs`
+- orchestration å¯åœï¼š`xuejian/src-tauri/src/tasks/orchestration_service.rs`
+- Python serverï¼š`xuejian/orchestration_service/server.py`
+- å¡ç‰‡ç”Ÿæˆ fallbackï¼š`xuejian/src-tauri/src/commands/cards.rs`
+- æ’­å®¢ fallbackï¼š`xuejian/src-tauri/src/commands/podcast.rs`
+- åŠ¨ç”» fallbackï¼š`xuejian/src-tauri/src/commands/animation.rs`
+- æ–‡æ¡£è§£æ/åµŒå…¥å¼ºä¾??orchestrationï¼š`xuejian/src-tauri/src/commands/documents.rs`
+- Knowledge QA å¼ºä¾??orchestrationï¼š`xuejian/src-tauri/src/commands/knowledge.rs`

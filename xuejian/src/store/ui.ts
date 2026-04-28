@@ -6,7 +6,6 @@ export type NavItemId =
   | 'cards'
   | 'learning'
   | 'knowledge'
-  | 'podcast'
   | 'profile'
   | 'settings'
 
