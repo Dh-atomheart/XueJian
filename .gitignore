@@ -145,6 +145,8 @@ stronghold/
 # Uploaded PDFs and user documents
 uploads/
 documents/
+!documents/
+!documents/**
 !xuejian/src/**/documents/
 !xuejian/src/**/documents/**
 user-data/
