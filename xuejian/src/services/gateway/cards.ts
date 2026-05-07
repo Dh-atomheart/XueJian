@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   cardSchema,
+  backgroundJobSchema,
   cardCandidateSchema,
   finalizeCardGenerationResultSchema,
   heatmapEntrySchema,
@@ -12,6 +13,7 @@ import {
 } from '@/types'
 import type {
   Card,
+  BackgroundJob,
   CardCandidate,
   CardMedia,
   FinalizeCardGenerationResult,
@@ -91,6 +93,22 @@ export interface BatchCreateHighlightsForRunResult {
   created: number
   skipped: number
   unlinked: number
+}
+
+export interface StartAiCardGenerationInput {
+  documentId: string
+  groupId: string
+  pageStart?: number | null
+  pageEnd?: number | null
+  density: 'low' | 'medium' | 'high'
+  providerConfigId: string
+}
+
+export interface BackgroundJobFilters {
+  jobType?: string | null
+  status?: BackgroundJob['status'] | null
+  targetType?: string | null
+  targetId?: string | null
 }
 
 export interface ExportAnnotatedPdfResult {
@@ -183,6 +201,31 @@ export const cardsGateway = {
         runId,
       }
     )
+  },
+
+  async startAiCardGeneration(data: StartAiCardGenerationInput): Promise<BackgroundJob> {
+    return invokeWithSchema('start_ai_card_generation', backgroundJobSchema, { data })
+  },
+
+  async resumeAiCardGeneration(jobId: string): Promise<BackgroundJob> {
+    return invokeWithSchema('resume_ai_card_generation', backgroundJobSchema, { jobId })
+  },
+
+  async getBackgroundJob(jobId: string): Promise<BackgroundJob | null> {
+    return invokeWithSchema('get_background_job', backgroundJobSchema.nullable(), { jobId })
+  },
+
+  async listBackgroundJobs(filters: BackgroundJobFilters = {}): Promise<BackgroundJob[]> {
+    return invokeWithSchema('list_background_jobs', z.array(backgroundJobSchema), {
+      jobType: filters.jobType ?? null,
+      status: filters.status ?? null,
+      targetType: filters.targetType ?? null,
+      targetId: filters.targetId ?? null,
+    })
+  },
+
+  async cancelBackgroundJob(jobId: string): Promise<BackgroundJob> {
+    return invokeWithSchema('cancel_background_job', backgroundJobSchema, { jobId })
   },
 
   async listHighlights(filters: HighlightFilters = {}): Promise<Highlight[]> {

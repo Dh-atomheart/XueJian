@@ -50,10 +50,10 @@ export function AppFeedbackLayer() {
             className={cn(
               'pointer-events-auto rounded-[20px] border px-4 py-3 shadow-card backdrop-blur',
               notice.level === 'error'
-                ? 'border-rose-200 bg-rose-50/95'
+                ? 'border-destructive/25 bg-destructive/10'
                 : notice.level === 'warning'
-                  ? 'border-amber-200 bg-amber-50/95'
-                  : 'border-emerald-200 bg-emerald-50/95'
+                  ? 'border-themeAccent-warning/30 bg-themeAccent-warning/10'
+                  : 'border-themeAccent-success/25 bg-themeAccent-success/10'
             )}
           >
             <div className="flex items-start justify-between gap-3">
@@ -69,7 +69,7 @@ export function AppFeedbackLayer() {
               <button
                 type="button"
                 onClick={() => dismissNotice(notice.id)}
-                className="rounded-full px-2 py-1 text-xs text-ink-soft hover:bg-black/5 hover:text-ink"
+                className="rounded-full px-2 py-1 text-xs text-ink-soft hover:bg-ink/5 hover:text-ink"
                 aria-label="关闭提示"
               >
                 关闭
@@ -127,10 +127,10 @@ export function AppFeedbackLayer() {
 function FeedbackLogCard({ entry }: { entry: AppFeedbackEntry }) {
   const accentClass =
     entry.level === 'error'
-      ? 'border-rose-200 bg-rose-50/80'
+      ? 'border-destructive/25 bg-destructive/10'
       : entry.level === 'warning'
-        ? 'border-amber-200 bg-amber-50/80'
-        : 'border-emerald-200 bg-emerald-50/80'
+        ? 'border-themeAccent-warning/30 bg-themeAccent-warning/10'
+        : 'border-themeAccent-success/25 bg-themeAccent-success/10'
 
   return (
     <div className={cn('rounded-[22px] border px-4 py-3', accentClass)}>

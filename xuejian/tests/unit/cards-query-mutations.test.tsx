@@ -5,12 +5,13 @@ import {
   cardsQueryKeys,
   useCreateCardMutation,
   useFinalizeCardGenerationMutation,
+  useResumeAiCardGenerationMutation,
   useUpdateCardCandidateMutation,
   useUpdateCardMutation,
 } from '@/queries/cards'
 import { orchestrationQueryKeys } from '@/queries/orchestration'
 import { cardsGateway } from '@/services/gateway/cards'
-import type { Card, CardCandidate, WorkflowRun } from '@/types'
+import type { BackgroundJob, Card, CardCandidate, WorkflowRun } from '@/types'
 
 function makeCard(overrides: Partial<Card> = {}): Card {
   return {
@@ -54,6 +55,28 @@ function makeWorkflowRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     finishedAt: null,
     createdAt: new Date('2026-04-21T00:00:00.000Z'),
     updatedAt: new Date('2026-04-21T00:00:00.000Z'),
+    ...overrides,
+  }
+}
+
+function makeBackgroundJob(overrides: Partial<BackgroundJob> = {}): BackgroundJob {
+  return {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    jobType: 'ai_card_generation',
+    status: 'queued',
+    targetType: 'document',
+    targetId: '22222222-2222-4222-8222-222222222222',
+    payloadJson: '{}',
+    resultJson: null,
+    errorMessage: null,
+    errorDetails: null,
+    progressCurrent: 1,
+    progressTotal: 3,
+    progressMessage: 'resume queued',
+    createdAt: new Date('2026-04-21T00:00:00.000Z'),
+    startedAt: null,
+    finishedAt: null,
+    cancelRequestedAt: null,
     ...overrides,
   }
 }
@@ -179,6 +202,25 @@ describe('card query mutations', () => {
     await waitFor(() => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: cardsQueryKeys.all })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: orchestrationQueryKeys.all })
+    })
+  })
+
+  it('invalidates card queries after AI generation resume', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    vi.spyOn(cardsGateway, 'resumeAiCardGeneration').mockResolvedValue(makeBackgroundJob())
+
+    const wrapper = createWrapper(queryClient)
+
+    const { result } = renderHook(() => useResumeAiCardGenerationMutation(), { wrapper })
+    await result.current.mutateAsync('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: cardsQueryKeys.all })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['basic-cards'] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['documents'] })
     })
   })
 })

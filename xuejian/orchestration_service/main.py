@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Backward-compatible entry point for the orchestration service.
 
 The Rust host invokes this file directly:

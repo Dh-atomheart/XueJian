@@ -28,6 +28,7 @@ pub fn host_gateway_manifest() -> GatewayManifest {
         ],
         tool_gateway_commands: vec![
             "list_documents",
+            "list_library_documents",
             "get_document",
             "create_document",
             "update_document_status",
@@ -51,6 +52,8 @@ pub fn host_gateway_manifest() -> GatewayManifest {
             "start_card_generation_workflow",
             "resume_card_generation_workflow",
             "finalize_card_generation_workflow",
+            "start_ai_card_generation",
+            "resume_ai_card_generation",
             "export_annotated_pdf",
             "upload_card_media",
             "list_card_media",

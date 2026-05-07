@@ -80,6 +80,8 @@ out/
 !.codex/skills/**/
 # .windsurf/
 examples/
+.playwright-mcp/
+.agents/
 
 # ----------------------------------------
 # Cache & Temp Files

@@ -234,13 +234,13 @@ export function InlineStatusPill({
 }) {
   const toneClasses =
     tone === 'success'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      ? 'border-themeAccent-success/30 bg-themeAccent-success/10 text-ink'
       : tone === 'warning'
-        ? 'border-amber-200 bg-amber-50 text-amber-800'
+        ? 'border-themeAccent-warning/30 bg-themeAccent-warning/10 text-ink'
         : tone === 'danger'
-          ? 'border-rose-200 bg-rose-50 text-rose-700'
+          ? 'border-destructive/30 bg-destructive/10 text-destructive'
           : tone === 'info'
-            ? 'border-sky-200 bg-sky-50 text-sky-700'
+            ? 'border-themeAccent-info/30 bg-themeAccent-info/10 text-ink'
             : 'border-line-soft bg-paper-muted text-ink-soft'
 
   return (

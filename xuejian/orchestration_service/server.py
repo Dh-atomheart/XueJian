@@ -18,13 +18,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .clients.host_gateway import HostGatewayClient
 from .logging_config import configure_logging
-from .exports.annotated_pdf_exporter import export_annotated_pdf
-from .exports.genanki_exporter import export_cards_to_apkg
-from .exports.apkg_importer import import_apkg
-from .parsing.docling_pipeline import run_document_parse_workflow
-from .workflows.card_generation import run_card_generation_workflow
-from .workflows.document_embedding import run_document_embedding_workflow
-from .workflows.knowledge_qa import run_knowledge_qa_workflow
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -105,6 +98,7 @@ def build_handler(start_time: float):
                                 "health-check",
                                 "preset-workflows",
                                 "card-generation",
+                                "ai-card-generation",
                                 "document-parse",
                                 "document-embedding",
                                 "knowledge-qa",
@@ -129,6 +123,10 @@ def build_handler(start_time: float):
             try:
                 if self.path == "/workflows/card-generation":
                     self._handle_card_generation()
+                    return
+
+                if self.path == "/workflows/ai-card-generation":
+                    self._handle_ai_card_generation()
                     return
 
                 if self.path == "/workflows/document-parse":
@@ -186,6 +184,8 @@ def build_handler(start_time: float):
                 run_id[:8], document_id[:8], max_candidates,
             )
             try:
+                from .workflows.card_generation import run_card_generation_workflow
+
                 result = run_card_generation_workflow(
                     run_id, document_id, max_candidates, _host_gateway,
                 )
@@ -193,6 +193,93 @@ def build_handler(start_time: float):
             except Exception as exc:
                 logger.error("Card generation workflow failed: %s", exc, exc_info=True)
                 self._write_json(500, {"error": str(exc)})
+
+        def _handle_ai_card_generation(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"status": "failed", "error": "host_gateway_unavailable"})
+                return
+
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"status": "failed", "error": "invalid_json"})
+                return
+
+            job_id = body.get("jobId")
+            document_id = body.get("documentId")
+            group_id = body.get("groupId")
+            density = body.get("density", "medium")
+            provider_config_id = body.get("providerConfigId")
+            checkpoint = body.get("checkpoint")
+            chunk = body.get("chunk")
+
+            if not job_id or not document_id or not group_id or not provider_config_id:
+                self._write_json(
+                    400,
+                    {
+                        "status": "failed",
+                        "error": "missing jobId, documentId, groupId or providerConfigId",
+                    },
+                )
+                return
+
+            try:
+                from .workflows.litellm_card_generation import (
+                    JobCancelled,
+                    WorkflowError,
+                    generate_chunk_cards,
+                    run_litellm_card_generation,
+                )
+            except Exception as exc:
+                logger.error("AI card generation workflow failed to load: %s", exc, exc_info=True)
+                self._write_json(500, {"status": "failed", "error": str(exc)})
+                return
+
+            try:
+                page_start = body.get("pageStart")
+                page_end = body.get("pageEnd")
+                if isinstance(chunk, dict):
+                    result = generate_chunk_cards(
+                        job_id=job_id,
+                        document_id=document_id,
+                        group_id=group_id,
+                        density=str(density),
+                        provider_config_id=provider_config_id,
+                        chunk=chunk,
+                        host=_host_gateway,
+                    )
+                    self._write_json(200, result)
+                    return
+
+                result = run_litellm_card_generation(
+                    job_id=job_id,
+                    document_id=document_id,
+                    group_id=group_id,
+                    page_start=int(page_start) if page_start is not None else None,
+                    page_end=int(page_end) if page_end is not None else None,
+                    density=str(density),
+                    provider_config_id=provider_config_id,
+                    checkpoint=checkpoint if isinstance(checkpoint, dict) else None,
+                    host=_host_gateway,
+                )
+                self._write_json(
+                    200,
+                    {
+                        "status": "ok",
+                        "cards": [
+                            card.model_dump(by_alias=True)
+                            for card in result.cards
+                        ],
+                        "discardedCount": result.discarded_count,
+                    },
+                )
+            except JobCancelled:
+                self._write_json(200, {"status": "cancelled", "cards": [], "discardedCount": 0})
+            except WorkflowError as exc:
+                self._write_json(200, {"status": "failed", "error": str(exc)})
+            except Exception as exc:
+                logger.error("AI card generation workflow failed: %s", exc, exc_info=True)
+                self._write_json(500, {"status": "failed", "error": str(exc)})
 
         def _handle_document_parse(self) -> None:
             if _host_gateway is None:
@@ -217,6 +304,8 @@ def build_handler(start_time: float):
                 run_id[:8] if run_id else "none", document_id[:8],
             )
             try:
+                from .parsing.docling_pipeline import run_document_parse_workflow
+
                 result = run_document_parse_workflow(
                     run_id, document_id, _host_gateway,
                 )
@@ -248,6 +337,8 @@ def build_handler(start_time: float):
                 run_id[:8] if run_id else "none", document_id[:8],
             )
             try:
+                from .workflows.document_embedding import run_document_embedding_workflow
+
                 result = run_document_embedding_workflow(
                     run_id, document_id, _host_gateway,
                 )
@@ -280,6 +371,8 @@ def build_handler(start_time: float):
                 run_id[:8], question[:40], len(document_ids),
             )
             try:
+                from .workflows.knowledge_qa import run_knowledge_qa_workflow
+
                 result = run_knowledge_qa_workflow(
                     run_id, question, document_ids, _host_gateway,
                 )
@@ -327,6 +420,8 @@ def build_handler(start_time: float):
             )
 
             try:
+                from .exports.genanki_exporter import export_cards_to_apkg
+
                 cards = _host_gateway.list_cards(
                     document_id=document_id,
                     group_id=group_id,
@@ -378,6 +473,8 @@ def build_handler(start_time: float):
             )
 
             try:
+                from .exports.annotated_pdf_exporter import export_annotated_pdf
+
                 result = export_annotated_pdf(file_path, output_path, highlights)
                 self._write_json(200, result)
             except ImportError as exc:
@@ -416,6 +513,8 @@ def build_handler(start_time: float):
             logger.info("Import apkg: %s", file_path)
 
             try:
+                from .exports.apkg_importer import import_apkg
+
                 result = import_apkg(file_path)
                 self._write_json(200, result)
             except FileNotFoundError as exc:

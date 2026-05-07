@@ -5,7 +5,6 @@ import {
   useCreateApiConfigMutation,
   useDeleteApiConfigMutation,
   useDeleteApiKeyMutation,
-  useGetApiKeyMutation,
   useSetDefaultApiConfigMutation,
   useStoreApiKeyMutation,
   useTestApiConnectionMutation,
@@ -43,16 +42,19 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
   const activeTab = useAppUiStore((state) => state.activeSettingsSection)
   const setActiveTab = useAppUiStore((state) => state.setSettingsSection)
 
+  const shouldLoadAppSettings = activeTab === 'learning' || activeTab === 'general'
   const { data: apiConfigs = [] } = useApiConfigsQuery()
-  const { data: modelProfiles = [] } = useModelProfilesQuery()
-  const { data: workflowAssignmentsData = [] } = useWorkflowAssignmentsQuery()
-  const { data: appSettings } = useAppSettingsQuery()
+  const { data: modelProfiles = [] } = useModelProfilesQuery({ staleTime: 60_000 })
+  const { data: workflowAssignmentsData = [] } = useWorkflowAssignmentsQuery({ staleTime: 60_000 })
+  const { data: appSettings } = useAppSettingsQuery({
+    enabled: shouldLoadAppSettings,
+    staleTime: 60_000,
+  })
   const createApiConfig = useCreateApiConfigMutation()
   const createModelProfile = useCreateModelProfileMutation()
   const deleteApiConfig = useDeleteApiConfigMutation()
   const deleteApiKey = useDeleteApiKeyMutation()
   const deleteModelProfile = useDeleteModelProfileMutation()
-  const getApiKey = useGetApiKeyMutation()
   const setWorkflowAssignment = useSetWorkflowAssignmentMutation()
   const setDefaultApiConfig = useSetDefaultApiConfigMutation()
   const storeApiKey = useStoreApiKeyMutation()
@@ -75,7 +77,7 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
   })
   const [generalSettings, setGeneralSettings] = useState({
     language: appSettings?.language ?? 'zh-CN',
-    theme: appSettings?.theme ?? 'default',
+    theme: appSettings?.theme ?? 'light',
   })
   const [testResultMessage, setTestResultMessage] = useState<string | null>(null)
   const [testResultTone, setTestResultTone] = useState<'success' | 'error' | null>(null)
@@ -265,13 +267,16 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
         }
       }}
       onDeleteApiConfig={(configId) => deleteApiConfig.mutate(configId)}
-      onLoadApiKey={(configId) => getApiKey.mutateAsync(configId)}
       onSaveApiConfigEdits={async (configId, patch) => {
         const config = apiConfigs.find((item) => item.id === configId)
         if (!config) {
           throw new Error('配置不存在')
         }
-        setKeySaveStatusByConfigId((state) => ({ ...state, [configId]: 'saving' }))
+        const trimmedApiKey = patch.apiKey?.trim() ?? ''
+        const willStoreApiKey = trimmedApiKey.length > 0
+        if (willStoreApiKey) {
+          setKeySaveStatusByConfigId((state) => ({ ...state, [configId]: 'saving' }))
+        }
         try {
           await updateApiConfig.mutateAsync({
             id: configId,
@@ -282,19 +287,27 @@ export function SettingsPage({ forcedOnboarding = false }: { forcedOnboarding?: 
               model: patch.model,
             },
           })
-          await storeApiKey.mutateAsync({ configId, apiKey: patch.apiKey })
-          setKeySaveStatusByConfigId((state) => ({ ...state, [configId]: 'saved' }))
+          if (willStoreApiKey) {
+            await storeApiKey.mutateAsync({ configId, apiKey: trimmedApiKey })
+            setKeySaveStatusByConfigId((state) => ({ ...state, [configId]: 'saved' }))
+          }
           reportFeedback({
             scope: 'BYOK',
             title: '配置已更新',
-            detail: `${patch.displayName || patch.name} 已保存最新模型信息和密钥。`,
+            detail: willStoreApiKey
+              ? `${patch.displayName || patch.name} 已保存最新模型信息和密钥。`
+              : `${patch.displayName || patch.name} 已保存最新模型信息。`,
             level: 'info',
           })
         } catch (error) {
-          setKeySaveStatusByConfigId((state) => ({ ...state, [configId]: 'failed' }))
+          if (willStoreApiKey) {
+            setKeySaveStatusByConfigId((state) => ({ ...state, [configId]: 'failed' }))
+          }
           reportAppError('BYOK', error, {
             title: '更新配置失败',
-            fallbackDetail: '模型信息或密钥没有成功保存。',
+            fallbackDetail: willStoreApiKey
+              ? '模型信息或密钥没有成功保存。'
+              : '模型信息没有成功保存。',
           })
           throw error
         }

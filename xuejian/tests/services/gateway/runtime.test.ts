@@ -14,6 +14,7 @@ describe('gateway runtime detection', () => {
     delete tauriWindow.__TAURI__
     delete tauriWindow.__TAURI_INTERNALS__
     delete globalScope.isTauri
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.resetModules()
   })
@@ -48,5 +49,26 @@ describe('gateway runtime detection', () => {
     globalScope.isTauri = true
 
     expect(isTauriEnvironment()).toBe(true)
+  })
+
+  it('rejects IPC calls that exceed an explicit timeout', async () => {
+    vi.useFakeTimers()
+    const ipcInvoke = vi.fn(() => new Promise(() => undefined))
+    tauriWindow.__TAURI_INTERNALS__ = {}
+    vi.doMock('@tauri-apps/api/core', () => ({ invoke: ipcInvoke }))
+
+    const runtimeModule = await import('@/services/gateway/index')
+    const promise = runtimeModule.invoke('test_api_connection', undefined, {
+      timeoutMs: 20,
+      timeoutMessage: 'model health test timed out',
+    })
+    const expectation = expect(promise).rejects.toMatchObject({
+      code: 'INVOKE_TIMEOUT',
+      message: 'model health test timed out',
+    })
+
+    await vi.advanceTimersByTimeAsync(20)
+
+    await expectation
   })
 })

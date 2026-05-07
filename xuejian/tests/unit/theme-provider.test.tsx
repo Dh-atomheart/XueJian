@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ThemeProvider } from '@/design-system/ThemeProvider'
-import { appThemes, resolveAppTheme } from '@/design-system/themes'
+import { appThemes, resolveAppTheme, resolveAppThemeId } from '@/design-system/themes'
 import { SettingsPage } from '@/features/settings/SettingsPage'
 import { settingsGateway } from '@/services/gateway/settings'
 
@@ -17,7 +17,7 @@ function createTestQueryClient() {
 
 beforeEach(async () => {
   await settingsGateway.update({
-    theme: 'default',
+    theme: 'light',
     language: 'zh-CN',
     dailyNewCardLimit: 20,
     reviewTimeLimit: 30,
@@ -25,11 +25,12 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   cleanup()
 })
 
 describe('theme provider', () => {
-  it('keeps the settings page on the official paper theme', async () => {
+  it('applies the light theme and renders theme choices as a select', async () => {
     const queryClient = createTestQueryClient()
 
     render(
@@ -42,19 +43,78 @@ describe('theme provider', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '通用' }))
 
-    await screen.findByDisplayValue('default')
-    expect(screen.queryByTestId('theme-option-comic-sketch')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('theme-option-contrast-paper')).not.toBeInTheDocument()
+    const themeSelect = await screen.findByTestId('settings-theme-select')
+    expect(themeSelect).toHaveValue('light')
+    expect(screen.getByRole('option', { name: 'Light' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Dark' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'System' })).toBeInTheDocument()
 
     await waitFor(() => {
-      expect(document.documentElement.dataset.theme).toBe('default')
+      expect(document.documentElement.dataset.theme).toBe('light')
+      expect(document.documentElement.dataset.themePreference).toBe('light')
+      expect(document.documentElement.classList.contains('dark')).toBe(false)
       expect(document.documentElement.style.getPropertyValue('--paper-base')).toBe(
-        appThemes.default.cssVariables['--paper-base']
+        appThemes.light.cssVariables['--paper-base']
       )
     })
   })
 
-  it('falls back to the default theme when the value is unknown', () => {
-    expect(resolveAppTheme('unknown-theme').id).toBe('default')
+  it('normalizes legacy default to light and falls back to light for unknown values', () => {
+    expect(resolveAppThemeId('default')).toBe('light')
+    expect(resolveAppTheme('unknown-theme').id).toBe('light')
+  })
+
+  it('resolves system theme from OS preference changes', async () => {
+    let matches = true
+    const listeners = new Set<() => void>()
+
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: () => ({
+        get matches() {
+          return matches
+        },
+        media: '(prefers-color-scheme: dark)',
+        onchange: null,
+        addEventListener: (_event: string, listener: () => void) => listeners.add(listener),
+        removeEventListener: (_event: string, listener: () => void) => listeners.delete(listener),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }),
+    })
+
+    await settingsGateway.update({ theme: 'system' })
+    const queryClient = createTestQueryClient()
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <div>Theme host</div>
+        </ThemeProvider>
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.themePreference).toBe('system')
+      expect(document.documentElement.dataset.theme).toBe('dark')
+      expect(document.documentElement.classList.contains('dark')).toBe(true)
+      expect(document.documentElement.style.getPropertyValue('--paper-base')).toBe(
+        appThemes.dark.cssVariables['--paper-base']
+      )
+    })
+
+    matches = false
+    act(() => {
+      listeners.forEach((listener) => listener())
+    })
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe('light')
+      expect(document.documentElement.classList.contains('dark')).toBe(false)
+      expect(document.documentElement.style.getPropertyValue('--paper-base')).toBe(
+        appThemes.light.cssVariables['--paper-base']
+      )
+    })
   })
 })

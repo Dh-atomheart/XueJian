@@ -53,4 +53,30 @@ describe('useAppUiStore', () => {
     expect(useAppUiStore.getState().activeNavItem).toBe('knowledge')
     expect(useAppUiStore.getState().reader.documentId).toBeNull()
   })
+
+  it('opens Knowledge Q&A with the provided draft scope', () => {
+    useAppUiStore.getState().openKnowledgeQa({
+      question: '这份资料的核心概念是什么？',
+      selectedDocumentIds: ['doc-1'],
+      sourceLabel: 'Reader',
+    })
+
+    expect(useAppUiStore.getState().activeNavItem).toBe('knowledge')
+    expect(useAppUiStore.getState().knowledgeDraft).toEqual({
+      question: '这份资料的核心概念是什么？',
+      selectedDocumentIds: ['doc-1'],
+      sourceLabel: 'Reader',
+    })
+  })
+
+  it('opens the reader at a card source page', () => {
+    useAppUiStore.getState().openReader('doc-1', 12, {
+      page: 5,
+      selectedCardId: 'card-1',
+    })
+
+    expect(useAppUiStore.getState().reader.documentId).toBe('doc-1')
+    expect(useAppUiStore.getState().reader.currentPage).toBe(5)
+    expect(useAppUiStore.getState().reader.selectedCardId).toBe('card-1')
+  })
 })

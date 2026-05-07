@@ -9,6 +9,8 @@ import type { Card, Document, WorkflowRun } from '@/types'
 const {
   useDocumentsQueryMock,
   useCardsQueryMock,
+  useBasicCardGroupsQueryMock,
+  useApiConfigsQueryMock,
   useCardCandidatesQueryMock,
   useRecentWorkflowRunsQueryMock,
   useWorkflowEventsQueryMock,
@@ -18,6 +20,8 @@ const {
 } = vi.hoisted(() => ({
   useDocumentsQueryMock: vi.fn(),
   useCardsQueryMock: vi.fn(),
+  useBasicCardGroupsQueryMock: vi.fn(),
+  useApiConfigsQueryMock: vi.fn(),
   useCardCandidatesQueryMock: vi.fn(),
   useRecentWorkflowRunsQueryMock: vi.fn(),
   useWorkflowEventsQueryMock: vi.fn(),
@@ -32,6 +36,8 @@ vi.mock('@/queries', () => ({
   orchestrationQueryKeys: { all: ['orchestration'] },
   useDocumentsQuery: useDocumentsQueryMock,
   useCardsQuery: useCardsQueryMock,
+  useBasicCardGroupsQuery: useBasicCardGroupsQueryMock,
+  useApiConfigsQuery: useApiConfigsQueryMock,
   useCardCandidatesQuery: useCardCandidatesQueryMock,
   useRecentWorkflowRunsQuery: useRecentWorkflowRunsQueryMock,
   useWorkflowEventsQuery: useWorkflowEventsQueryMock,
@@ -171,6 +177,8 @@ describe('CardStudioPage', () => {
 
     useDocumentsQueryMock.mockReturnValue({ data: [], isLoading: false })
     useCardsQueryMock.mockReturnValue({ data: [], isLoading: false })
+    useBasicCardGroupsQueryMock.mockReturnValue({ data: [], isLoading: false })
+    useApiConfigsQueryMock.mockReturnValue({ data: [], isLoading: false })
     useCardCandidatesQueryMock.mockReturnValue({ data: [], isLoading: false })
     useRecentWorkflowRunsQueryMock.mockReturnValue({ data: [], isLoading: false })
     useWorkflowEventsQueryMock.mockReturnValue({ data: [], isLoading: false })
@@ -189,6 +197,7 @@ describe('CardStudioPage', () => {
       mutate: vi.fn(),
       mutateAsync: vi.fn(),
     })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     vi.mocked(cardsGateway.startGeneration).mockResolvedValue(makeWorkflowRun({ status: 'queued' }))
     vi.mocked(cardsGateway.create).mockResolvedValue(makeCard({ id: '77777777-7777-4777-8777-777777777777' }))
@@ -243,9 +252,13 @@ describe('CardStudioPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '新建卡片' }))
     const createModal = screen.getByTestId('card-editor-modal')
-    const createTextareas = within(createModal).getAllByRole('textbox')
-    fireEvent.change(createTextareas[0], { target: { value: 'New question?' } })
-    fireEvent.change(createTextareas[1], { target: { value: 'New answer.' } })
+    fireEvent.change(within(screen.getByTestId('card-editor-front-input')).getByRole('textbox'), {
+      target: { value: 'New question?' },
+    })
+    fireEvent.click(within(createModal).getByTestId('card-editor-tab-back'))
+    fireEvent.change(within(screen.getByTestId('card-editor-back-input')).getByRole('textbox'), {
+      target: { value: 'New answer.' },
+    })
     fireEvent.click(within(createModal).getByRole('button', { name: /创建|鍒涘缓/ }))
 
     await waitFor(() => {
@@ -262,8 +275,9 @@ describe('CardStudioPage', () => {
       screen.getByTestId('card-studio-edit-card-88888888-8888-4888-8888-888888888888')
     )
     const editModal = screen.getByTestId('card-editor-modal')
-    const editTextareas = within(editModal).getAllByRole('textbox')
-    fireEvent.change(editTextareas[0], { target: { value: 'Updated front' } })
+    fireEvent.change(within(screen.getByTestId('card-editor-front-input')).getByRole('textbox'), {
+      target: { value: 'Updated front' },
+    })
     fireEvent.click(within(editModal).getByRole('button', { name: /保存|淇濆瓨/ }))
 
     await waitFor(() => {

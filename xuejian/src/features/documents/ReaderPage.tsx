@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { HighlightLayer, PdfPageCanvas, PdfToolbar } from '@/components/documents'
-import { Button, Card, CardContent } from '@/components/ui'
+import { ReaderCardPanel } from '@/components/documents/ReaderCardPanel'
+import { HighlightLayer } from '@/components/documents/PdfViewer/HighlightLayer'
+import { PdfPageCanvas } from '@/components/documents/PdfViewer/PdfPageCanvas'
+import { PdfToolbar } from '@/components/documents/PdfViewer/PdfToolbar'
+import { Card } from '@/components/ui'
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/shared/ui'
 import { reportAppError } from '@/lib/appFeedback'
 import { resolveReaderRect, type ReaderRect, type ReaderViewport } from '@/lib/readerGeometry'
-import {
-  useCardsQuery,
-  useDocumentAnchorsQuery,
-  useDocumentQuery,
-  useHighlightsQuery,
-} from '@/queries'
+import { useCardsQuery, useHighlightsQuery } from '@/queries/cards'
+import { useDocumentAnchorsQuery, useDocumentQuery } from '@/queries/documents'
 import { documentGateway } from '@/services/gateway/documents'
 import { getPdfPageViewport } from '@/services/renderer/pdf'
 import { useAppUiStore } from '@/store'
@@ -35,12 +35,10 @@ type FocusRect = {
 export function ReaderPage({ documentId }: ReaderPageProps) {
   const reader = useAppUiStore((state) => state.reader)
   const closeReader = useAppUiStore((state) => state.closeReader)
-  const setContextRailOpen = useAppUiStore((state) => state.setContextRailOpen)
   const setReaderPage = useAppUiStore((state) => state.setReaderPage)
   const setReaderScale = useAppUiStore((state) => state.setReaderScale)
   const setReaderTotalPages = useAppUiStore((state) => state.setReaderTotalPages)
   const selectCard = useAppUiStore((state) => state.selectCard)
-  const isContextRailOpen = useAppUiStore((state) => state.isContextRailOpen)
   const { data: document, isLoading: isLoadingDocument } = useDocumentQuery(documentId)
   const { data: anchors = [] } = useDocumentAnchorsQuery(documentId)
   const { data: pageCards = [] } = useCardsQuery(
@@ -57,10 +55,11 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
   const [binaryError, setBinaryError] = useState<string | null>(null)
   const [pageRenderError, setPageRenderError] = useState<string | null>(null)
   const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null)
-  const [readerNotice, setReaderNotice] = useState<string | null>(null)
   const [pageViewport, setPageViewport] = useState<ReaderViewport | null>(null)
   const [basePageViewport, setBasePageViewport] = useState<ReaderViewport | null>(null)
   const [pdfStageSize, setPdfStageSize] = useState({ width: 0, height: 0 })
+  const [isCardPanelOpen, setCardPanelOpen] = useState(true)
+  const [isCardDrawerOpen, setCardDrawerOpen] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -257,24 +256,12 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
     scrollContainerRef.current.scrollTo({ top, behavior: 'smooth' })
   }, [focusRect])
 
-  useEffect(() => {
-    if (selectedCard || activeHighlightId) {
-      return
-    }
-
-    setReaderNotice(null)
-  }, [activeHighlightId, selectedCard])
-
   function handleHighlightClick(highlight: Highlight) {
     setActiveHighlightId(highlight.id)
 
     if (highlight.cardId) {
       selectCard(highlight.cardId)
-      setReaderNotice('已在右侧定位对应贴笺。')
-      return
     }
-
-    setReaderNotice('该高亮尚未绑定贴笺，可在右侧手动补一张。')
   }
 
   if (isLoadingDocument) {
@@ -294,77 +281,32 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4" data-testid="reader-layout">
-      {/* Toolbar */}
+    <div className="flex h-full min-h-0 flex-col" data-testid="reader-layout">
       <PdfToolbar
         currentPage={reader.currentPage}
         totalPages={Math.max(reader.totalPages, document.pageCount ?? 1, 1)}
         scale={reader.scale}
         documentTitle={document.title}
+        isCardPanelOpen={isCardPanelOpen}
         onPageChange={(page) => setReaderPage(page)}
         onScaleChange={(scale) => setReaderScale(scale)}
+        onToggleCardPanel={() => setCardPanelOpen((open) => !open)}
+        onOpenCardDrawer={() => setCardDrawerOpen(true)}
         onClose={closeReader}
       />
 
-      {/* Header area */}
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="space-y-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">READER</p>
-            <h1 className="mt-1 text-2xl font-medium text-foreground" data-testid="app-shell-page-title">
-              阅读工作台
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              边读边贴笺，保持正文专注。高亮与卡片互相定位，正文区域尽量保持克制和稳定。
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <ReaderMetric label="当前页" value={`第 ${reader.currentPage} 页`} />
-            <ReaderMetric label="贴笺数" value={`${pageCards.length}`} />
-            <ReaderMetric label="高亮数" value={`${highlights.length}`} />
-            <ReaderMetric label="缩放" value={`${Math.round(reader.scale * 100)}%`} />
-          </div>
-        </div>
-
-        <Card className="border-border/50 bg-card">
-          <CardContent className="p-4">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">本页操作</p>
-            <div className="mt-3 space-y-3 text-sm text-muted-foreground">
-              <p>高亮会短暂聚焦，不会长期遮挡正文。</p>
-              <p>选中文本后可直接创建贴笺草稿，再回到卡片工坊深化。</p>
-              {!isContextRailOpen ? (
-                <Button
-                  variant="outline"
-                  className="w-full justify-center rounded-lg"
-                  onClick={() => setContextRailOpen(true)}
-                >
-                  打开当前页贴笺 ({pageCards.length})
-                </Button>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {readerNotice ? (
-        <Card className="border-chart-5/30 bg-chart-5/10">
-          <CardContent className="px-4 py-3 text-sm text-muted-foreground">
-            {readerNotice}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {/* Main content: PDF */}
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <Card className="flex min-h-0 flex-col overflow-hidden border-border/50 bg-card p-0" data-testid="reader-main-stage">
+      <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <Card
+          className="flex min-h-0 flex-col overflow-hidden rounded-none border-0 border-border/50 bg-card p-0"
+          data-testid="reader-main-stage"
+        >
           <div className="border-b border-border/30 px-4 py-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">
             正文页
           </div>
 
           <div
             ref={scrollContainerRef}
-            className="relative flex min-h-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_50%_0%,rgba(248,225,108,0.08),transparent_42%),linear-gradient(180deg,rgba(250,248,242,0.94),rgba(238,233,221,0.78))] px-6 py-8"
+            className="relative flex min-h-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_50%_0%,rgb(var(--highlight-yellow)/0.08),transparent_42%),linear-gradient(180deg,rgb(var(--surface-reader)),rgb(var(--paper-soft)))] px-6 py-8"
             data-testid="reader-pdf-stage"
           >
             {binaryError ? (
@@ -386,7 +328,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
               </div>
             ) : (
               <div className="flex min-h-full w-full justify-center">
-                <div className="relative inline-block max-w-full rounded-xl bg-card shadow-[0_26px_80px_-44px_rgba(38,31,24,0.48),0_2px_10px_rgba(38,31,24,0.08)] ring-1 ring-ink/10">
+                <div className="relative inline-block max-w-full rounded-xl bg-card shadow-paper ring-1 ring-border/60">
                   <PdfPageCanvas
                     pdfBytes={pdfBytes}
                     pageNumber={reader.currentPage}
@@ -417,8 +359,8 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
                         height={focusRect.height}
                         rx={6}
                         ry={6}
-                        fill="rgba(248,225,108,0.14)"
-                        stroke="rgba(26,26,26,0.3)"
+                        fill="rgb(var(--reader-highlight-fill))"
+                        stroke="rgb(var(--reader-highlight-stroke))"
                         strokeWidth={2}
                       />
                     </svg>
@@ -429,26 +371,32 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
           </div>
         </Card>
 
-        {!isContextRailOpen ? (
-          <Card className="hidden border-border/50 xl:block">
-            <CardContent className="flex h-full flex-col items-center justify-center gap-4 text-center">
-              <p className="text-sm text-muted-foreground">右侧贴笺栏已收起。</p>
-              <Button variant="outline" className="rounded-lg" onClick={() => setContextRailOpen(true)}>
-                重新展开
-              </Button>
-            </CardContent>
-          </Card>
-        ) : null}
+        {isCardPanelOpen ? (
+          <ReaderCardPanel cards={pageCards} anchors={anchors} currentPage={reader.currentPage} />
+        ) : (
+          <aside
+            className="hidden min-h-0 border-l border-line-soft bg-paper-muted/56 xl:flex"
+            data-testid="reader-card-panel-placeholder"
+            aria-hidden="true"
+          />
+        )}
       </div>
-    </div>
-  )
-}
-
-function ReaderMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-border/60 bg-card/90 px-4 py-3 shadow-[0_16px_40px_-32px_rgba(48,40,32,0.25)]">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className="mt-1.5 text-sm font-medium text-foreground">{value}</p>
+      <Drawer open={isCardDrawerOpen} onOpenChange={setCardDrawerOpen}>
+        <DrawerContent side="right" className="flex max-h-screen flex-col p-0">
+          <DrawerHeader className="mb-0 border-b border-line-soft p-4 pr-12">
+            <DrawerTitle className="font-ui text-base font-medium text-ink">当前页卡片</DrawerTitle>
+            <DrawerDescription className="text-sm text-ink-muted">
+              第 {reader.currentPage} 页 · {pageCards.length} 张卡片
+            </DrawerDescription>
+          </DrawerHeader>
+          <ReaderCardPanel
+            cards={pageCards}
+            anchors={anchors}
+            currentPage={reader.currentPage}
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-paper-muted/82"
+          />
+        </DrawerContent>
+      </Drawer>
     </div>
   )
 }

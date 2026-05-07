@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CardCandidatePanel } from '@/components/cards/CardCandidatePanel'
 import { CardEditorModal, type CardEditorDraft } from '@/components/cards/CardEditorModal'
-import { Card, CardContent, Button } from '@/components/ui'
+import { BackgroundJobPanel, Button, Card, CardContent } from '@/shared/ui'
 import { CardStudioPage as CardStudioPageView } from '@/components/pages/card-studio-page'
 import { reportAppError, reportFeedback } from '@/lib/appFeedback'
 import {
+  useApiConfigsQuery,
+  useBasicCardGroupsQuery,
   cardsQueryKeys,
   documentsQueryKeys,
   orchestrationQueryKeys,
@@ -48,6 +50,8 @@ export function CardStudioPage() {
     (state) => state.setPreferredCardStudioDocumentId
   )
   const { data: documents = [] } = useDocumentsQuery()
+  const { data: cardGroups = [] } = useBasicCardGroupsQuery(false)
+  const { data: apiConfigs = [] } = useApiConfigsQuery()
   const readyDocuments = useMemo(
     () => documents.filter((document) => document.status === 'ready' || document.status === 'parsed'),
     [documents]
@@ -58,6 +62,13 @@ export function CardStudioPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [editorState, setEditorState] = useState<EditorState>(null)
   const [finalizeSummary, setFinalizeSummary] = useState<FinalizeSummary | null>(null)
+  const [aiPanelOpen, setAiPanelOpen] = useState(false)
+  const [aiGroupId, setAiGroupId] = useState('')
+  const [aiProviderConfigId, setAiProviderConfigId] = useState('')
+  const [aiDensity, setAiDensity] = useState<'low' | 'medium' | 'high'>('medium')
+  const [aiPageStart, setAiPageStart] = useState('')
+  const [aiPageEnd, setAiPageEnd] = useState('')
+  const [aiJobId, setAiJobId] = useState<string | null>(null)
 
   useEffect(() => {
     if (readyDocuments.length === 0) {
@@ -88,6 +99,23 @@ export function CardStudioPage() {
     setFinalizeSummary(null)
   }, [selectedDocumentId])
 
+  useEffect(() => {
+    if (!aiGroupId && cardGroups.length > 0) {
+      setAiGroupId(cardGroups[0].id)
+    }
+  }, [aiGroupId, cardGroups])
+
+  useEffect(() => {
+    if (!aiProviderConfigId) {
+      const usableConfig = apiConfigs.find(
+        (config) => config.isEnabled && config.hasStoredCredential
+      )
+      if (usableConfig) {
+        setAiProviderConfigId(usableConfig.id)
+      }
+    }
+  }, [aiProviderConfigId, apiConfigs])
+
   const { data: cards = [] } = useCardsQuery(
     { documentId: selectedDocumentId, limit: 500 },
     { enabled: Boolean(selectedDocumentId) }
@@ -112,6 +140,12 @@ export function CardStudioPage() {
       : {}
   const { data: candidates = [] } = useCardCandidatesQuery(candidateFilters, {
     refetchInterval: pollInterval,
+  })
+  const { data: aiJob = null } = useQuery({
+    queryKey: ['background-job', aiJobId],
+    queryFn: () => cardsGateway.getBackgroundJob(aiJobId as string),
+    enabled: Boolean(aiJobId),
+    refetchInterval: aiJobId ? 2_000 : false,
   })
 
   const pendingCandidates = useMemo(
@@ -161,6 +195,46 @@ export function CardStudioPage() {
     },
   })
 
+  const startAiMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedDocumentId) {
+        throw new Error('No document selected')
+      }
+      return cardsGateway.startAiCardGeneration({
+        documentId: selectedDocumentId,
+        groupId: aiGroupId,
+        providerConfigId: aiProviderConfigId,
+        density: aiDensity,
+        pageStart: aiPageStart.trim() ? Number.parseInt(aiPageStart, 10) : null,
+        pageEnd: aiPageEnd.trim() ? Number.parseInt(aiPageEnd, 10) : null,
+      })
+    },
+    onSuccess: async (job) => {
+      setAiJobId(job.id)
+      await invalidateCardQueries()
+    },
+    onError: (cause) => {
+      reportAppError('AI 生成卡片', cause, {
+        title: 'AI 生成卡片启动失败',
+        showToast: true,
+      })
+    },
+  })
+
+  const resumeAiMutation = useMutation({
+    mutationFn: (jobId: string) => cardsGateway.resumeAiCardGeneration(jobId),
+    onSuccess: async (job) => {
+      setAiJobId(job.id)
+      await invalidateCardQueries()
+    },
+    onError: (cause) => {
+      reportAppError('AI resume card generation', cause, {
+        title: 'AI 继续生成卡片失败',
+        showToast: true,
+      })
+    },
+  })
+
   const createMutation = useMutation({
     mutationFn: (data: CreateCardInput) => cardsGateway.create(data),
   })
@@ -189,7 +263,9 @@ export function CardStudioPage() {
     deleteMutation.isPending ||
     updateCandidateMutation.isPending ||
     bulkUpdateCandidateStatusesMutation.isPending ||
-    finalizeGenerationMutation.isPending
+    finalizeGenerationMutation.isPending ||
+    startAiMutation.isPending ||
+    resumeAiMutation.isPending
 
   function handleEditorSave(data: CardEditorDraft & { mediaFilePaths: string[] }) {
     if (editorState?.mode === 'edit-card') {
@@ -354,9 +430,124 @@ export function CardStudioPage() {
             const card = cards.find((item) => item.id === cardId)
             if (card) setEditorState({ mode: 'edit-card', card })
           }}
-          onDeleteCard={(cardId) => deleteMutation.mutate(cardId)}
+          onDeleteCard={(cardId) => {
+            if (!window.confirm('确认删除这张卡片吗？')) return
+            deleteMutation.mutate(cardId)
+          }}
           onOpenLibrary={() => setActiveNavItem('library')}
         />
+
+        <div className="mx-auto w-full max-w-7xl">
+          <Card className="border-border/50 bg-card">
+            <CardContent className="p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">AI 生成卡片</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    BackgroundJob 直入库调试入口，不经过候选卡片确认流程。
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setAiPanelOpen((value) => !value)}
+                  data-testid="card-studio-ai-generation-toggle"
+                >
+                  {aiPanelOpen ? '收起' : '打开调试表单'}
+                </Button>
+              </div>
+
+              {aiPanelOpen ? (
+                <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_1fr_140px_100px_100px_auto]">
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    <span>卡片组</span>
+                    <select
+                      value={aiGroupId}
+                      onChange={(event) => setAiGroupId(event.target.value)}
+                      className="h-9 w-full rounded-lg border border-border/50 bg-background px-3 text-sm text-foreground"
+                    >
+                      {cardGroups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    <span>模型配置</span>
+                    <select
+                      value={aiProviderConfigId}
+                      onChange={(event) => setAiProviderConfigId(event.target.value)}
+                      className="h-9 w-full rounded-lg border border-border/50 bg-background px-3 text-sm text-foreground"
+                    >
+                      {apiConfigs
+                        .filter((config) => config.isEnabled)
+                        .map((config) => (
+                          <option key={config.id} value={config.id}>
+                            {config.displayName ?? config.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    <span>密度</span>
+                    <select
+                      value={aiDensity}
+                      onChange={(event) => setAiDensity(event.target.value as typeof aiDensity)}
+                      className="h-9 w-full rounded-lg border border-border/50 bg-background px-3 text-sm text-foreground"
+                    >
+                      <option value="low">low</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    <span>起始页</span>
+                    <input
+                      value={aiPageStart}
+                      onChange={(event) => setAiPageStart(event.target.value)}
+                      className="h-9 w-full rounded-lg border border-border/50 bg-background px-3 text-sm text-foreground"
+                      inputMode="numeric"
+                    />
+                  </label>
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    <span>结束页</span>
+                    <input
+                      value={aiPageEnd}
+                      onChange={(event) => setAiPageEnd(event.target.value)}
+                      className="h-9 w-full rounded-lg border border-border/50 bg-background px-3 text-sm text-foreground"
+                      inputMode="numeric"
+                    />
+                  </label>
+                  <div className="flex items-end">
+                    <Button
+                      onClick={() => startAiMutation.mutate()}
+                      disabled={
+                        !selectedDocumentId ||
+                        !aiGroupId ||
+                        !aiProviderConfigId ||
+                        startAiMutation.isPending
+                      }
+                      data-testid="card-studio-start-ai-generation"
+                    >
+                      AI 生成卡片
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {aiJob ? (
+                <BackgroundJobPanel
+                  job={aiJob}
+                  title={`AI 生成任务 ${aiJob.id.slice(0, 8)}`}
+                  className="mt-4 bg-background/50"
+                  onRetry={aiJob.status === 'failed' ? (jobId) => resumeAiMutation.mutate(jobId) : undefined}
+                  isRetrying={resumeAiMutation.isPending}
+                  retryButtonTestId="card-studio-resume-ai-generation"
+                />
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
 
         {activeRun ? (
           <div className="mx-auto w-full max-w-7xl space-y-4" data-testid="card-studio-candidate-review">
@@ -424,8 +615,8 @@ export function CardStudioPage() {
             ) : null}
 
             {fallbackCandidates.length > 0 ? (
-              <Card className="border-amber-200/70 bg-amber-50" data-testid="card-studio-fallback-summary">
-                <CardContent className="p-5 text-sm text-amber-900">
+              <Card className="border-themeAccent-warning/30 bg-themeAccent-warning/10" data-testid="card-studio-fallback-summary">
+                <CardContent className="p-5 text-sm text-ink">
                   <p className="font-medium">Fallback generation detected</p>
                   <p className="mt-2">
                     {fallbackCandidates.length} candidate(s) came from fallback logic. Review them

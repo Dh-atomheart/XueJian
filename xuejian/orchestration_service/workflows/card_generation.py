@@ -201,7 +201,7 @@ def _try_langchain_generation(
         logger.warning("LangChain not installed, falling back to rule-based generation")
         return 0
 
-    llm = build_langchain_chat_model(config, api_key, 0.4)
+    llm = build_langchain_chat_model(config, api_key, 1.0)
 
     anchor_by_hash = {a.get("hash", ""): a for a in anchors if a.get("hash")}
     total_persisted = 0

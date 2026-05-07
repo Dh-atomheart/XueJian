@@ -53,6 +53,7 @@ impl AppState {
         }
     }
 
+    #[track_caller]
     pub fn lock_db(&self) -> AppResult<MutexGuard<'_, Database>> {
         let start = std::time::Instant::now();
         let guard = self
@@ -61,13 +62,20 @@ impl AppState {
             .map_err(|_| AppError::Internal("Database state is poisoned".to_string()))?;
 
         let wait_ms = start.elapsed().as_secs_f64() * 1000.0;
-        if wait_ms >= 10.0 {
-            log::info!("[Perf][Lock] lock_db waited: {:.2}ms", wait_ms);
+        if wait_ms >= 50.0 {
+            let caller = std::panic::Location::caller();
+            log::warn!(
+                "[Perf][Lock] lock_db waited: {:.2}ms at {}:{}",
+                wait_ms,
+                caller.file(),
+                caller.line()
+            );
         }
 
         Ok(guard)
     }
 
+    #[track_caller]
     pub fn lock_secrets(&self) -> AppResult<MutexGuard<'_, SecretStore>> {
         let start = std::time::Instant::now();
         let guard = self
@@ -76,8 +84,14 @@ impl AppState {
             .map_err(|_| AppError::Internal("Secret store state is poisoned".to_string()))?;
 
         let wait_ms = start.elapsed().as_secs_f64() * 1000.0;
-        if wait_ms >= 10.0 {
-            log::info!("[Perf][Lock] lock_secrets waited: {:.2}ms", wait_ms);
+        if wait_ms >= 50.0 {
+            let caller = std::panic::Location::caller();
+            log::warn!(
+                "[Perf][Lock] lock_secrets waited: {:.2}ms at {}:{}",
+                wait_ms,
+                caller.file(),
+                caller.line()
+            );
         }
 
         Ok(guard)

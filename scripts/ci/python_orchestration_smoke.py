@@ -44,10 +44,12 @@ def _import_modules() -> list[str]:
         "orchestration_service.clients.host_gateway",
         "orchestration_service.providers.runtime",
         "orchestration_service.providers.litellm_adapter",
+        "orchestration_service.workflows.document_embedding",
+        "orchestration_service.workflows.litellm_card_generation",
         "orchestration_service.workflows.card_generation",
         "orchestration_service.workflows.knowledge_qa",
         "orchestration_service.workflows.podcast",
-        "orchestration_service.workflows.knowledge_graph",
+        "orchestration_service.parsing.docling_pipeline",
     ]
 
     imported = []

@@ -6,10 +6,9 @@ export type NavItemId =
   | 'cards'
   | 'learning'
   | 'knowledge'
-  | 'profile'
   | 'settings'
 
-export type SettingsSectionId = 'ai' | 'learning' | 'podcast' | 'general'
+export type SettingsSectionId = 'ai' | 'learning' | 'general'
 
 export type AppFeedbackLevel = 'info' | 'warning' | 'error'
 
@@ -45,6 +44,7 @@ interface AppUiState {
   activeNavItem: NavItemId
   activeSettingsSection: SettingsSectionId
   preferredCardStudioDocumentId: string | null
+  preferredBasicCardsDocumentId: string | null
   isContextRailOpen: boolean
   reader: ReaderState
   knowledgeDraft: KnowledgeDraftState
@@ -54,10 +54,15 @@ interface AppUiState {
   setActiveNavItem: (item: NavItemId) => void
   setSettingsSection: (section: SettingsSectionId) => void
   setPreferredCardStudioDocumentId: (documentId: string | null) => void
+  setPreferredBasicCardsDocumentId: (documentId: string | null) => void
   setContextRailOpen: (open: boolean) => void
   openKnowledgeQa: (draft?: Partial<KnowledgeDraftState>) => void
   clearKnowledgeDraft: () => void
-  openReader: (documentId: string, totalPages?: number) => void
+  openReader: (
+    documentId: string,
+    totalPages?: number,
+    options?: { page?: number | null; selectedCardId?: string | null }
+  ) => void
   closeReader: () => void
   setReaderTotalPages: (totalPages: number) => void
   setReaderPage: (page: number) => void
@@ -123,6 +128,7 @@ export const useAppUiStore = create<AppUiState>((set) => ({
   activeNavItem: 'home',
   activeSettingsSection: 'ai',
   preferredCardStudioDocumentId: null,
+  preferredBasicCardsDocumentId: null,
   isContextRailOpen: true,
   reader: initialReaderState,
   knowledgeDraft: initialKnowledgeDraftState,
@@ -137,6 +143,8 @@ export const useAppUiStore = create<AppUiState>((set) => ({
   setSettingsSection: (activeSettingsSection) => set({ activeSettingsSection }),
   setPreferredCardStudioDocumentId: (preferredCardStudioDocumentId) =>
     set({ preferredCardStudioDocumentId }),
+  setPreferredBasicCardsDocumentId: (preferredBasicCardsDocumentId) =>
+    set({ preferredBasicCardsDocumentId }),
   setContextRailOpen: (isContextRailOpen) => set({ isContextRailOpen }),
   openKnowledgeQa: (draft) =>
     set({
@@ -149,10 +157,16 @@ export const useAppUiStore = create<AppUiState>((set) => ({
       reader: initialReaderState,
     }),
   clearKnowledgeDraft: () => set({ knowledgeDraft: initialKnowledgeDraftState }),
-  openReader: (documentId, totalPages) =>
+  openReader: (documentId, totalPages, options) =>
     set({
       activeNavItem: 'library',
-      reader: { ...initialReaderState, documentId, totalPages: totalPages ?? 0 },
+      reader: {
+        ...initialReaderState,
+        documentId,
+        totalPages: totalPages ?? 0,
+        currentPage: Math.max(1, options?.page ?? 1),
+        selectedCardId: options?.selectedCardId ?? null,
+      },
       isContextRailOpen: true,
     }),
   closeReader: () => set({ activeNavItem: 'library', reader: initialReaderState }),

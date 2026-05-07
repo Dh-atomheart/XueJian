@@ -123,7 +123,7 @@ def generate_cards_with_agent(
     except ImportError as exc:
         raise RuntimeError("LangChain agent dependencies are not installed") from exc
 
-    llm = build_langchain_chat_model(config, api_key, 0.35)
+    llm = build_langchain_chat_model(config, api_key, 1.0)
 
     @tool
     def inspect_source_context() -> str:

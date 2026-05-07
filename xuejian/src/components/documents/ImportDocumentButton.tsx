@@ -35,11 +35,11 @@ export function ImportDocumentButton({
       ) : null}
 
       {showFeedback && importState.error ? (
-        <p className="text-xs text-rose-600">{importState.error}</p>
+        <p className="text-xs text-destructive">{importState.error}</p>
       ) : null}
 
       {showFeedback && importState.warnings.length > 0 ? (
-        <p className="text-xs text-amber-700">{importState.warnings[0]}</p>
+        <p className="text-xs text-themeAccent-warning">{importState.warnings[0]}</p>
       ) : null}
     </div>
   )

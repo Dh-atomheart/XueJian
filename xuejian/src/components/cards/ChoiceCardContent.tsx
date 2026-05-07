@@ -90,9 +90,9 @@ export function ChoiceCardContent({
 
           if (showResult) {
             if (isCorrect) {
-              optionStyle = 'border-green-400 bg-green-50/60 text-green-800'
+              optionStyle = 'border-themeAccent-success/50 bg-themeAccent-success/10 text-ink'
             } else if (isSelected && !isCorrect) {
-              optionStyle = 'border-red-400 bg-red-50/60 text-red-800'
+              optionStyle = 'border-destructive/50 bg-destructive/10 text-destructive'
             } else {
               optionStyle = 'border-line-soft/40 text-ink-muted opacity-60'
             }
@@ -115,8 +115,8 @@ export function ChoiceCardContent({
               <span
                 className={cn(
                   'flex-shrink-0 w-6 h-6 rounded-full border flex items-center justify-center text-xs font-medium',
-                  showResult && isCorrect && 'border-green-500 bg-green-500 text-white',
-                  showResult && isSelected && !isCorrect && 'border-red-500 bg-red-500 text-white',
+                  showResult && isCorrect && 'border-themeAccent-success bg-themeAccent-success text-paper-card',
+                  showResult && isSelected && !isCorrect && 'border-destructive bg-destructive text-paper-card',
                   !showResult && 'border-ink/30 text-ink-muted'
                 )}
               >
@@ -132,8 +132,8 @@ export function ChoiceCardContent({
           className={cn(
             'mt-3 text-xs',
             selectedIndex !== null && parsed.options[selectedIndex]?.correct
-              ? 'text-green-600'
-              : 'text-red-600'
+              ? 'text-themeAccent-success'
+              : 'text-destructive'
           )}
         >
           {selectedIndex !== null && parsed.options[selectedIndex]?.correct

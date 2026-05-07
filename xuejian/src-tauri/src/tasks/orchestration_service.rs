@@ -1,9 +1,10 @@
 use std::{
     ffi::OsString,
+    io::Read,
     net::TcpListener,
     path::PathBuf,
     process::{Child, Command, Stdio},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,8 @@ use tokio::time::sleep;
 use crate::gateway::ORCHESTRATION_PROTOCOL_VERSION;
 
 const STARTUP_BACKOFF_MS: [u64; 8] = [100, 200, 350, 600, 900, 1300, 1800, 2500];
+const DEPENDENCY_PROBE_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+const DEPENDENCY_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError {
@@ -148,7 +151,7 @@ impl OrchestrationService {
     }
 
     pub async fn stop(&self) -> Result<()> {
-        self.inner.lock().await.stop()
+        self.inner.lock().await.stop().await
     }
 }
 
@@ -280,7 +283,7 @@ impl OrchestrationServiceManager {
         }
 
         let error = last_error.unwrap_or_else(|| "health check timed out".to_string());
-        self.stop()?;
+        self.stop().await?;
         self.last_health = self.stopped_status(Some(error.clone()));
         Err(ServiceError::Startup(error))
     }
@@ -339,14 +342,20 @@ impl OrchestrationServiceManager {
     }
 
     async fn restart(&mut self) -> Result<ServiceHealthStatus> {
-        self.stop()?;
+        self.stop().await?;
         self.start().await
     }
 
-    fn stop(&mut self) -> Result<()> {
+    async fn stop(&mut self) -> Result<()> {
         if let Some(mut child) = self.process.take() {
             let _ = child.kill();
-            let _ = child.wait();
+            // Offload the blocking wait() to avoid freezing the Tokio runtime.
+            // Add a 5-second timeout as a safety measure.
+            let _ = tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio::task::spawn_blocking(move || child.wait()),
+            )
+            .await;
         }
 
         self.endpoint = None;
@@ -424,9 +433,8 @@ impl OrchestrationServiceManager {
     }
 
     fn probe_python_dependencies(&mut self) -> DependencyProbe {
-        let _now = std::time::Instant::now();
         if let Some((cached_at, ref cached)) = self.dependency_probe_cache {
-            if cached_at.elapsed() < Duration::from_secs(60) {
+            if cached_at.elapsed() < DEPENDENCY_PROBE_CACHE_TTL {
                 return cached.clone();
             }
         }
@@ -448,7 +456,8 @@ impl OrchestrationServiceManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
-        let Ok(output) = command.output() else {
+        let Ok(output) = run_dependency_probe_with_timeout(command, DEPENDENCY_PROBE_TIMEOUT)
+        else {
             let result = DependencyProbe {
                 missing_dependencies: vec!["dependency_probe_failed".to_string()],
             };
@@ -456,7 +465,7 @@ impl OrchestrationServiceManager {
             return result;
         };
 
-        if !output.status.success() {
+        if !output.status_success {
             let result = DependencyProbe {
                 missing_dependencies: vec!["dependency_probe_failed".to_string()],
             };
@@ -478,6 +487,43 @@ impl OrchestrationServiceManager {
         };
         self.dependency_probe_cache = Some((std::time::Instant::now(), result.clone()));
         result
+    }
+}
+
+struct DependencyProbeOutput {
+    status_success: bool,
+    stdout: Vec<u8>,
+}
+
+fn run_dependency_probe_with_timeout(
+    mut command: Command,
+    timeout: Duration,
+) -> std::io::Result<DependencyProbeOutput> {
+    let mut child = command.spawn()?;
+    let started_at = Instant::now();
+
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let mut stdout = Vec::new();
+            if let Some(mut output) = child.stdout.take() {
+                let _ = output.read_to_end(&mut stdout);
+            }
+            return Ok(DependencyProbeOutput {
+                status_success: status.success(),
+                stdout,
+            });
+        }
+
+        if started_at.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(DependencyProbeOutput {
+                status_success: false,
+                stdout: Vec::new(),
+            });
+        }
+
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
@@ -589,7 +635,7 @@ fn build_dependency_probe_script() -> String {
         .join(", ");
 
     format!(
-        "import importlib\nmodules=[{modules}]\nmissing=[]\nfor import_name,label in modules:\n    try:\n        importlib.import_module(import_name)\n    except Exception:\n        missing.append(label)\nprint(','.join(missing))"
+        "import importlib.util\nmodules=[{modules}]\nmissing=[]\nfor import_name,label in modules:\n    try:\n        found = importlib.util.find_spec(import_name) is not None\n    except Exception:\n        found = False\n    if not found:\n        missing.append(label)\nprint(','.join(missing))"
     )
 }
 
@@ -621,6 +667,6 @@ mod tests {
         );
         assert!(!health.host_gateway_configured);
 
-        manager.stop().expect("stop service");
+        manager.stop().await.expect("stop service");
     }
 }

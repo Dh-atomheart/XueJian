@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
-import MDEditor from '@uiw/react-md-editor'
 import { SketchButton } from '@/components/ui/Sketch'
 import { cardsGateway } from '@/services/gateway/cards'
 import { cn } from '@/lib/utils'
 import type { Card, CardMedia } from '@/types'
+
+const MDEditor = lazy(() => import('@uiw/react-md-editor'))
 
 export interface CardEditorDraft {
   front: string
@@ -251,30 +252,54 @@ export function CardEditorModal({
             className={cn(activeField !== 'front' && 'hidden')}
             data-testid="card-editor-front-input"
           >
-            <MDEditor
-              value={front}
-              onChange={(v) => setFront(v ?? '')}
-              preview="live"
-              height={280}
-              textareaProps={{
-                placeholder:
-                  cardType === 'image_occlusion'
-                    ? '输入图像遮挡 JSON，例如 {"image":"...","prompt":"指出被遮挡概念","zones":[...]}'
-                    : '输入问题... 支持 Markdown 和 $LaTeX$',
-              }}
-            />
+            <Suspense
+              fallback={
+                <EditorFallback
+                  value={front}
+                  onChange={setFront}
+                  placeholder={
+                    cardType === 'image_occlusion'
+                      ? '输入图像遮挡 JSON，例如 {"image":"...","prompt":"指出被遮挡概念","zones":[...]}'
+                      : '输入问题... 支持 Markdown 和 $LaTeX$'
+                  }
+                />
+              }
+            >
+              <MDEditor
+                value={front}
+                onChange={(v) => setFront(v ?? '')}
+                preview="live"
+                height={280}
+                textareaProps={{
+                  placeholder:
+                    cardType === 'image_occlusion'
+                      ? '输入图像遮挡 JSON，例如 {"image":"...","prompt":"指出被遮挡概念","zones":[...]}'
+                      : '输入问题... 支持 Markdown 和 $LaTeX$',
+                }}
+              />
+            </Suspense>
           </div>
           <div
             className={cn(activeField !== 'back' && 'hidden')}
             data-testid="card-editor-back-input"
           >
-            <MDEditor
-              value={back}
-              onChange={(v) => setBack(v ?? '')}
-              preview="live"
-              height={280}
-              textareaProps={{ placeholder: '输入答案... 支持 Markdown 和 $LaTeX$' }}
-            />
+            <Suspense
+              fallback={
+                <EditorFallback
+                  value={back}
+                  onChange={setBack}
+                  placeholder="输入答案... 支持 Markdown 和 $LaTeX$"
+                />
+              }
+            >
+              <MDEditor
+                value={back}
+                onChange={(v) => setBack(v ?? '')}
+                preview="live"
+                height={280}
+                textareaProps={{ placeholder: '输入答案... 支持 Markdown 和 $LaTeX$' }}
+              />
+            </Suspense>
           </div>
         </div>
 
@@ -318,7 +343,7 @@ export function CardEditorModal({
             </SketchButton>
           </div>
 
-          {mediaError && <p className="text-xs text-red-600">{mediaError}</p>}
+          {mediaError && <p className="text-xs text-destructive">{mediaError}</p>}
 
           {card ? (
             <div className="space-y-2" data-testid="card-editor-media-list">
@@ -337,7 +362,7 @@ export function CardEditorModal({
                     <button
                       type="button"
                       onClick={() => void handleDeleteMedia(item.id)}
-                      className="text-xs text-ink-muted transition-colors hover:text-red-600"
+                      className="text-xs text-ink-muted transition-colors hover:text-destructive"
                     >
                       删除
                     </button>
@@ -360,7 +385,7 @@ export function CardEditorModal({
                   <button
                     type="button"
                     onClick={() => handleRemoveQueuedMedia(filePath)}
-                    className="text-xs text-ink-muted transition-colors hover:text-red-600"
+                    className="text-xs text-ink-muted transition-colors hover:text-destructive"
                   >
                     移除
                   </button>
@@ -383,5 +408,24 @@ export function CardEditorModal({
         </footer>
       </div>
     </div>
+  )
+}
+
+function EditorFallback({
+  value,
+  placeholder,
+  onChange,
+}: {
+  value: string
+  placeholder: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <textarea
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      className="h-[280px] w-full resize-none rounded-lg border border-line-soft/60 bg-paper-muted/40 p-3 text-sm text-ink-muted"
+    />
   )
 }

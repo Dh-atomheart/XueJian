@@ -2,6 +2,9 @@ import type {
   ApiConfig,
   AudioSegment,
   AppSettings,
+  BackgroundJob,
+  BasicCard,
+  BasicCardGroup,
   Card,
   CardAnimation,
   CardCandidate,
@@ -9,6 +12,8 @@ import type {
   Document,
   DocumentAnchor,
   DocumentChunk,
+  DocumentLibraryItem,
+  DashboardSummary,
   DiscoveredModel,
   Highlight,
   ModelProfile,
@@ -16,6 +21,8 @@ import type {
   PointsEntry,
   ProviderBudgetUsage,
   ReviewLog,
+  StudyQueueItem,
+  StudyReviewResult,
   WorkflowEvent,
   WorkflowModelAssignment,
   WorkflowType,
@@ -37,9 +44,31 @@ const MOCK_HIGHLIGHT_IDS = [
   '77777777-7777-4777-8777-777777777777',
   '88888888-8888-4888-8888-888888888888',
 ] as const
+const MOCK_BASIC_GROUP_IDS = [
+  '10101010-1010-4010-8010-101010101010',
+  '20202020-2020-4020-8020-202020202020',
+] as const
+const MOCK_BASIC_CARD_IDS = [
+  '30303030-3030-4030-8030-303030303030',
+  '40404040-4040-4040-8040-404040404040',
+] as const
 const MOCK_WORKFLOW_RUN_ID = '11111111-1111-4111-8111-111111111111'
 const MOCK_PODCAST_EPISODE_ID = 'podcast-001'
 const MOCK_PODCAST_RUN_ID = 'run-podcast-001'
+
+type MockStudyState = {
+  state: StudyQueueItem['state']
+  dueAt: Date
+}
+
+type MockStudyEvent = {
+  cardId: string
+  groupId: string
+  rating: ReviewLog['rating']
+  startedAt: Date | null
+  answeredAt: Date
+  durationMs: number | null
+}
 
 function createMockPodcastScript(title = 'AI 学习播客') {
   return {
@@ -237,7 +266,7 @@ const mockDocument: Document = {
   filePath: 'mock://documents/m4-reader.pdf',
   fileType: 'pdf',
   fileSize: 52_480,
-  pageCount: 1,
+  pageCount: 2,
   contentHash: 'm4-reader-mock-hash',
   status: 'ready',
   createdAt: new Date(MOCK_NOW),
@@ -462,7 +491,110 @@ function createInitialMockPointsLedger(): PointsEntry[] {
   return []
 }
 
+function createInitialMockBasicCardGroups(): BasicCardGroup[] {
+  return [
+    {
+      id: MOCK_BASIC_GROUP_IDS[0],
+      name: '文献摘记',
+      description: '从论文和书页中手工沉淀的基础卡片。',
+      color: '#3B82F6',
+      isEnabled: true,
+      cardCount: 1,
+      createdAt: new Date(MOCK_NOW),
+      updatedAt: new Date(MOCK_NOW),
+      deletedAt: null,
+    },
+    {
+      id: MOCK_BASIC_GROUP_IDS[1],
+      name: '方法论',
+      description: '通用学习方法与工作流经验。',
+      color: '#14B8A6',
+      isEnabled: false,
+      cardCount: 1,
+      createdAt: new Date(MOCK_NOW),
+      updatedAt: new Date(MOCK_NOW),
+      deletedAt: null,
+    },
+  ]
+}
+
+function createInitialMockBasicCards(): BasicCard[] {
+  return [
+    {
+      id: MOCK_BASIC_CARD_IDS[0],
+      groupId: MOCK_BASIC_GROUP_IDS[0],
+      groupName: '文献摘记',
+      title: '稳定锚点',
+      front: '为什么阅读器中的来源锚点需要稳定？',
+      back: '因为卡片要能长期回跳到原文位置，漂移后引用链会失效。',
+      tags: ['reader', 'memory'],
+      origin: 'manual',
+      source: {
+        documentId: MOCK_DOCUMENT_ID,
+        documentTitle: mockDocument.title,
+        anchorId: MOCK_ANCHOR_IDS[0],
+        page: 1,
+        quote: mockAnchors[0].textQuote,
+      },
+      createdAt: new Date(MOCK_NOW),
+      updatedAt: new Date(MOCK_NOW),
+      deletedAt: null,
+    },
+    {
+      id: MOCK_BASIC_CARD_IDS[1],
+      groupId: MOCK_BASIC_GROUP_IDS[1],
+      groupName: '方法论',
+      title: '软删除策略',
+      front: '为什么卡片系统要优先使用软删除？',
+      back: '因为它能保留审计轨迹，并降低误删后不可恢复的风险。',
+      tags: ['crud', 'mvp0'],
+      origin: 'manual',
+      source: {
+        documentId: null,
+        documentTitle: null,
+        anchorId: null,
+        page: null,
+        quote: null,
+      },
+      createdAt: new Date(MOCK_NOW),
+      updatedAt: new Date(MOCK_NOW),
+      deletedAt: null,
+    },
+  ]
+}
+
+function createInitialMockStudyStates(): Record<string, MockStudyState> {
+  return {
+    [MOCK_BASIC_CARD_IDS[0]]: {
+      state: 'new',
+      dueAt: new Date('2026-04-17T08:00:00.000Z'),
+    },
+    [MOCK_BASIC_CARD_IDS[1]]: {
+      state: 'review',
+      dueAt: new Date('2026-04-17T07:00:00.000Z'),
+    },
+  }
+}
+
+function createInitialMockStudyEvents(): MockStudyEvent[] {
+  return [
+    {
+      cardId: MOCK_BASIC_CARD_IDS[0],
+      groupId: MOCK_BASIC_GROUP_IDS[0],
+      rating: 'good',
+      startedAt: new Date('2026-04-16T08:58:00.000Z'),
+      answeredAt: new Date('2026-04-16T09:00:30.000Z'),
+      durationMs: 150_000,
+    },
+  ]
+}
+
 const mockCards: Card[] = createInitialMockCards()
+const mockBasicCardGroups: BasicCardGroup[] = createInitialMockBasicCardGroups()
+const mockBasicCards: BasicCard[] = createInitialMockBasicCards()
+const mockBackgroundJobs: BackgroundJob[] = []
+let mockStudyStates: Record<string, MockStudyState> = createInitialMockStudyStates()
+const mockStudyEvents: MockStudyEvent[] = createInitialMockStudyEvents()
 const mockCardMedia: CardMedia[] = []
 const mockCardCandidates: CardCandidate[] = createInitialMockCardCandidates()
 const mockWorkflowRuns: WorkflowRun[] = [createInitialMockWorkflowRun()]
@@ -503,7 +635,7 @@ const mockHighlights: Highlight[] = [
 ]
 
 const defaultMockAppSettings: AppSettings = {
-  theme: 'default',
+  theme: 'light',
   language: 'zh-CN',
   dailyNewCardLimit: 20,
   reviewTimeLimit: 30,
@@ -702,8 +834,7 @@ function buildMockWorkflowAssignment(
     assignedAt,
     updatedAt: assignedAt,
     modelProfile,
-    apiConfig:
-      mockApiConfigs.find((config) => config.id === modelProfile?.apiConfigId) ?? null,
+    apiConfig: mockApiConfigs.find((config) => config.id === modelProfile?.apiConfigId) ?? null,
   }
 }
 
@@ -745,6 +876,11 @@ export function resetMockGatewayState() {
   mockModelProfiles = []
   mockWorkflowAssignments = []
   mockProviderBudgetUsage = []
+  mockBasicCardGroups.splice(0, mockBasicCardGroups.length, ...createInitialMockBasicCardGroups())
+  mockBasicCards.splice(0, mockBasicCards.length, ...createInitialMockBasicCards())
+  mockBackgroundJobs.splice(0, mockBackgroundJobs.length)
+  mockStudyStates = createInitialMockStudyStates()
+  mockStudyEvents.splice(0, mockStudyEvents.length, ...createInitialMockStudyEvents())
   mockCards.splice(0, mockCards.length, ...createInitialMockCards())
   mockCardMedia.splice(0, mockCardMedia.length)
   mockCardCandidates.splice(0, mockCardCandidates.length, ...createInitialMockCardCandidates())
@@ -807,16 +943,419 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   const pageNumber = getNumber(filters?.pageNumber)
   const anchorId = getString(filters?.anchorId)
   const cardId = getString(filters?.cardId)
+  const jobId = getString(args?.jobId)
   const candidateStatus = getCandidateStatus(args?.status) ?? getCandidateStatus(filters?.status)
   const pointsData = getRecord(args?.data)
   const reviewLogId = getString(pointsData?.reviewLogId)
 
+  if (cmd === 'get_dashboard_summary') {
+    return buildDashboardSummary(getNumber(args?.days) ?? 63, getNumber(args?.limit) ?? 6) as T
+  }
+
+  if (cmd === 'list_library_documents') {
+    return limitItems([buildMockLibraryItem(mockDocument)].map(serializeLibraryItem), limit) as T
+  }
+
+  if (cmd === 'get_daily_queue') {
+    const newLimit = Math.max(0, getNumber(args?.newLimit) ?? 20)
+    const reviewLimit = Math.max(0, getNumber(args?.reviewLimit) ?? 100)
+    const now = new Date()
+
+    const queue = buildMockStudyQueueItems(now)
+    const selected = [
+      ...queue.filter((item) => item.state === 'new').slice(0, newLimit),
+      ...queue.filter((item) => item.state !== 'new').slice(0, reviewLimit),
+    ].sort((left, right) => {
+      const dueDiff = left.dueAt.getTime() - right.dueAt.getTime()
+      if (dueDiff !== 0) {
+        return dueDiff
+      }
+      return left.title.localeCompare(right.title, 'zh-CN')
+    })
+
+    return selected.map(serializeStudyQueueItem) as T
+  }
+
+  if (cmd === 'submit_study_review') {
+    const data = getRecord(args?.data)
+    const cardId = getString(data?.cardId)
+    const rating = getReviewRating(data?.rating)
+
+    if (!cardId || !rating) {
+      throw new Error('无效复习反馈档位')
+    }
+
+    const card = mockBasicCards.find((item) => item.id === cardId && !item.deletedAt)
+    if (!card) {
+      throw new Error('卡片不存在')
+    }
+
+    const current = getMockStudyState(card)
+    const result = computeMockStudyReviewResult(current.state, rating, new Date())
+
+    mockStudyStates[card.id] = {
+      state: result.newState,
+      dueAt: result.nextDueAt,
+    }
+    mockStudyEvents.unshift({
+      cardId: card.id,
+      groupId: card.groupId,
+      rating,
+      startedAt: getDate(data?.startedAt),
+      answeredAt: currentMockNow(),
+      durationMs: getNumber(data?.durationMs) ?? null,
+    })
+
+    return serializeStudyReviewResult(result) as T
+  }
+
+  if (cmd === 'list_basic_card_groups') {
+    const includeDeleted = Boolean(args?.includeDeleted)
+    return mockBasicCardGroups
+      .filter((group) => includeDeleted || !group.deletedAt)
+      .map(serializeBasicCardGroup)
+      .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime()) as T
+  }
+
+  if (cmd === 'create_basic_card_group') {
+    const data = getRecord(args?.data)
+    const name = getString(data?.name)?.trim()
+    if (!name) {
+      throw new Error('Mock create_basic_card_group requires a non-empty name')
+    }
+
+    const now = new Date()
+    const group: BasicCardGroup = {
+      id: crypto.randomUUID(),
+      name,
+      description: getString(data?.description)?.trim() ?? null,
+      color: getString(data?.color)?.trim() ?? null,
+      isEnabled: true,
+      cardCount: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    }
+
+    mockBasicCardGroups.unshift(group)
+    return serializeBasicCardGroup(group) as T
+  }
+
+  if (cmd === 'update_basic_card_group') {
+    const data = getRecord(args?.data)
+    const id = getString(args?.id)
+    const group = id ? mockBasicCardGroups.find((item) => item.id === id && !item.deletedAt) : null
+    const name = getString(data?.name)?.trim()
+
+    if (!group || !name) {
+      return null as T
+    }
+
+    group.name = name
+    group.description = getString(data?.description)?.trim() ?? null
+    group.color = getString(data?.color)?.trim() ?? null
+    group.updatedAt = new Date()
+    syncMockBasicGroupCounts()
+    return serializeBasicCardGroup(group) as T
+  }
+
+  if (cmd === 'set_basic_card_group_enabled') {
+    const id = getString(args?.id)
+    const group = id ? mockBasicCardGroups.find((item) => item.id === id && !item.deletedAt) : null
+    if (!group) {
+      return null as T
+    }
+
+    group.isEnabled = Boolean(args?.isEnabled)
+    group.updatedAt = new Date()
+    return serializeBasicCardGroup(group) as T
+  }
+
+  if (cmd === 'delete_basic_card_group') {
+    const id = getString(args?.id)
+    const group = id ? mockBasicCardGroups.find((item) => item.id === id && !item.deletedAt) : null
+    if (!group) {
+      return undefined as T
+    }
+
+    if (mockBasicCards.some((card) => card.groupId === group.id && !card.deletedAt)) {
+      throw new Error('分组下仍有未删除卡片，请先移动或删除这些卡片')
+    }
+
+    group.deletedAt = new Date()
+    group.updatedAt = new Date()
+    return undefined as T
+  }
+
+  if (cmd === 'list_basic_cards') {
+    const groupIdFilter = getString(filters?.groupId)
+    const sourceDocumentFilter = getString(filters?.sourceDocumentId)
+    const searchQuery = getString(filters?.searchQuery)?.trim().toLowerCase() ?? ''
+    const includeDeleted = Boolean(filters?.includeDeleted)
+    const tags = Array.isArray(filters?.tags)
+      ? filters.tags
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean)
+      : []
+
+    return mockBasicCards
+      .filter((card) => includeDeleted || !card.deletedAt)
+      .filter((card) => (groupIdFilter ? card.groupId === groupIdFilter : true))
+      .filter((card) =>
+        sourceDocumentFilter ? card.source.documentId === sourceDocumentFilter : true
+      )
+      .filter((card) =>
+        searchQuery
+          ? [card.title, card.front, card.back].some((value) =>
+              value.toLowerCase().includes(searchQuery)
+            )
+          : true
+      )
+      .filter((card) =>
+        tags.length > 0
+          ? tags.every((tag) => card.tags.some((candidate) => candidate.toLowerCase() === tag))
+          : true
+      )
+      .map(serializeBasicCard)
+      .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime()) as T
+  }
+
+  if (cmd === 'create_basic_card') {
+    const data = getRecord(args?.data)
+    const groupId = getString(data?.groupId)
+    const title = getString(data?.title)?.trim()
+    const front = getString(data?.front)?.trim()
+    const back = getString(data?.back)?.trim()
+    const group = groupId
+      ? mockBasicCardGroups.find((item) => item.id === groupId && !item.deletedAt)
+      : null
+
+    if (!group || !title || !front || !back) {
+      throw new Error(
+        'Mock create_basic_card requires a valid group and non-empty title/front/back'
+      )
+    }
+
+    if (
+      mockBasicCards.some(
+        (card) =>
+          !card.deletedAt && card.groupId === group.id && card.front === front && card.back === back
+      )
+    ) {
+      throw new Error('同一分组内已存在相同的 front/back 卡片')
+    }
+
+    const sourceDocumentId = getString(data?.sourceDocumentId) ?? null
+    const sourceDocument = sourceDocumentId
+      ? (documentsForMocks().find((document) => document.id === sourceDocumentId) ?? null)
+      : null
+    const anchorId = getString(data?.sourceAnchorId) ?? null
+    const anchor = anchorId ? (mockAnchors.find((item) => item.id === anchorId) ?? null) : null
+    const now = new Date()
+    const card: BasicCard = {
+      id: crypto.randomUUID(),
+      groupId: group.id,
+      groupName: group.name,
+      title,
+      front,
+      back,
+      tags: normalizeMockTags(data?.tags),
+      origin: 'manual',
+      source: {
+        documentId: anchor?.documentId ?? sourceDocument?.id ?? null,
+        documentTitle: sourceDocument?.title ?? null,
+        anchorId: anchor?.id ?? null,
+        page: anchor?.page ?? null,
+        quote: anchor?.textQuote ?? null,
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    }
+
+    mockBasicCards.unshift(card)
+    mockStudyStates[card.id] = {
+      state: 'new',
+      dueAt: new Date(now),
+    }
+    syncMockBasicGroupCounts()
+    return serializeBasicCard(card) as T
+  }
+
+  if (cmd === 'update_basic_card') {
+    const data = getRecord(args?.data)
+    const id = getString(args?.id)
+    const card = id ? mockBasicCards.find((item) => item.id === id && !item.deletedAt) : null
+    const groupId = getString(data?.groupId)
+    const title = getString(data?.title)?.trim()
+    const front = getString(data?.front)?.trim()
+    const back = getString(data?.back)?.trim()
+    const group = groupId
+      ? mockBasicCardGroups.find((item) => item.id === groupId && !item.deletedAt)
+      : null
+
+    if (!card || !group || !title || !front || !back) {
+      return null as T
+    }
+
+    if (
+      mockBasicCards.some(
+        (candidate) =>
+          candidate.id !== card.id &&
+          !candidate.deletedAt &&
+          candidate.groupId === group.id &&
+          candidate.front === front &&
+          candidate.back === back
+      )
+    ) {
+      throw new Error('同一分组内已存在相同的 front/back 卡片')
+    }
+
+    const sourceDocumentId = getString(data?.sourceDocumentId) ?? null
+    const sourceDocument = sourceDocumentId
+      ? (documentsForMocks().find((document) => document.id === sourceDocumentId) ?? null)
+      : null
+    const anchorId = getString(data?.sourceAnchorId) ?? null
+    const anchor = anchorId ? (mockAnchors.find((item) => item.id === anchorId) ?? null) : null
+
+    card.groupId = group.id
+    card.groupName = group.name
+    card.title = title
+    card.front = front
+    card.back = back
+    card.tags = normalizeMockTags(data?.tags)
+    card.source = {
+      documentId: anchor?.documentId ?? sourceDocument?.id ?? null,
+      documentTitle: sourceDocument?.title ?? null,
+      anchorId: anchor?.id ?? null,
+      page: anchor?.page ?? null,
+      quote: anchor?.textQuote ?? null,
+    }
+    card.updatedAt = new Date()
+    syncMockBasicGroupCounts()
+    return serializeBasicCard(card) as T
+  }
+
+  if (cmd === 'delete_basic_card') {
+    const id = getString(args?.id)
+    const card = id ? mockBasicCards.find((item) => item.id === id && !item.deletedAt) : null
+    if (card) {
+      card.deletedAt = new Date()
+      card.updatedAt = new Date()
+      syncMockBasicGroupCounts()
+    }
+    return undefined as T
+  }
+
+  if (cmd === 'delete_basic_cards') {
+    const ids = Array.isArray(args?.ids)
+      ? args.ids.filter((value): value is string => typeof value === 'string')
+      : []
+    for (const id of ids) {
+      const card = mockBasicCards.find((item) => item.id === id)
+      if (!card) {
+        throw new Error('卡片不存在')
+      }
+      if (!card.deletedAt) {
+        card.deletedAt = new Date()
+        card.updatedAt = new Date()
+      }
+    }
+    syncMockBasicGroupCounts()
+    return undefined as T
+  }
+
+  if (cmd === 'start_ai_card_generation') {
+    const data = getRecord(args?.data)
+    const now = new Date()
+    const job: BackgroundJob = {
+      id: crypto.randomUUID(),
+      jobType: 'ai_card_generation',
+      status: 'queued',
+      targetType: 'document',
+      targetId: getString(data?.documentId) ?? MOCK_DOCUMENT_ID,
+      payloadJson: JSON.stringify({
+        documentId: getString(data?.documentId) ?? MOCK_DOCUMENT_ID,
+        groupId: getString(data?.groupId) ?? MOCK_BASIC_GROUP_IDS[0],
+        pageStart: getNumber(data?.pageStart) ?? null,
+        pageEnd: getNumber(data?.pageEnd) ?? null,
+        density: data?.density === 'low' || data?.density === 'high' ? data.density : 'medium',
+        providerConfigId: getString(data?.providerConfigId) ?? '',
+      }),
+      resultJson: null,
+      errorMessage: null,
+      errorDetails: null,
+      progressCurrent: 0,
+      progressTotal: null,
+      progressMessage: 'AI card generation queued',
+      createdAt: now,
+      startedAt: null,
+      finishedAt: null,
+      cancelRequestedAt: null,
+    }
+    mockBackgroundJobs.unshift(job)
+    return serializeBackgroundJob(job) as T
+  }
+
+  if (cmd === 'resume_ai_card_generation') {
+    const job = jobId ? mockBackgroundJobs.find((item) => item.id === jobId) : null
+    if (!job) {
+      throw new Error('AI card generation job not found')
+    }
+    if (job.jobType !== 'ai_card_generation') {
+      throw new Error('Background job is not an AI card generation job')
+    }
+    if (job.status !== 'failed') {
+      throw new Error('Only failed AI card generation jobs can be resumed')
+    }
+    job.status = 'queued'
+    job.resultJson = null
+    job.errorMessage = null
+    job.errorDetails = null
+    job.progressMessage = 'AI card generation queued for resume'
+    job.startedAt = null
+    job.finishedAt = null
+    job.cancelRequestedAt = null
+    return serializeBackgroundJob(job) as T
+  }
+
+  if (cmd === 'list_background_jobs') {
+    const jobType = getString(args?.jobType)
+    const status = getString(args?.status)
+    const targetType = getString(args?.targetType)
+    const targetId = getString(args?.targetId)
+    return mockBackgroundJobs
+      .filter((job) => (jobType ? job.jobType === jobType : true))
+      .filter((job) => (status ? job.status === status : true))
+      .filter((job) => (targetType ? job.targetType === targetType : true))
+      .filter((job) => (targetId ? job.targetId === targetId : true))
+      .map(serializeBackgroundJob) as T
+  }
+
+  if (cmd === 'get_background_job') {
+    const job = jobId ? mockBackgroundJobs.find((item) => item.id === jobId) : null
+    return (job ? serializeBackgroundJob(job) : null) as T
+  }
+
+  if (cmd === 'cancel_background_job') {
+    const job = jobId ? mockBackgroundJobs.find((item) => item.id === jobId) : null
+    if (!job) {
+      throw new Error('任务不存在')
+    }
+    if (job.status === 'queued' || job.status === 'running') {
+      job.status = 'cancelled'
+      job.cancelRequestedAt = new Date()
+      job.finishedAt = new Date()
+      job.progressMessage = '任务已取消'
+    }
+    return serializeBackgroundJob(job) as T
+  }
+
   if (cmd === 'start_card_animation_workflow') {
     const data = getRecord(args?.data)
     const mode =
-      data?.mode === 'video_render' || data?.mode === 'quick_preview'
-        ? data.mode
-        : 'quick_preview'
+      data?.mode === 'video_render' || data?.mode === 'quick_preview' ? data.mode : 'quick_preview'
     const animType =
       data?.animType === 'keyword_emphasis' || data?.animType === 'flashcard_reveal'
         ? data.animType
@@ -1896,7 +2435,9 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         ...profile,
         modelId: getString(data.modelId) ?? profile.modelId,
         displayName:
-          data.displayName === undefined ? profile.displayName : getNullableString(data.displayName),
+          data.displayName === undefined
+            ? profile.displayName
+            : getNullableString(data.displayName),
         capabilitiesJson:
           data.capabilitiesJson === undefined
             ? profile.capabilitiesJson
@@ -2151,10 +2692,7 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   }
 
   if (cmd === 'list_due_cards') {
-    return limitItems(
-      mockCards.filter((card) => isDueCard(card)).map(serializeCard),
-      limit
-    ) as T
+    return limitItems(mockCards.filter((card) => isDueCard(card)).map(serializeCard), limit) as T
   }
 
   if (cmd === 'update_card_review') {
@@ -2306,8 +2844,14 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         'list_due_cards',
         'create_card',
         'delete_card',
+        'delete_basic_cards',
         'update_card',
         'list_cards',
+        'list_background_jobs',
+        'get_background_job',
+        'cancel_background_job',
+        'start_ai_card_generation',
+        'resume_ai_card_generation',
         'list_highlights',
         'create_highlight',
         'update_highlight',
@@ -2507,13 +3051,15 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
           id: 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd',
           conversationId: 'abababab-abab-4bab-8bab-abababababab',
           role: 'assistant',
-          content: 'Chunking keeps the page readable while stable anchors preserve the reading position.',
+          content:
+            'Chunking keeps the page readable while stable anchors preserve the reading position.',
           status: 'answered',
           workflowRunId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
           documentIds: [MOCK_DOCUMENT_ID],
           answerPayload: {
             answer: {
-              answer: 'Chunking keeps the page readable while stable anchors preserve the reading position.',
+              answer:
+                'Chunking keeps the page readable while stable anchors preserve the reading position.',
               answerMode: 'grounded',
               retrievalStatus: 'ready',
               citations: [
@@ -2736,6 +3282,176 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   return mockResponses[cmd] as T
 }
 
+function documentsForMocks(): Document[] {
+  return [mockDocument]
+}
+
+function normalizeMockTags(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const tags: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue
+    }
+    const trimmed = item.trim()
+    if (!trimmed || tags.includes(trimmed)) {
+      continue
+    }
+    tags.push(trimmed)
+  }
+
+  return tags
+}
+
+function syncMockBasicGroupCounts() {
+  for (const group of mockBasicCardGroups) {
+    group.cardCount = mockBasicCards.filter(
+      (card) => card.groupId === group.id && !card.deletedAt
+    ).length
+  }
+
+  for (const card of mockBasicCards) {
+    const group = mockBasicCardGroups.find((item) => item.id === card.groupId)
+    if (group) {
+      card.groupName = group.name
+    }
+  }
+}
+
+function getMockStudyState(card: BasicCard): MockStudyState {
+  const state = mockStudyStates[card.id]
+  if (state) {
+    return {
+      state: state.state,
+      dueAt: new Date(state.dueAt),
+    }
+  }
+
+  return {
+    state: 'new',
+    dueAt: new Date(card.createdAt),
+  }
+}
+
+function buildMockStudyQueueItems(asOf: Date): StudyQueueItem[] {
+  const enabledGroupIds = new Set(
+    mockBasicCardGroups
+      .filter((group) => group.isEnabled && !group.deletedAt)
+      .map((group) => group.id)
+  )
+
+  return mockBasicCards
+    .filter((card) => !card.deletedAt && enabledGroupIds.has(card.groupId))
+    .map((card) => {
+      const state = getMockStudyState(card)
+      return {
+        id: card.id,
+        groupId: card.groupId,
+        title: card.title,
+        front: card.front,
+        back: card.back,
+        state: state.state,
+        dueAt: state.dueAt,
+        createdAt: new Date(card.createdAt),
+      }
+    })
+    .filter((item) => item.dueAt.getTime() <= asOf.getTime())
+    .sort((left, right) => {
+      const dueDiff = left.dueAt.getTime() - right.dueAt.getTime()
+      if (dueDiff !== 0) {
+        return dueDiff
+      }
+      return left.createdAt.getTime() - right.createdAt.getTime()
+    })
+    .map(({ createdAt: _createdAt, ...item }) => item)
+}
+
+function computeMockStudyReviewResult(
+  currentState: StudyQueueItem['state'],
+  rating: ReviewLog['rating'],
+  answeredAt: Date
+): StudyReviewResult {
+  const nextDueAt = new Date(answeredAt)
+
+  if (rating === 'again') {
+    nextDueAt.setMinutes(nextDueAt.getMinutes() + 10)
+    return {
+      nextDueAt,
+      newState:
+        currentState === 'review' || currentState === 'relearning' ? 'relearning' : 'learning',
+    }
+  }
+
+  if (rating === 'hard') {
+    nextDueAt.setDate(nextDueAt.getDate() + 1)
+    return {
+      nextDueAt,
+      newState: 'learning',
+    }
+  }
+
+  if (rating === 'good') {
+    nextDueAt.setDate(nextDueAt.getDate() + 3)
+    return {
+      nextDueAt,
+      newState: 'review',
+    }
+  }
+
+  nextDueAt.setDate(nextDueAt.getDate() + 7)
+  return {
+    nextDueAt,
+    newState: 'review',
+  }
+}
+
+function serializeBasicCard(card: BasicCard): BasicCard {
+  return {
+    ...card,
+    tags: [...card.tags],
+    source: { ...card.source },
+    createdAt: new Date(card.createdAt),
+    updatedAt: new Date(card.updatedAt),
+    deletedAt: card.deletedAt ? new Date(card.deletedAt) : null,
+  }
+}
+
+function serializeBasicCardGroup(group: BasicCardGroup): BasicCardGroup {
+  return {
+    ...group,
+    createdAt: new Date(group.createdAt),
+    updatedAt: new Date(group.updatedAt),
+    deletedAt: group.deletedAt ? new Date(group.deletedAt) : null,
+  }
+}
+
+function serializeBackgroundJob(job: BackgroundJob): BackgroundJob {
+  return {
+    ...job,
+    createdAt: new Date(job.createdAt),
+    startedAt: job.startedAt ? new Date(job.startedAt) : null,
+    finishedAt: job.finishedAt ? new Date(job.finishedAt) : null,
+    cancelRequestedAt: job.cancelRequestedAt ? new Date(job.cancelRequestedAt) : null,
+  }
+}
+
+function serializeStudyQueueItem(item: StudyQueueItem): StudyQueueItem {
+  return {
+    ...item,
+    dueAt: new Date(item.dueAt),
+  }
+}
+
+function serializeStudyReviewResult(result: StudyReviewResult): StudyReviewResult {
+  return {
+    ...result,
+    nextDueAt: new Date(result.nextDueAt),
+  }
+}
+
 function getPodcastStyle(value: unknown): PodcastEpisode['style'] | undefined {
   return value === 'deep_dive' ||
     value === 'lecture' ||
@@ -2747,10 +3463,7 @@ function getPodcastStyle(value: unknown): PodcastEpisode['style'] | undefined {
 }
 
 function getPodcastLanguage(value: unknown): PodcastEpisode['language'] | undefined {
-  return value === 'zh-CN' ||
-    value === 'en-US' ||
-    value === 'ja-JP' ||
-    value === 'ko-KR'
+  return value === 'zh-CN' || value === 'en-US' || value === 'ja-JP' || value === 'ko-KR'
     ? value
     : undefined
 }
@@ -2762,10 +3475,7 @@ function getPodcastDurationTier(value: unknown): PodcastEpisode['durationTier'] 
 }
 
 function getTtsProviderId(value: unknown): PodcastEpisode['ttsProvider'] | undefined {
-  return value === 'auto' ||
-    value === 'openai' ||
-    value === 'edge_tts' ||
-    value === 'google'
+  return value === 'auto' || value === 'openai' || value === 'edge_tts' || value === 'google'
     ? value
     : undefined
 }
@@ -2783,6 +3493,41 @@ function serializeDocument(document: Document) {
     ...document,
     createdAt: document.createdAt.toISOString(),
     updatedAt: document.updatedAt.toISOString(),
+  }
+}
+
+function buildMockLibraryItem(document: Document): DocumentLibraryItem {
+  const cards = mockBasicCards.filter(
+    (card) => card.source.documentId === document.id && !card.deletedAt
+  )
+  const lastCardUpdate = cards.reduce<Date | null>(
+    (latest, card) => (!latest || card.updatedAt > latest ? card.updatedAt : latest),
+    null
+  )
+
+  return {
+    id: document.id,
+    title: document.title,
+    fileType: document.fileType,
+    pageCount: document.pageCount,
+    status: document.status,
+    updatedAt: document.updatedAt,
+    lastUsedAt: lastCardUpdate ?? document.updatedAt,
+    basicCardCount: cards.length,
+    lastFailureReason:
+      document.status === 'error'
+        ? '该 PDF 解析失败，请确认文件包含可复制文本后重试。'
+        : document.status === 'embedding_failed'
+          ? '检索索引生成失败，但不影响 MVP 阅读和制卡。'
+          : null,
+  }
+}
+
+function serializeLibraryItem(item: DocumentLibraryItem) {
+  return {
+    ...item,
+    updatedAt: item.updatedAt.toISOString(),
+    lastUsedAt: item.lastUsedAt?.toISOString() ?? null,
   }
 }
 
@@ -2878,8 +3623,7 @@ function serializeModelProfile(profile: ModelProfile) {
 function serializeWorkflowAssignment(assignment: WorkflowModelAssignment) {
   const modelProfile =
     mockModelProfiles.find((profile) => profile.id === assignment.modelProfileId) ?? null
-  const apiConfig =
-    mockApiConfigs.find((config) => config.id === modelProfile?.apiConfigId) ?? null
+  const apiConfig = mockApiConfigs.find((config) => config.id === modelProfile?.apiConfigId) ?? null
 
   return {
     ...assignment,
@@ -2935,9 +3679,7 @@ function getDate(value: unknown) {
 }
 
 function getWorkflowType(value: unknown): WorkflowRun['workflowType'] | undefined {
-  return value === 'card_generation' ||
-    value === 'document_embedding' ||
-    value === 'knowledge_qa'
+  return value === 'card_generation' || value === 'document_embedding' || value === 'knowledge_qa'
     ? value
     : undefined
 }
@@ -3009,6 +3751,125 @@ function sameMockDay(left: Date, right: Date) {
 
 function isDueCard(card: Card, referenceDate = currentMockNow()) {
   return !card.nextReview || card.nextReview.getTime() <= referenceDate.getTime()
+}
+
+function buildDashboardSummary(days = 63, limit = 6): DashboardSummary {
+  const now = currentMockNow()
+  const today = toMockIsoDate(now)
+  const queue = buildMockStudyQueueItems(new Date())
+  const todayEvents = mockStudyEvents.filter((event) => toMockIsoDate(event.answeredAt) === today)
+
+  return {
+    todayCompletedCount: todayEvents.length,
+    todayNewDueCount: queue.filter((item) => item.state === 'new').length,
+    todayReviewDueCount: queue.filter((item) => item.state !== 'new').length,
+    todayStudyMinutes: floorDurationMinutes(todayEvents),
+    totalStudyMinutes: floorDurationMinutes(mockStudyEvents),
+    streakDays: computeMockStreakDays(today),
+    heatmap: buildStudyHeatmap(days),
+    documentProgress: buildDocumentProgress(limit),
+    groupProgress: buildGroupProgress(limit),
+  }
+}
+
+function floorDurationMinutes(events: MockStudyEvent[]) {
+  return Math.floor(events.reduce((sum, event) => sum + (event.durationMs ?? 0), 0) / 60_000)
+}
+
+function computeMockStreakDays(today: string) {
+  const activeDates = new Set(mockStudyEvents.map((event) => toMockIsoDate(event.answeredAt)))
+  const cursor = new Date(`${today}T00:00:00.000Z`)
+  let streak = 0
+
+  while (activeDates.has(toMockIsoDate(cursor))) {
+    streak += 1
+    cursor.setUTCDate(cursor.getUTCDate() - 1)
+  }
+
+  return streak
+}
+
+function buildStudyHeatmap(days = 63) {
+  const now = currentMockNow()
+  const threshold = new Date(now.getTime() - Math.max(0, days - 1) * 86_400_000)
+  const counts = new Map<string, number>()
+
+  for (const event of mockStudyEvents) {
+    if (event.answeredAt < threshold) {
+      continue
+    }
+
+    const key = toMockIsoDate(event.answeredAt)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+
+  return Array.from(counts.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, count]) => ({ date, count }))
+}
+
+function buildDocumentProgress(limit = 6): DashboardSummary['documentProgress'] {
+  const learnedCardIds = new Set(mockStudyEvents.map((event) => event.cardId))
+
+  return documentsForMocks()
+    .map((document) => {
+      const cards = mockBasicCards.filter(
+        (card) => !card.deletedAt && card.source.documentId === document.id
+      )
+      const learnedCards = cards.filter((card) => learnedCardIds.has(card.id)).length
+      return {
+        id: document.id,
+        title: document.title,
+        learnedCards,
+        totalCards: cards.length,
+        progressPercent: computeProgressPercent(learnedCards, cards.length),
+        sortTime: Math.max(...cards.map((card) => card.updatedAt.getTime()), document.updatedAt.getTime()),
+      }
+    })
+    .filter((item) => item.totalCards > 0)
+    .sort((left, right) => {
+      const progressDiff = left.progressPercent - right.progressPercent
+      if (progressDiff !== 0) return progressDiff
+      return right.sortTime - left.sortTime
+    })
+    .slice(0, limit)
+    .map(({ sortTime: _sortTime, ...item }) => item)
+}
+
+function buildGroupProgress(limit = 6): DashboardSummary['groupProgress'] {
+  const learnedCardIds = new Set(mockStudyEvents.map((event) => event.cardId))
+
+  return mockBasicCardGroups
+    .filter((group) => group.isEnabled && !group.deletedAt)
+    .map((group) => {
+      const cards = mockBasicCards.filter((card) => !card.deletedAt && card.groupId === group.id)
+      const learnedCards = cards.filter((card) => learnedCardIds.has(card.id)).length
+      return {
+        id: group.id,
+        name: group.name,
+        color: group.color,
+        learnedCards,
+        totalCards: cards.length,
+        progressPercent: computeProgressPercent(learnedCards, cards.length),
+        sortTime: Math.max(...cards.map((card) => card.updatedAt.getTime()), group.updatedAt.getTime()),
+      }
+    })
+    .filter((item) => item.totalCards > 0)
+    .sort((left, right) => {
+      const progressDiff = left.progressPercent - right.progressPercent
+      if (progressDiff !== 0) return progressDiff
+      return right.sortTime - left.sortTime
+    })
+    .slice(0, limit)
+    .map(({ sortTime: _sortTime, ...item }) => item)
+}
+
+function computeProgressPercent(learnedCards: number, totalCards: number) {
+  return totalCards > 0 ? Math.round((learnedCards / totalCards) * 100) : 0
+}
+
+function toMockIsoDate(date: Date) {
+  return date.toISOString().slice(0, 10)
 }
 
 function buildDailyStats() {

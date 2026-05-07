@@ -68,7 +68,7 @@ export function ProfilePage() {
         {
           label: '打开知识问答',
           description: '围绕当前资料继续追问和整理',
-          onClick: () => setActiveNavItem('knowledge'),
+          onClick: () => setActiveNavItem('home'),
         },
         {
           label: '查看设置',

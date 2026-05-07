@@ -1,11 +1,20 @@
 import { z } from 'zod'
 import {
+  backgroundJobSchema,
   documentAnchorSchema,
   documentChunkSchema,
+  documentLibraryItemSchema,
   documentSchema,
   documentSectionSchema,
 } from '@/types'
-import type { Document, DocumentAnchor, DocumentChunk, DocumentSection } from '@/types'
+import type {
+  BackgroundJob,
+  Document,
+  DocumentAnchor,
+  DocumentChunk,
+  DocumentLibraryItem,
+  DocumentSection,
+} from '@/types'
 import { invoke, invokeWithSchema } from './index'
 
 export interface CreateDocumentInput {
@@ -75,6 +84,12 @@ export const documentGateway = {
     return invokeWithSchema('list_documents', z.array(documentSchema), { limit })
   },
 
+  async listLibraryItems(limit?: number): Promise<DocumentLibraryItem[]> {
+    return invokeWithSchema('list_library_documents', z.array(documentLibraryItemSchema), {
+      limit,
+    })
+  },
+
   async get(id: string): Promise<Document | null> {
     return invokeWithSchema('get_document', documentSchema.nullable(), { id })
   },
@@ -101,6 +116,10 @@ export const documentGateway = {
 
   async runEmbeddingWorkflow(documentId: string): Promise<Document> {
     return invokeWithSchema('run_document_embedding_workflow', documentSchema, { documentId })
+  },
+
+  async startEmbeddingJob(documentId: string): Promise<BackgroundJob> {
+    return invokeWithSchema('start_document_embedding_job', backgroundJobSchema, { documentId })
   },
 
   async updateStatus(id: string, status: Document['status']): Promise<void> {

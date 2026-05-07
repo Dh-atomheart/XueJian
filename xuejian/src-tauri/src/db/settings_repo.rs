@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 const DEFAULT_USER_ID: &str = "default";
 const DEFAULT_LANGUAGE: &str = "zh-CN";
-const DEFAULT_THEME: &str = "default";
+const DEFAULT_THEME: &str = "light";
 const DEFAULT_PODCAST_TTS_PROVIDER: &str = "auto";
 const DEFAULT_PODCAST_OPENAI_MODEL: &str = "tts-1";
 const DEFAULT_PODCAST_GOOGLE_TTS_MODEL: &str = "gemini-2.5-flash-preview-tts";
@@ -268,7 +268,7 @@ pub struct AppSettings {
     pub podcast_max_estimated_cost_usd: f64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct UpdateAppSettingsRequest {
     pub daily_new_card_limit: Option<i32>,
     pub review_time_limit: Option<i32>,
@@ -1096,10 +1096,10 @@ fn sanitize_settings(settings: AppSettings) -> AppSettings {
 }
 
 fn sanitize_theme(theme: String) -> String {
-    if theme.trim() == "default" {
-        DEFAULT_THEME.to_string()
-    } else {
-        DEFAULT_THEME.to_string()
+    match theme.trim() {
+        "light" | "dark" | "system" => theme.trim().to_string(),
+        "default" => DEFAULT_THEME.to_string(),
+        _ => DEFAULT_THEME.to_string(),
     }
 }
 
@@ -1444,6 +1444,59 @@ mod tests {
     }
 
     #[test]
+    fn update_api_key_status_round_trips_stored_metadata() {
+        let db = test_db();
+        let repo = SettingsRepository::new(&db);
+
+        let created = repo
+            .create_api_config(CreateApiConfigRequest {
+                provider: "openai".to_string(),
+                auth_mode: "api_key".to_string(),
+                name: "OpenAI Primary".to_string(),
+                base_url: None,
+                model: Some("gpt-4o".to_string()),
+                budget_limit: None,
+                is_default: true,
+                display_name: Some("OpenAI Primary".to_string()),
+            })
+            .expect("create config");
+
+        repo.update_api_key_status(&created.id, "stored", Some("2026-05-02T00:00:00Z"))
+            .expect("update key status");
+
+        let stored = repo
+            .get_api_config(&created.id)
+            .expect("reload config")
+            .expect("config exists");
+
+        assert_eq!(stored.key_status, "stored");
+        assert_eq!(
+            stored.key_verified_at.as_deref(),
+            Some("2026-05-02T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn api_configs_schema_does_not_persist_plaintext_api_key_columns() {
+        let db = test_db();
+
+        let mut stmt = db
+            .connection()
+            .prepare("PRAGMA table_info(api_configs)")
+            .expect("prepare table info query");
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query table info")
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .expect("collect column names");
+
+        assert!(!columns.iter().any(|column| column == "api_key"));
+        assert!(!columns.iter().any(|column| column == "apiKey"));
+        assert!(!columns.iter().any(|column| column == "secret"));
+        assert!(columns.iter().any(|column| column == "key_status"));
+    }
+
+    #[test]
     fn workflow_assignments_round_trip() {
         let db = test_db();
         let repo = SettingsRepository::new(&db);
@@ -1626,6 +1679,7 @@ mod tests {
         let repo = SettingsRepository::new(&db);
         let settings = repo.get_settings().expect("load settings");
 
+        assert_eq!(settings.theme, "light");
         assert_eq!(settings.learning_goal, DEFAULT_LEARNING_GOAL);
         assert_eq!(settings.daily_study_minutes, DEFAULT_DAILY_STUDY_MINUTES);
         assert_eq!(
@@ -1769,5 +1823,66 @@ mod tests {
         assert_eq!(settings.voice_input_language, DEFAULT_VOICE_INPUT_LANGUAGE);
         assert!(!settings.voice_interrupt_enabled);
         assert!(!settings.podcast_auto_play_next_episode);
+    }
+
+    #[test]
+    fn update_settings_accepts_theme_contract_and_legacy_default() {
+        let db = test_db();
+        let repo = SettingsRepository::new(&db);
+
+        let dark_settings = repo
+            .update_settings(UpdateAppSettingsRequest {
+                daily_new_card_limit: None,
+                review_time_limit: None,
+                theme: Some("dark".to_string()),
+                language: None,
+                learning_goal: None,
+                daily_study_minutes: None,
+                study_time_preference: None,
+                study_time_preferences: None,
+                study_content_preferences: None,
+                content_difficulty_preference: None,
+                podcast_tts_provider: None,
+                podcast_openai_model: None,
+                podcast_google_tts_model: None,
+                podcast_fish_audio_endpoint: None,
+                podcast_voice_overrides: None,
+                default_voice: None,
+                speech_rate: None,
+                speech_pitch: None,
+                speech_volume: None,
+                reading_mode: None,
+                default_podcast_style: None,
+                podcast_episode_duration_minutes: None,
+                podcast_content_structure: None,
+                podcast_background_music: None,
+                podcast_intro_outro_enabled: None,
+                voice_input_language: None,
+                voice_interrupt_enabled: None,
+                podcast_auto_play_next_episode: None,
+                podcast_output_format: None,
+                podcast_skip_review: None,
+                podcast_max_llm_tokens: None,
+                podcast_max_tts_characters: None,
+                podcast_max_estimated_cost_usd: None,
+            })
+            .expect("set dark theme");
+        assert_eq!(dark_settings.theme, "dark");
+
+        let system_settings = repo
+            .update_settings(UpdateAppSettingsRequest {
+                theme: Some("system".to_string()),
+                ..UpdateAppSettingsRequest::default()
+            })
+            .expect("set system theme");
+        assert_eq!(system_settings.theme, "system");
+
+        let migrated_settings = repo
+            .update_settings(UpdateAppSettingsRequest {
+                theme: Some("default".to_string()),
+                ..UpdateAppSettingsRequest::default()
+            })
+            .expect("migrate legacy default theme");
+        assert_eq!(migrated_settings.theme, "light");
     }
 }

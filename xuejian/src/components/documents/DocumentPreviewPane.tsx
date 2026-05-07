@@ -157,7 +157,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
         </div>
 
         {previewWarnings.length > 0 ? (
-          <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="rounded-[22px] border border-themeAccent-warning/30 bg-themeAccent-warning/10 px-4 py-3 text-sm text-ink">
             {previewWarnings[0]}
           </div>
         ) : null}
@@ -192,7 +192,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
             </div>
           </div>
 
-          <div className="relative flex min-h-[420px] items-center justify-center overflow-auto rounded-[18px] border border-line-soft bg-white">
+          <div className="relative flex min-h-[420px] items-center justify-center overflow-auto rounded-[18px] border border-line-soft bg-surface-reader-page">
             {canPreview ? (
               <canvas
                 ref={canvasRef}
@@ -203,7 +203,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
             ) : null}
 
             {!canPreview ? (
-              <p className="px-6 text-center text-sm text-rose-600">
+              <p className="px-6 text-center text-sm text-destructive">
                 文档解析失败，当前无法提供预览。
               </p>
             ) : isLoadingBinary || isRendering ? (
@@ -211,7 +211,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
                 正在生成第 {previewPage} 页预览…
               </p>
             ) : renderError ? (
-              <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-rose-600">
+              <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-destructive">
                 {renderError}
               </p>
             ) : null}
@@ -228,7 +228,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
                 {chunks.slice(0, 3).map((chunk) => (
                   <div
                     key={chunk.id}
-                    className="rounded-[18px] border border-line-soft bg-white/80 px-3 py-3"
+                    className="rounded-[18px] border border-line-soft bg-paper-card/80 px-3 py-3"
                   >
                     <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-ink-soft">
                       <span>分块 #{chunk.chunkIndex + 1}</span>
@@ -254,7 +254,7 @@ export function DocumentPreviewPane({ document }: DocumentPreviewPaneProps) {
                 {anchors.slice(0, 3).map((anchor) => (
                   <div
                     key={anchor.id}
-                    className="rounded-[18px] border border-line-soft bg-white/80 px-3 py-3"
+                    className="rounded-[18px] border border-line-soft bg-paper-card/80 px-3 py-3"
                   >
                     <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-ink-soft">
                       <span>

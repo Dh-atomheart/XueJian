@@ -24,7 +24,6 @@ vi.mock('@/queries', async () => {
     useDeleteModelProfileMutation: vi.fn(),
     useEmbeddingProfilesQuery: vi.fn(),
     useFetchProviderModelsMutation: vi.fn(),
-    useGetApiKeyMutation: vi.fn(),
     useModelProfilesQuery: vi.fn(),
     useProviderBudgetUsageQuery: vi.fn(),
     useResetProviderBudgetUsageMutation: vi.fn(),
@@ -44,7 +43,7 @@ vi.mock('@/queries', async () => {
 })
 
 const appSettings: AppSettings = {
-  theme: 'default',
+  theme: 'light',
   language: 'zh-CN',
   dailyNewCardLimit: 20,
   reviewTimeLimit: 30,
@@ -172,9 +171,6 @@ function setupDefaultMocks(configs: ApiConfig[]) {
     isPending: false,
     mutateAsync: vi.fn(),
   } as ReturnType<typeof queries.useDeleteModelProfileMutation>)
-  mockedQueries.useGetApiKeyMutation.mockReturnValue({
-    mutateAsync: vi.fn().mockResolvedValue('stored-api-key'),
-  } as ReturnType<typeof queries.useGetApiKeyMutation>)
   mockedQueries.useFetchProviderModelsMutation.mockReturnValue({
     isPending: false,
     mutateAsync: vi.fn().mockResolvedValue([]),
@@ -211,7 +207,12 @@ function setupDefaultMocks(configs: ApiConfig[]) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useAppUiStore.setState({ feedbackLog: [], activeNotices: [], isFeedbackPanelOpen: false })
+  useAppUiStore.setState({
+    feedbackLog: [],
+    activeNotices: [],
+    isFeedbackPanelOpen: false,
+    activeSettingsSection: 'ai',
+  })
 })
 
 afterEach(() => {
@@ -226,6 +227,76 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe('settings onboarding flow', () => {
+  it('keeps app settings query disabled on the default AI tab', () => {
+    useAppUiStore.setState({ activeSettingsSection: 'ai' })
+    setupDefaultMocks([storedKeyConfig])
+
+    renderWithProviders(<SettingsPage />)
+
+    expect(mockedQueries.useAppSettingsQuery).toHaveBeenCalledWith({
+      enabled: false,
+      staleTime: 60_000,
+    })
+    expect(mockedQueries.useModelProfilesQuery).toHaveBeenCalledWith({ staleTime: 60_000 })
+    expect(mockedQueries.useWorkflowAssignmentsQuery).toHaveBeenCalledWith({ staleTime: 60_000 })
+  })
+
+  it('enables app settings query only after entering a settings tab that needs it', () => {
+    useAppUiStore.setState({ activeSettingsSection: 'learning' })
+    setupDefaultMocks([storedKeyConfig])
+
+    renderWithProviders(<SettingsPage />)
+
+    expect(mockedQueries.useAppSettingsQuery).toHaveBeenCalledWith({
+      enabled: true,
+      staleTime: 60_000,
+    })
+  })
+
+  it('uses a constrained theme select and saves dark mode', () => {
+    const updateSettings = vi.fn()
+    useAppUiStore.setState({ activeSettingsSection: 'general' })
+    setupDefaultMocks([storedKeyConfig])
+    mockedQueries.useUpdateAppSettingsMutation.mockReturnValue({
+      isPending: false,
+      mutate: updateSettings,
+      mutateAsync: vi.fn().mockResolvedValue(appSettings),
+    } as ReturnType<typeof queries.useUpdateAppSettingsMutation>)
+
+    renderWithProviders(<SettingsPage />)
+
+    const themeSelect = screen.getByTestId('settings-theme-select')
+    expect(themeSelect).toHaveValue('light')
+    expect(screen.getByRole('option', { name: 'Light' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Dark' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'System' })).toBeInTheDocument()
+
+    fireEvent.change(themeSelect, { target: { value: 'dark' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存通用设置' }))
+
+    expect(updateSettings).toHaveBeenCalledWith({
+      language: 'zh-CN',
+      theme: 'dark',
+    })
+  })
+
+  it('renders the settings shell while model and workflow data are still loading', () => {
+    setupDefaultMocks([storedKeyConfig])
+    mockedQueries.useModelProfilesQuery.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    } as ReturnType<typeof queries.useModelProfilesQuery>)
+    mockedQueries.useWorkflowAssignmentsQuery.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    } as ReturnType<typeof queries.useWorkflowAssignmentsQuery>)
+
+    renderWithProviders(<SettingsPage />)
+
+    expect(screen.getByTestId('settings-toggle-add-config')).toBeInTheDocument()
+    expect(screen.getByTestId(`settings-manage-key-${storedKeyConfig.id}`)).toBeInTheDocument()
+  })
+
   it('keeps the openai-compatible provider generic without vendor presets', () => {
     setupDefaultMocks([])
     mockedQueries.useStoreApiKeyMutation.mockReturnValue({
@@ -238,7 +309,7 @@ describe('settings onboarding flow', () => {
     fireEvent.click(screen.getByTestId('settings-toggle-add-config'))
     fireEvent.click(screen.getByText('OpenAI-Compatible').closest('button')!)
 
-    expect(screen.getByText('兼容 OpenAI Chat Completions 协议的任意服务。')).toBeInTheDocument()
+    expect(screen.getByText('兼容 OpenAI Chat Completions 协议的服务。')).toBeInTheDocument()
     expect(screen.getByText('此供应商必须填写 Base URL。')).toBeInTheDocument()
     expect(screen.queryByText('百度千帆')).not.toBeInTheDocument()
   })
@@ -321,9 +392,9 @@ describe('settings onboarding flow', () => {
     renderWithProviders(<SettingsPage forcedOnboarding />)
 
     expect(screen.queryByRole('button', { name: /Podcast/i })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '学习偏好' }))
+    fireEvent.click(screen.getByRole('button', { name: '学习' }))
 
-    expect(screen.getByRole('heading', { name: '学习偏好' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '学习' })).toBeInTheDocument()
   })
 
   it('reports an error instead of failing silently when config save fails', async () => {
@@ -456,22 +527,55 @@ describe('settings onboarding flow', () => {
     expect(screen.queryByTestId('settings-embedding-panel')).not.toBeInTheDocument()
   })
 
-  it('loads the stored api key when users edit a provider card', async () => {
-    const getApiKey = vi.fn().mockResolvedValue('stored-api-key')
-
+  it('keeps stored api keys masked when users edit a provider card', async () => {
     setupDefaultMocks([storedKeyConfig])
-    mockedQueries.useGetApiKeyMutation.mockReturnValue({
-      mutateAsync: getApiKey,
-    } as ReturnType<typeof queries.useGetApiKeyMutation>)
 
     renderWithProviders(<SettingsPage />)
 
     fireEvent.click(screen.getByTestId(`settings-manage-key-${storedKeyConfig.id}`))
 
     await waitFor(() => {
-      expect(getApiKey).toHaveBeenCalledWith(storedKeyConfig.id)
-      expect(screen.getByTestId(`settings-edit-config-key-${storedKeyConfig.id}`)).toHaveValue('stored-api-key')
+      expect(screen.getByTestId(`settings-edit-config-key-${storedKeyConfig.id}`)).toHaveValue('')
+      expect(screen.getByPlaceholderText('留空则保持现有 API Key')).toBeInTheDocument()
+      expect(screen.getByText('已保存 API Key；留空表示保持不变。')).toBeInTheDocument()
     })
+  })
+
+  it('saves metadata-only edits without re-reading or re-writing a stored api key', async () => {
+    const updateConfig = vi.fn().mockResolvedValue(storedKeyConfig)
+    const storeKey = vi.fn().mockResolvedValue(undefined)
+
+    setupDefaultMocks([storedKeyConfig])
+    mockedQueries.useUpdateApiConfigMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: updateConfig,
+    } as ReturnType<typeof queries.useUpdateApiConfigMutation>)
+    mockedQueries.useStoreApiKeyMutation.mockReturnValue({
+      isPending: false,
+      mutateAsync: storeKey,
+    } as ReturnType<typeof queries.useStoreApiKeyMutation>)
+
+    renderWithProviders(<SettingsPage />)
+
+    fireEvent.click(screen.getByTestId(`settings-manage-key-${storedKeyConfig.id}`))
+    fireEvent.change(screen.getByTestId(`settings-edit-config-model-${storedKeyConfig.id}`), {
+      target: { value: 'gpt-4.1' },
+    })
+    fireEvent.click(screen.getByTestId(`settings-edit-save-${storedKeyConfig.id}`))
+
+    await waitFor(() => {
+      expect(updateConfig).toHaveBeenCalledWith({
+        id: storedKeyConfig.id,
+        data: expect.objectContaining({
+          name: storedKeyConfig.name,
+          displayName: storedKeyConfig.displayName,
+          model: 'gpt-4.1',
+          baseUrl: storedKeyConfig.baseUrl,
+        }),
+      })
+    })
+
+    expect(storeKey).not.toHaveBeenCalled()
   })
 
   it('disables a config card while that config is being deleted', () => {
@@ -561,9 +665,6 @@ describe('settings onboarding flow', () => {
       isPending: false,
       mutateAsync: vi.fn(),
     } as ReturnType<typeof queries.useDeleteModelProfileMutation>)
-    mockedQueries.useGetApiKeyMutation.mockReturnValue({
-      mutateAsync: vi.fn().mockResolvedValue('stored-api-key'),
-    } as ReturnType<typeof queries.useGetApiKeyMutation>)
     mockedQueries.useFetchProviderModelsMutation.mockReturnValue({
       isPending: false,
       mutateAsync: vi.fn().mockResolvedValue([]),

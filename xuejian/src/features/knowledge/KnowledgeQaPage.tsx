@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { KnowledgeQaPage as KnowledgeQaPageView } from '@/components/pages/knowledge-qa-page'
 import {
@@ -6,27 +6,42 @@ import {
   useCancelKnowledgeQaMessageMutation,
   useKnowledgeQaConversationQuery,
   useKnowledgeQaConversationsQuery,
-  useKnowledgeSearchQuery,
   useSendKnowledgeQaMessageMutation,
 } from '@/queries/knowledge'
 import {
   apiConfigQueryKeys,
+  documentsQueryKeys,
   useDocumentsQuery,
   useOrchestrationServiceHealthQuery,
 } from '@/queries'
-import { getErrorMessage, reportAppError, reportFeedback } from '@/lib/appFeedback'
+import { reportAppError } from '@/lib/appFeedback'
 import { useAppUiStore } from '@/store'
 import { isTauriEnvironment } from '@/services/gateway'
 import { embeddingProfileGateway } from '@/services/gateway/models'
 import { orchestrationGateway } from '@/services/gateway/orchestration'
-import type { ChunkSearchResult, KnowledgeQaMessage, WorkflowEvent } from '@/types'
+import type { KnowledgeQaMessage, WorkflowEvent } from '@/types'
+
+type RetrievalStatus =
+  | 'ready'
+  | 'embedding_missing'
+  | 'embedding_stale'
+  | 'embedding_failed'
+  | 'embedding_config_error'
+  | 'embedding_auth_error'
+  | 'embedding_timeout'
+  | 'embedding_rate_limited'
+  | 'embedding_dimension_mismatch'
+  | 'embedding_network_error'
+  | 'query_embedding_failed'
+  | 'no_hits'
+type AnswerMode = 'grounded' | 'no_relevant_content' | 'excerpt_fallback'
 
 type TurnState = {
   id: string
   question: string
   answer: string | null
-  answerMode?: 'grounded' | 'no_relevant_content' | 'excerpt_fallback'
-  retrievalStatus?: 'ready' | 'embedding_missing' | 'embedding_stale' | 'embedding_failed' | 'no_hits'
+  answerMode?: AnswerMode
+  retrievalStatus?: RetrievalStatus
   citations: Array<{
     id: string
     documentId: string
@@ -37,73 +52,96 @@ type TurnState = {
   }>
   status: 'pending' | 'answered' | 'error' | 'cancelled'
   errorMessage?: string | null
-  documentTitleCache: Map<string, string>
   workflowRunId: string | null
   assistantMessageId: string | null
 }
 
-const KNOWLEDGE_POLL_INTERVAL_MS = 1_800
-
-type RetrievalStatus = NonNullable<TurnState['retrievalStatus']>
-type AnswerMode = NonNullable<TurnState['answerMode']>
 type QaDocument = {
   id: string
   title: string
-  status: 'ready' | 'embedding_stale'
+  status: 'ready' | 'embedding_missing' | 'embedding_stale' | 'embedding_failed'
 }
 
+const KNOWLEDGE_POLL_INTERVAL_MS = 1_800
+
 function isKnowledgeQaDocument(document: { id: string; title: string; status: string }): document is QaDocument {
-  return document.status === 'ready' || document.status === 'embedding_stale'
+  return (
+    document.status === 'ready' ||
+    document.status === 'embedding_stale' ||
+    document.status === 'embedding_failed' ||
+    document.status === 'embedding' ||
+    document.status === 'parsed'
+  )
 }
 
 export function KnowledgeQaPage() {
   const [question, setQuestion] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
-  const [turns, setTurns] = useState<TurnState[]>([])
+  const [hasInitializedConversation, setHasInitializedConversation] = useState(false)
   const [isRestartingService, setIsRestartingService] = useState(false)
-  const reportedWorkflowFailuresRef = useRef(new Set<string>())
   const queryClient = useQueryClient()
 
   const { data: documents = [] } = useDocumentsQuery()
-  const { data: activeEmbeddingProfile } = useQuery({
+  const {
+    data: activeEmbeddingProfile,
+    isPending: isEmbeddingProfileLoading,
+    isError: isEmbeddingProfileError,
+  } = useQuery({
     queryKey: apiConfigQueryKeys.activeEmbeddingProfile,
     queryFn: () => embeddingProfileGateway.getActive(),
   })
   const { data: orchestrationHealth } = useOrchestrationServiceHealthQuery()
+  const { data: conversations = [] } = useKnowledgeQaConversationsQuery()
+  const { data: activeConversationDetail } = useKnowledgeQaConversationQuery(
+    activeConversationId,
+    Boolean(activeConversationId)
+  )
+  const sendQaMutation = useSendKnowledgeQaMessageMutation()
+  const cancelQaMutation = useCancelKnowledgeQaMessageMutation()
+
+  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const knowledgeDraft = useAppUiStore((state) => state.knowledgeDraft)
+  const clearKnowledgeDraft = useAppUiStore((state) => state.clearKnowledgeDraft)
+
   const qaDocuments = useMemo<QaDocument[]>(
     () =>
-      documents
-        .filter(isKnowledgeQaDocument)
-        .map((document) => ({
-          id: document.id,
-          title: document.title,
-          status: document.status === 'embedding_stale' ? 'embedding_stale' : 'ready',
-        })),
+      documents.filter(isKnowledgeQaDocument).map((document) => ({
+        id: document.id,
+        title: document.title,
+        status:
+          document.status === 'ready'
+            ? 'ready'
+            : document.status === 'embedding_stale'
+              ? 'embedding_stale'
+              : document.status === 'embedding_failed'
+                ? 'embedding_failed'
+                : 'embedding_missing',
+      })),
     [documents]
   )
   const qaDocumentIdSet = useMemo(() => new Set(qaDocuments.map((document) => document.id)), [qaDocuments])
+  const readyDocumentIdSet = useMemo(
+    () => new Set(qaDocuments.filter((document) => document.status === 'ready').map((document) => document.id)),
+    [qaDocuments]
+  )
   const scopedDocumentIds = useMemo(
     () => selectedDocIds.filter((documentId) => qaDocumentIdSet.has(documentId)),
     [qaDocumentIdSet, selectedDocIds]
   )
-  const { data: searchResults = [] } = useKnowledgeSearchQuery(
-    searchQuery,
-    scopedDocumentIds,
-    searchQuery.length > 0
+  const selectedDocuments = useMemo(
+    () =>
+      scopedDocumentIds.flatMap((documentId) => {
+        const document = qaDocuments.find((candidate) => candidate.id === documentId)
+        return document ? [document] : []
+      }),
+    [qaDocuments, scopedDocumentIds]
   )
-  const { data: conversations = [] } = useKnowledgeQaConversationsQuery()
-  const { data: activeConversationDetail } = useKnowledgeQaConversationQuery(
-    activeConversationId,
-    Boolean(activeConversationId),
+  const selectedUnavailableDocument = selectedDocuments.find((document) => document.status !== 'ready') ?? null
+  const effectiveReadyDocumentIds = useMemo(
+    () => scopedDocumentIds.filter((documentId) => readyDocumentIdSet.has(documentId)),
+    [readyDocumentIdSet, scopedDocumentIds]
   )
-  const sendQaMutation = useSendKnowledgeQaMessageMutation()
-  const cancelQaMutation = useCancelKnowledgeQaMessageMutation()
-  const openReader = useAppUiStore((state) => state.openReader)
-  const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
-  const knowledgeDraft = useAppUiStore((state) => state.knowledgeDraft)
-  const clearKnowledgeDraft = useAppUiStore((state) => state.clearKnowledgeDraft)
 
   const documentTitleLookup = useMemo(() => {
     const map = new Map<string, string>()
@@ -125,16 +163,22 @@ export function KnowledgeQaPage() {
   }, [qaDocumentIdSet])
 
   useEffect(() => {
-    if (!activeConversationId && conversations.length > 0) {
+    if (!hasInitializedConversation && !activeConversationId && conversations.length > 0) {
       setActiveConversationId(conversations[0].id)
+      setHasInitializedConversation(true)
+    } else if (!hasInitializedConversation && conversations.length === 0) {
+      setHasInitializedConversation(true)
     }
-  }, [activeConversationId, conversations])
+  }, [activeConversationId, conversations, hasInitializedConversation])
 
   useEffect(() => {
+    if (!activeConversationId) {
+      return
+    }
     const hasPendingMessage = activeConversationDetail?.messages.some(
       (message) => message.role === 'assistant' && message.status === 'pending'
     )
-    if (!activeConversationId || !hasPendingMessage) {
+    if (!hasPendingMessage) {
       return
     }
 
@@ -143,21 +187,16 @@ export function KnowledgeQaPage() {
         queryKey: knowledgeQueryKeys.conversation(activeConversationId),
       })
     }, KNOWLEDGE_POLL_INTERVAL_MS)
-
     return () => window.clearInterval(timer)
   }, [activeConversationDetail?.messages, activeConversationId, queryClient])
 
   useEffect(() => {
-    if (
-      !knowledgeDraft.question &&
-      knowledgeDraft.selectedDocumentIds.length === 0
-    ) {
+    if (!knowledgeDraft.question && knowledgeDraft.selectedDocumentIds.length === 0) {
       return
     }
 
     if (knowledgeDraft.question) {
       setQuestion((current) => current || knowledgeDraft.question || '')
-      setSearchQuery((current) => current || knowledgeDraft.question || '')
     }
 
     if (knowledgeDraft.selectedDocumentIds.length > 0) {
@@ -170,159 +209,105 @@ export function KnowledgeQaPage() {
   }, [clearKnowledgeDraft, knowledgeDraft, qaDocumentIdSet])
 
   const retrievalWarning = useMemo(() => {
+    if (isEmbeddingProfileLoading) {
+      return { title: null, message: null }
+    }
+    if (isEmbeddingProfileError) {
+      return {
+        title: '无法读取 embedding 配置',
+        message: '请确认设置页中的 embedding 模型配置可用，然后重试知识问答。',
+      }
+    }
     if (shouldWarnOrchestration) {
       return {
-        title: '知识问答服务当前不可用或协议不兼容',
+        title: '知识问答服务当前不可用',
         message: orchestrationHealth?.errorMessage ?? null,
       }
     }
-
     if (!activeEmbeddingProfile) {
       return {
-        title: '当前未配置激活的嵌入模型',
-        message:
-          '限定文档范围的知识问答依赖嵌入索引。请先在设置中配置嵌入模型，并为文档生成向量索引。',
+        title: '当前没有启用的 embedding 模型',
+        message: 'RAG 问答必须依赖文档向量。请先在设置中配置 embedding，并为文档生成向量。',
       }
     }
-
     if (documents.length > 0 && qaDocuments.length === 0) {
       return {
-        title: '当前没有可用于知识问答的文档',
-        message: '请先完成解析和向量索引生成；只有状态为“可用”或“待更新”的文档才会出现在这里。',
+        title: '当前没有可用于 RAG 问答的文档',
+        message: '请先完成文档解析和向量生成。未向量化文档不会进入正式回答链路。',
       }
     }
-
+    if (qaDocuments.some((document) => document.status === 'embedding_missing')) {
+      return {
+        title: '部分文档尚未生成向量',
+        message: '知识问答只基于已向量化文档回答。请回到文档库为这些文档生成向量索引。',
+      }
+    }
     if (qaDocuments.some((document) => document.status === 'embedding_stale')) {
       return {
-        title: '部分文档的向量索引已过期',
-        message: '这些文档仍可查询，但结果可能不稳定。建议重新生成向量索引。',
+        title: '部分文档的向量已过期',
+        message: '如果选择这些文档提问，系统会阻止正式回答。请先重新生成向量。',
       }
     }
-
+    if (qaDocuments.some((document) => document.status === 'embedding_failed')) {
+      return {
+        title: '部分文档向量生成失败',
+        message: '请在文档库重试向量生成，成功后再用于知识问答。',
+      }
+    }
     return { title: null, message: null }
-  }, [activeEmbeddingProfile, documents.length, orchestrationHealth?.errorMessage, qaDocuments, shouldWarnOrchestration])
+  }, [
+    activeEmbeddingProfile,
+    documents.length,
+    isEmbeddingProfileError,
+    isEmbeddingProfileLoading,
+    orchestrationHealth?.errorMessage,
+    qaDocuments,
+    shouldWarnOrchestration,
+  ])
 
-  useEffect(() => {
-    const pendingTurns = turns.filter(
-      (turn) => turn.status === 'pending' && turn.workflowRunId != null
-    )
-
-    if (pendingTurns.length === 0) {
-      return
+  const submitDisabledReason = useMemo(() => {
+    if (isEmbeddingProfileLoading) {
+      return '正在检测嵌入模型配置。'
     }
-
-    let cancelled = false
-    const timer = window.setTimeout(() => {
-      void Promise.all(
-        pendingTurns.map(async (turn) => {
-          const workflowRunId = turn.workflowRunId
-          if (!workflowRunId) {
-            return null
-          }
-
-          try {
-            const run = await orchestrationGateway.getRun(workflowRunId)
-            if (!run) {
-              return null
-            }
-
-            if (run.status === 'failed' || run.status === 'cancelled') {
-              const failedMessage = run.errorMessage ?? 'Knowledge QA workflow failed'
-
-              if (!reportedWorkflowFailuresRef.current.has(run.id)) {
-                reportedWorkflowFailuresRef.current.add(run.id)
-                reportFeedback({
-                  scope: '知识问答',
-                  title: '知识问答后台流程失败',
-                  detail: failedMessage,
-                  level: 'error',
-                  showToast: false,
-                })
-              }
-
-              return {
-                turnId: turn.id,
-                status: 'error' as const,
-                errorMessage: failedMessage,
-              }
-            }
-
-            if (run.status !== 'completed') {
-              return null
-            }
-
-            const events = await orchestrationGateway.listEvents(run.id, 20)
-            const result = extractKnowledgeQaResult(events, turn.documentTitleCache)
-
-            return {
-              turnId: turn.id,
-              status: 'answered' as const,
-              answer: result.answer,
-              answerMode: result.answerMode,
-              retrievalStatus: result.retrievalStatus,
-              citations: result.citations,
-              errorMessage: null,
-            }
-          } catch (error) {
-            return {
-              turnId: turn.id,
-              status: 'error' as const,
-              errorMessage: getErrorMessage(error, 'Failed to read knowledge QA result'),
-            }
-          }
-        })
-      ).then((updates) => {
-        if (cancelled) {
-          return
-        }
-
-        const updateMap = new Map(
-          updates
-            .filter((update): update is NonNullable<typeof update> => update != null)
-            .map((update) => [update.turnId, update])
-        )
-
-        if (updateMap.size === 0) {
-          return
-        }
-
-        setTurns((previous) =>
-          previous.map((turn) => {
-            const update = updateMap.get(turn.id)
-            return update ? { ...turn, ...update } : turn
-          })
-        )
-      })
-    }, KNOWLEDGE_POLL_INTERVAL_MS)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
+    if (isEmbeddingProfileError || !activeEmbeddingProfile) {
+      return '请先在设置中配置嵌入模型，并为文档生成向量索引。'
     }
-  }, [turns])
+    if (shouldWarnOrchestration) {
+      return '知识问答服务当前不可用，请先重启服务。'
+    }
+    if (qaDocuments.length === 0 || !qaDocuments.some((document) => document.status === 'ready')) {
+      return '当前没有已向量化文档，请先在文档库生成向量索引。'
+    }
+    if (selectedUnavailableDocument) {
+      if (selectedUnavailableDocument.status === 'embedding_stale') {
+        return `“${selectedUnavailableDocument.title}”的向量已过期，请重新生成向量后再提问。`
+      }
+      if (selectedUnavailableDocument.status === 'embedding_failed') {
+        return `“${selectedUnavailableDocument.title}”向量生成失败，请重试生成向量后再提问。`
+      }
+      return `“${selectedUnavailableDocument.title}”尚未生成向量，请先生成向量后再提问。`
+    }
+    return null
+  }, [
+    activeEmbeddingProfile,
+    isEmbeddingProfileError,
+    isEmbeddingProfileLoading,
+    qaDocuments,
+    selectedUnavailableDocument,
+    shouldWarnOrchestration,
+  ])
 
-  const handleRestartService = useCallback(async () => {
+  const handleRestartService = useCallback(async (): Promise<boolean> => {
     setIsRestartingService(true)
-
     try {
       const restarted = await orchestrationGateway.restart()
-
-      if (restarted.status !== 'healthy' && restarted.status !== 'degraded') {
-        throw new Error(restarted.errorMessage ?? `Current service state: ${restarted.status}`)
-      }
-
-      reportFeedback({
-        scope: '知识问答',
-        title: '知识问答服务已重启',
-        detail: restarted.endpoint ? `Service endpoint: ${restarted.endpoint}` : 'Service restored',
-        level: 'info',
-        showToast: true,
-      })
+      return restarted.status === 'healthy' || restarted.status === 'degraded'
     } catch (error) {
       reportAppError('知识问答', error, {
         title: '知识问答服务重启失败',
         showToast: true,
       })
+      return false
     } finally {
       setIsRestartingService(false)
     }
@@ -331,22 +316,24 @@ export function KnowledgeQaPage() {
   const handleAsk = useCallback(
     async (rawQuestion?: string) => {
       const trimmedQuestion = (rawQuestion ?? question).trim()
-      if (!trimmedQuestion || sendQaMutation.isPending || isRestartingService) {
+      if (!trimmedQuestion || sendQaMutation.isPending || isRestartingService || submitDisabledReason) {
         return
       }
 
-      setSearchQuery(trimmedQuestion)
       setQuestion('')
 
       try {
         if (shouldWarnOrchestration) {
-          await handleRestartService()
+          const restarted = await handleRestartService()
+          if (!restarted) {
+            return
+          }
         }
 
         const result = await sendQaMutation.mutateAsync({
           conversationId: activeConversationId,
           question: trimmedQuestion,
-          documentIds: scopedDocumentIds.length > 0 ? scopedDocumentIds : undefined,
+          documentIds: effectiveReadyDocumentIds.length > 0 ? effectiveReadyDocumentIds : undefined,
         })
 
         setActiveConversationId(result.conversation.id)
@@ -354,36 +341,40 @@ export function KnowledgeQaPage() {
         await queryClient.invalidateQueries({
           queryKey: knowledgeQueryKeys.conversation(result.conversation.id),
         })
+        await queryClient.invalidateQueries({ queryKey: documentsQueryKeys.all })
       } catch (error) {
         reportAppError('知识问答', error, {
-          title: '知识问答启动失败',
+          title: '发送问题失败',
           showToast: true,
         })
       }
     },
     [
       activeConversationId,
+      effectiveReadyDocumentIds,
       handleRestartService,
       isRestartingService,
       question,
       queryClient,
-      scopedDocumentIds,
       sendQaMutation,
       shouldWarnOrchestration,
+      submitDisabledReason,
     ]
   )
 
-  const toggleDoc = useCallback((docId: string) => {
-    if (!qaDocumentIdSet.has(docId)) {
-      return
-    }
-
-    setSelectedDocIds((previous) =>
-      previous.includes(docId)
-        ? previous.filter((existingId) => existingId !== docId)
-        : [...previous, docId]
-    )
-  }, [qaDocumentIdSet])
+  const toggleDoc = useCallback(
+    (docId: string) => {
+      if (!qaDocumentIdSet.has(docId)) {
+        return
+      }
+      setSelectedDocIds((previous) =>
+        previous.includes(docId)
+          ? previous.filter((existingId) => existingId !== docId)
+          : [...previous, docId]
+      )
+    },
+    [qaDocumentIdSet]
+  )
 
   const persistedTurns = useMemo(
     () => buildTurnsFromMessages(activeConversationDetail?.messages ?? [], documentTitleLookup),
@@ -393,10 +384,9 @@ export function KnowledgeQaPage() {
   const handleRetry = useCallback(
     (turnId: string) => {
       const turn = persistedTurns.find((item) => item.id === turnId)
-      if (!turn) {
-        return
+      if (turn) {
+        void handleAsk(turn.question)
       }
-      void handleAsk(turn.question)
     },
     [handleAsk, persistedTurns]
   )
@@ -416,7 +406,7 @@ export function KnowledgeQaPage() {
         }
       } catch (error) {
         reportAppError('知识问答', error, {
-          title: '停止回答失败',
+          title: '取消回答失败',
           showToast: true,
         })
       }
@@ -431,6 +421,8 @@ export function KnowledgeQaPage() {
       question={question}
       documents={qaDocuments}
       selectedDocumentIds={scopedDocumentIds}
+      conversations={conversations}
+      activeConversationId={activeConversationId}
       turns={persistedTurns.map((turn) => ({
         id: turn.id,
         question: turn.question,
@@ -442,27 +434,22 @@ export function KnowledgeQaPage() {
         citations: turn.citations.map((citation) => ({
           id: citation.id,
           documentId: citation.documentId,
-          documentTitle: citation.documentTitle ?? 'Document',
-          pageLabel: citation.page != null ? `P.${citation.page}` : 'Unknown page',
+          documentTitle: citation.documentTitle,
+          pageLabel: citation.page != null ? `P.${citation.page}` : '未知页码',
           snippet: citation.snippet,
         })),
       }))}
       citations={latestCitations.map((citation) => ({
         id: citation.id,
         documentId: citation.documentId,
-        documentTitle: citation.documentTitle ?? 'Document',
-        pageLabel: citation.page != null ? `P.${citation.page}` : 'Unknown page',
+        documentTitle: citation.documentTitle,
+        pageLabel: citation.page != null ? `P.${citation.page}` : '未知页码',
         snippet: citation.snippet,
       }))}
-      searchResults={searchResults.map((chunk: ChunkSearchResult) => ({
-        id: chunk.id,
-        documentId: chunk.documentId,
-        documentTitle: documentTitleLookup.get(chunk.documentId) ?? 'Document',
-        pageLabel: `P.${chunk.pageStart ?? '?'}-${chunk.pageEnd ?? '?'}`,
-        snippet: chunk.snippet || chunk.content,
-      }))}
+      searchResults={[]}
       isSubmitting={sendQaMutation.isPending || isRestartingService}
       hasConfiguration
+      submitDisabledReason={submitDisabledReason}
       serviceWarningTitle={retrievalWarning.title}
       serviceWarningMessage={retrievalWarning.message}
       isRestartingService={isRestartingService}
@@ -475,7 +462,12 @@ export function KnowledgeQaPage() {
       onToggleDocument={toggleDoc}
       onClearDocuments={() => setSelectedDocIds([])}
       onUsePrompt={setQuestion}
-      onOpenCitation={(documentId) => openReader(documentId)}
+      onOpenCitation={() => undefined}
+      onSelectConversation={setActiveConversationId}
+      onNewConversation={() => {
+        setActiveConversationId(null)
+        setQuestion('')
+      }}
       onRestartService={() => {
         void handleRestartService()
       }}
@@ -484,7 +476,7 @@ export function KnowledgeQaPage() {
   )
 }
 
-function buildTurnsFromMessages(
+export function buildTurnsFromMessages(
   messages: KnowledgeQaMessage[],
   documentTitleCache: Map<string, string>
 ): TurnState[] {
@@ -500,7 +492,7 @@ function buildTurnsFromMessages(
       .find((candidate) => candidate.role === 'assistant') ?? null
     const result = extractKnowledgeQaAnswerPayload(assistant?.answerPayload ?? null, documentTitleCache)
 
-    turns.unshift({
+    turns.push({
       id: assistant?.id ?? message.id,
       question: message.content,
       answer: assistant?.content || result.answer,
@@ -509,7 +501,6 @@ function buildTurnsFromMessages(
       citations: result.citations,
       status: assistant?.status ?? 'error',
       errorMessage: assistant?.errorMessage ?? null,
-      documentTitleCache: new Map(documentTitleCache),
       workflowRunId: assistant?.workflowRunId ?? null,
       assistantMessageId: assistant?.id ?? null,
     })
@@ -552,7 +543,7 @@ function normalizeKnowledgeQaAnswer(
   const answer =
     answerPayload && typeof answerPayload['answer'] === 'string' && answerPayload['answer'].trim()
       ? answerPayload['answer']
-      : 'Answer generated, but no displayable body was returned.'
+      : '回答已生成，但没有返回可展示的正文。'
 
   const answerMode: AnswerMode =
     answerPayload &&
@@ -568,6 +559,13 @@ function normalizeKnowledgeQaAnswer(
       answerPayload['retrievalStatus'] === 'embedding_missing' ||
       answerPayload['retrievalStatus'] === 'embedding_stale' ||
       answerPayload['retrievalStatus'] === 'embedding_failed' ||
+      answerPayload['retrievalStatus'] === 'embedding_config_error' ||
+      answerPayload['retrievalStatus'] === 'embedding_auth_error' ||
+      answerPayload['retrievalStatus'] === 'embedding_timeout' ||
+      answerPayload['retrievalStatus'] === 'embedding_rate_limited' ||
+      answerPayload['retrievalStatus'] === 'embedding_dimension_mismatch' ||
+      answerPayload['retrievalStatus'] === 'embedding_network_error' ||
+      answerPayload['retrievalStatus'] === 'query_embedding_failed' ||
       answerPayload['retrievalStatus'] === 'no_hits')
       ? answerPayload['retrievalStatus']
       : 'ready'
@@ -603,11 +601,13 @@ function normalizeKnowledgeCitation(
     return []
   }
 
+  const chunkId = typeof citation['chunkId'] === 'string' ? citation['chunkId'] : null
+
   return [
     {
-      id: `${documentId}-${index}`,
+      id: chunkId ?? `${documentId}-${index}`,
       documentId,
-      documentTitle: documentTitleCache.get(documentId) ?? 'Document',
+      documentTitle: documentTitleCache.get(documentId) ?? '文档',
       page: typeof citation['page'] === 'number' ? citation['page'] : null,
       snippet: snippetCandidate,
       relevance:

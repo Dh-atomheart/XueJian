@@ -249,19 +249,6 @@ export function useStoreApiKeyMutation() {
   })
 }
 
-export function useGetApiKeyMutation() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (configId: string) => apiConfigGateway.getApiKey(configId),
-    onError: () => {
-      queryClient.invalidateQueries({ queryKey: apiConfigQueryKeys.all })
-      queryClient.invalidateQueries({ queryKey: apiConfigQueryKeys.modelProfiles })
-      queryClient.invalidateQueries({ queryKey: apiConfigQueryKeys.workflowAssignments })
-    },
-  })
-}
-
 export function useDeleteApiKeyMutation() {
   const queryClient = useQueryClient()
 
@@ -312,10 +299,12 @@ export function useTestApiConnectionMutation() {
   })
 }
 
-export function useModelProfilesQuery() {
+export function useModelProfilesQuery(options?: { enabled?: boolean; staleTime?: number }) {
   return useQuery({
     queryKey: apiConfigQueryKeys.modelProfiles,
     queryFn: () => apiConfigGateway.listModelProfiles(),
+    enabled: options?.enabled ?? true,
+    staleTime: options?.staleTime,
   })
 }
 
@@ -442,10 +431,12 @@ export function useDeleteModelProfileMutation() {
   })
 }
 
-export function useWorkflowAssignmentsQuery() {
+export function useWorkflowAssignmentsQuery(options?: { enabled?: boolean; staleTime?: number }) {
   return useQuery({
     queryKey: apiConfigQueryKeys.workflowAssignments,
     queryFn: () => apiConfigGateway.listWorkflowAssignments(),
+    enabled: options?.enabled ?? true,
+    staleTime: options?.staleTime,
   })
 }
 

@@ -1,15 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   cardsGateway,
+  type BackgroundJobFilters,
   type CardCandidateFilters,
   type CardFilters,
   type CreateCardInput,
   type CreateHighlightInput,
   type HighlightFilters,
+  type StartAiCardGenerationInput,
   type UpdateCardInput,
   type UpdateHighlightInput,
 } from '@/services/gateway/cards'
 import { orchestrationQueryKeys } from './orchestration'
+import type { BackgroundJob } from '@/types'
 
 export const cardsQueryKeys = {
   all: ['cards'] as const,
@@ -40,6 +43,17 @@ export const cardsQueryKeys = {
       filters.pageNumber ?? 'all-pages',
       filters.limit ?? 'default',
     ] as const,
+  backgroundJobs: (filters: BackgroundJobFilters) =>
+    [
+      ...cardsQueryKeys.all,
+      'background-jobs',
+      filters.jobType ?? 'all-types',
+      filters.status ?? 'all-statuses',
+      filters.targetType ?? 'all-target-types',
+      filters.targetId ?? 'all-targets',
+    ] as const,
+  backgroundJob: (jobId: string | null) =>
+    [...cardsQueryKeys.all, 'background-job', jobId ?? 'none'] as const,
 }
 
 export function useCardsQuery(filters: CardFilters, options?: { enabled?: boolean }) {
@@ -67,6 +81,33 @@ export function useHighlightsQuery(filters: HighlightFilters, options?: { enable
     queryKey: cardsQueryKeys.highlights(filters),
     queryFn: () => cardsGateway.listHighlights(filters),
     enabled: options?.enabled ?? Boolean(filters.documentId || filters.cardId),
+  })
+}
+
+export function useBackgroundJobsQuery(
+  filters: BackgroundJobFilters,
+  options?: {
+    enabled?: boolean
+    refetchInterval?: number | false | ((query: { state: { data?: BackgroundJob[] } }) => number | false)
+  }
+) {
+  return useQuery({
+    queryKey: cardsQueryKeys.backgroundJobs(filters),
+    queryFn: () => cardsGateway.listBackgroundJobs(filters),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
+  })
+}
+
+export function useBackgroundJobQuery(
+  jobId: string | null,
+  options?: { enabled?: boolean; refetchInterval?: number | false }
+) {
+  return useQuery({
+    queryKey: cardsQueryKeys.backgroundJob(jobId),
+    queryFn: () => cardsGateway.getBackgroundJob(jobId as string),
+    enabled: options?.enabled ?? Boolean(jobId),
+    refetchInterval: options?.refetchInterval,
   })
 }
 
@@ -119,6 +160,42 @@ export function useDeleteCardMutation() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
     },
+  })
+}
+
+function invalidateAiGenerationQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  job?: BackgroundJob | null
+) {
+  void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+  void queryClient.invalidateQueries({ queryKey: ['basic-cards'] })
+  void queryClient.invalidateQueries({ queryKey: ['documents'] })
+  if (job?.id) {
+    void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.backgroundJob(job.id) })
+  }
+}
+
+export function useStartAiCardGenerationMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: StartAiCardGenerationInput) => cardsGateway.startAiCardGeneration(data),
+    onSuccess: (job) => invalidateAiGenerationQueries(queryClient, job),
+  })
+}
+
+export function useResumeAiCardGenerationMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => cardsGateway.resumeAiCardGeneration(jobId),
+    onSuccess: (job) => invalidateAiGenerationQueries(queryClient, job),
+  })
+}
+
+export function useCancelBackgroundJobMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => cardsGateway.cancelBackgroundJob(jobId),
+    onSuccess: (job) => invalidateAiGenerationQueries(queryClient, job),
   })
 }
 

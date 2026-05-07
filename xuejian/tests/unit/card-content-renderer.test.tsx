@@ -1,16 +1,20 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { CardContentRenderer } from '@/components/cards/CardContentRenderer'
 
 describe('CardContentRenderer', () => {
-  it('renders markdown and inline math content', () => {
+  it('renders markdown and inline math content', async () => {
     const { container } = render(
       <CardContentRenderer content={'# 标题\n这是一段 **加粗** 内容，含有公式 $E=mc^2$。'} />
     )
 
-    expect(screen.getByRole('heading', { name: '标题' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: '标题' }, { timeout: 5000 })
+    ).toBeInTheDocument()
     expect(screen.getByText('加粗')).toBeInTheDocument()
-    expect(container.querySelector('.katex')).toBeTruthy()
+    await waitFor(() => expect(container.querySelector('.katex')).toBeTruthy(), {
+      timeout: 5000,
+    })
   })
 
   it('applies compact styling when requested', () => {

@@ -4,33 +4,20 @@ import { cn } from '@/lib/utils'
 export interface HeatmapEntry {
   /** ISO date string `YYYY-MM-DD` (local day). */
   date: string
-  /** Number of reviews (or events) on that day. */
+  /** Number of learning events on that day. */
   count: number
 }
 
 interface HeatmapCalendarProps {
   entries: HeatmapEntry[]
-  /** Number of trailing weeks to display. Default 16 (~4 months). */
+  /** Number of trailing weeks to display. Default 16. */
   weeks?: number
   /** Max count used to normalise the color scale. If omitted, uses max in entries. */
   maxCount?: number
   className?: string
-  /**
-   * Optional renderer for custom tooltip content. Falls back to
-   * `YYYY-MM-DD · 复习 N 次`.
-   */
   getTooltip?: (entry: HeatmapEntry, isoDate: string) => string
 }
 
-/**
- * GitHub-style learning heatmap. Presentational: callers pass aggregated entries.
- *
- * Visuals obey foundation rules:
- * - paper-soft base for empty cells
- * - highlight-green color ramp for activity
- * - hairline separation via rounded corners + gap
- * - The official paper theme adds a subtle ink outline on filled cells via CSS
- */
 export function HeatmapCalendar({
   entries,
   weeks = 16,
@@ -45,9 +32,8 @@ export function HeatmapCalendar({
     }
 
     const today = startOfLocalDay(new Date())
-    // Walk back so the final column ends on today.
     const totalDays = weeks * 7
-    const dayOffset = today.getDay() // 0=Sun .. 6=Sat
+    const dayOffset = today.getDay()
     const endDate = today
     const startDate = new Date(endDate)
     startDate.setDate(endDate.getDate() - (totalDays - 1) - dayOffset)
@@ -57,7 +43,7 @@ export function HeatmapCalendar({
     let activeDays = 0
 
     const cursor = new Date(startDate)
-    for (let i = 0; i < totalDays + dayOffset; i++) {
+    for (let i = 0; i < totalDays + dayOffset; i += 1) {
       const iso = toIsoDate(cursor)
       const count = lookup.get(iso) ?? 0
       const isFuture = cursor > today
@@ -69,7 +55,6 @@ export function HeatmapCalendar({
       cursor.setDate(cursor.getDate() + 1)
     }
 
-    // Split into 7-row x N-col grid
     const rows: { date: string; count: number; isFuture: boolean }[][] = Array.from(
       { length: 7 },
       () => []
@@ -78,38 +63,34 @@ export function HeatmapCalendar({
       rows[index % 7].push(cell)
     })
 
-    const max = maxCount ?? Math.max(1, ...cells.map((c) => c.count))
-
     return {
       grid: rows,
       totals: { total, activeDays },
-      resolvedMax: max,
+      resolvedMax: maxCount ?? Math.max(1, ...cells.map((cell) => cell.count)),
     }
   }, [entries, weeks, maxCount])
 
   return (
-    <div className={cn('space-y-3', className)} data-testid="heatmap-calendar">
+    <div className={cn('min-w-0 space-y-3', className)} data-testid="heatmap-calendar">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <p className="font-ui text-xs uppercase tracking-[0.22em] text-ink-soft">
-            学习热力图
-          </p>
+          <p className="font-ui text-xs uppercase tracking-[0.22em] text-ink-soft">学习热力图</p>
           <p className="mt-1 font-body text-xs text-ink-muted">
-            最近 {weeks} 周 · {totals.activeDays} 活跃日 ·{' '}
-            <span className="tabular-nums text-ink">{totals.total}</span> 次复习
+            最近 {weeks} 周 · {totals.activeDays} 个活跃日 ·{' '}
+            <span className="tabular-nums text-ink">{totals.total}</span> 次学习
           </p>
         </div>
         <Legend />
       </div>
 
-      <div className="flex gap-[3px] overflow-x-auto pb-1">
+      <div className="flex max-w-full gap-[3px] overflow-x-auto pb-1">
         <div className="flex shrink-0 flex-col justify-between py-[2px] pr-2 text-[10px] font-latin text-ink-soft/80">
           <span>一</span>
           <span>三</span>
           <span>五</span>
           <span>日</span>
         </div>
-        <div className="flex min-w-0 gap-[3px]">
+        <div className="flex shrink-0 gap-[3px]">
           {transposeColumns(grid).map((column, colIdx) => (
             <div key={colIdx} className="flex flex-col gap-[3px]">
               {column.map((cell, rowIdx) => (
@@ -164,10 +145,10 @@ function Legend() {
   return (
     <div className="flex items-center gap-1.5 text-[10px] font-latin text-ink-soft">
       <span>少</span>
-      {[0, 1, 2, 3, 4].map((lvl) => (
+      {[0, 1, 2, 3, 4].map((level) => (
         <span
-          key={lvl}
-          className={cn('block h-[10px] w-[10px] rounded-[2px]', LEVEL_CLASSES[lvl])}
+          key={level}
+          className={cn('block h-[10px] w-[10px] rounded-[2px]', LEVEL_CLASSES[level])}
         />
       ))}
       <span>多</span>
@@ -194,13 +175,13 @@ function computeLevel(count: number, max: number): number {
 }
 
 function transposeColumns<T>(rows: T[][]): T[][] {
-  const cols = Math.max(...rows.map((r) => r.length))
+  const cols = Math.max(...rows.map((row) => row.length))
   const result: T[][] = Array.from({ length: cols }, () => [])
-  for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < 7; r++) {
-      const cell = rows[r][c]
+  for (let col = 0; col < cols; col += 1) {
+    for (let row = 0; row < 7; row += 1) {
+      const cell = rows[row][col]
       if (cell !== undefined) {
-        result[c].push(cell)
+        result[col].push(cell)
       }
     }
   }
@@ -214,13 +195,13 @@ function startOfLocalDay(date: Date): Date {
 }
 
 function toIsoDate(date: Date): string {
-  const y = date.getFullYear()
-  const m = `${date.getMonth() + 1}`.padStart(2, '0')
-  const d = `${date.getDate()}`.padStart(2, '0')
-  return `${y}-${m}-${d}`
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function defaultTooltip(date: string, count: number): string {
   if (count <= 0) return `${date} · 无学习记录`
-  return `${date} · 复习 ${count} 次`
+  return `${date} · 学习 ${count} 次`
 }

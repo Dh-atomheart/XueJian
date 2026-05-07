@@ -3,57 +3,31 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReviewPage } from '@/features/review/ReviewPage'
 import { useAppUiStore } from '@/store'
 import { useLearningSessionStore } from '@/store/learning'
-import type { Card } from '@/types'
+import type { StudyQueueItem } from '@/types'
 
-const {
-  useDueCardsQueryMock,
-  useDailyStatsQueryMock,
-  useSubmitReviewMutationMock,
-  usePointsSummaryQueryMock,
-} = vi.hoisted(() => ({
-  useDueCardsQueryMock: vi.fn(),
-  useDailyStatsQueryMock: vi.fn(),
-  useSubmitReviewMutationMock: vi.fn(),
-  usePointsSummaryQueryMock: vi.fn(),
+const { useStudyQueueQueryMock, useSubmitStudyReviewMutationMock } = vi.hoisted(() => ({
+  useStudyQueueQueryMock: vi.fn(),
+  useSubmitStudyReviewMutationMock: vi.fn(),
 }))
 
-vi.mock('@/queries/learning', async () => {
-  const actual = await vi.importActual<typeof import('@/queries/learning')>('@/queries/learning')
+vi.mock('@/queries/study', async () => {
+  const actual = await vi.importActual<typeof import('@/queries/study')>('@/queries/study')
   return {
     ...actual,
-    useDueCardsQuery: useDueCardsQueryMock,
-    useDailyStatsQuery: useDailyStatsQueryMock,
-    useSubmitReviewMutation: useSubmitReviewMutationMock,
+    useStudyQueueQuery: useStudyQueueQueryMock,
+    useSubmitStudyReviewMutation: useSubmitStudyReviewMutationMock,
   }
 })
 
-vi.mock('@/queries/points', () => ({
-  usePointsSummaryQuery: usePointsSummaryQueryMock,
-}))
-
-function makeCard(overrides: Partial<Card> = {}): Card {
+function makeStudyQueueItem(overrides: Partial<StudyQueueItem> = {}): StudyQueueItem {
   return {
     id: '33333333-3333-4333-8333-333333333333',
-    groupId: null,
-    title: null,
-    cardType: 'qa',
-    clusterId: null,
-    exportGuid: null,
-    documentId: null,
-    anchorId: null,
+    groupId: '10101010-1010-4010-8010-101010101010',
+    title: '学习卡片',
     front: 'Review question',
     back: 'Review answer',
-    sourcePage: null,
-    sourceParagraph: null,
-    sourceCoordinates: null,
-    tags: [],
-    difficulty: 0.3,
-    stability: 1,
-    retrievability: null,
     state: 'new',
-    nextReview: null,
-    createdAt: new Date('2026-04-21T00:00:00.000Z'),
-    updatedAt: new Date('2026-04-21T00:00:00.000Z'),
+    dueAt: new Date('2026-04-21T00:00:00.000Z'),
     ...overrides,
   }
 }
@@ -64,17 +38,14 @@ describe('ReviewPage', () => {
     useLearningSessionStore.getState().resetSession()
     useAppUiStore.setState({ activeNavItem: 'home' })
 
-    useDueCardsQueryMock.mockReturnValue({
-      data: [makeCard()],
+    useStudyQueueQueryMock.mockReturnValue({
+      data: [makeStudyQueueItem()],
       isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
     })
-    useDailyStatsQueryMock.mockReturnValue({
-      data: { newCards: 1, reviewCards: 1, correctRate: null },
-    })
-    usePointsSummaryQueryMock.mockReturnValue({
-      data: { todayPoints: 10 },
-    })
-    useSubmitReviewMutationMock.mockReturnValue({
+    useSubmitStudyReviewMutationMock.mockReturnValue({
       isPending: false,
       mutate: vi.fn((_payload: unknown, options?: { onSuccess?: () => void }) => {
         options?.onSuccess?.()
@@ -101,21 +72,60 @@ describe('ReviewPage', () => {
   })
 
   it('shows choice-card explanation after reveal', async () => {
-    useDueCardsQueryMock.mockReturnValue({
+    useStudyQueueQueryMock.mockReturnValue({
       data: [
-        makeCard({
-          cardType: 'choice',
+        makeStudyQueueItem({
           front: '?> Which option is correct?\n- Wrong option\n- [x] Correct option',
           back: 'This is the explanation for the choice card.',
         }),
       ],
       isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
     })
 
     render(<ReviewPage />)
     fireEvent.click(screen.getByTestId('review-start-session'))
     fireEvent.click(screen.getByTestId('review-current-card'))
 
-    expect(await screen.findByText('This is the explanation for the choice card.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('This is the explanation for the choice card.')
+    ).toBeInTheDocument()
+  })
+
+  it('shows loading state while fetching the study queue', () => {
+    useStudyQueueQueryMock.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    render(<ReviewPage />)
+
+    expect(screen.getByTestId('review-page-loading')).toBeInTheDocument()
+    expect(screen.getByText('正在加载复习队列...')).toBeInTheDocument()
+  })
+
+  it('shows error state and retries when loading the study queue fails', () => {
+    const refetch = vi.fn()
+    useStudyQueueQueryMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('复习服务不可用'),
+      refetch,
+    })
+
+    render(<ReviewPage />)
+
+    expect(screen.getByTestId('review-page-error')).toBeInTheDocument()
+    expect(screen.getByText('复习服务不可用')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+
+    expect(refetch).toHaveBeenCalledTimes(1)
   })
 })

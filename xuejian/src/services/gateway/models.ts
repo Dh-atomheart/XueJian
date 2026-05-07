@@ -21,6 +21,8 @@ import type {
 } from '@/types'
 import { invoke, invokeWithSchema } from './index'
 
+const MODEL_HEALTH_TEST_TIMEOUT_MS = 20_000
+
 type ApiConfigDraft = Omit<
   ApiConfig,
   'id' | 'createdAt' | 'hasStoredCredential' | 'hasStoredKey' | 'keyVerifiedAt' | 'keyStatus'
@@ -85,10 +87,6 @@ export const apiConfigGateway = {
     return invoke<void>('delete_api_key', { configId })
   },
 
-  async getApiKey(configId: string): Promise<string> {
-    return invokeWithSchema('get_api_key', z.string(), { configId })
-  },
-
   async testConnection(data: {
     configId?: string | null
     provider: ApiConfig['provider']
@@ -97,7 +95,11 @@ export const apiConfigGateway = {
     baseUrl?: string | null
     model?: string | null
   }): Promise<ApiConnectionTestResult> {
-    return invokeWithSchema('test_api_connection', apiConnectionTestResultSchema, { data })
+    return invokeWithSchema('test_api_connection', apiConnectionTestResultSchema, { data }, {
+      timeoutMs: MODEL_HEALTH_TEST_TIMEOUT_MS,
+      timeoutMessage:
+        '模型健康测试超过 20 秒。请检查网络、Base URL，或稍后再试密钥库操作。',
+    })
   },
 
   async setDefault(id: string): Promise<void> {
@@ -202,7 +204,6 @@ export const modelGateway: {
   update: (id: string, data: ModelProfileUpdate) => Promise<ModelProfile>
   delete: (id: string) => Promise<void>
   deleteApiKey: (configId: string) => Promise<void>
-  getApiKey: (configId: string) => Promise<string>
   testConnection: (data: {
     configId?: string | null
     provider: ApiConfig['provider']
@@ -242,7 +243,6 @@ export const modelGateway: {
   update: apiConfigGateway.updateModelProfile,
   delete: apiConfigGateway.deleteModelProfile,
   deleteApiKey: apiConfigGateway.deleteApiKey,
-  getApiKey: apiConfigGateway.getApiKey,
   testConnection: apiConfigGateway.testConnection,
   setDefault: apiConfigGateway.setDefault,
   storeApiKey: apiConfigGateway.storeApiKey,

@@ -1,9 +1,29 @@
-import { ArrowRight, Check, FileText, FolderOpen, MessageSquare, Pen, Plus, RefreshCcw, Sparkles, TrendingUp, Upload } from 'lucide-react'
-import { Button, Card, CardContent, EmptyState, SkeletonDocRow } from '@/components/ui'
-import { HeatmapCalendar, type HeatmapEntry } from '@/components/stats'
-import { useStickyNote } from '@/hooks/useStickyNote'
-import { useCallback, useRef, useState } from 'react'
+import type { ComponentType } from 'react'
+import {
+  ArrowRight,
+  CheckCircle2,
+  FileText,
+  FolderOpen,
+  Layers3,
+  Library,
+  Plus,
+  RefreshCcw,
+  AlertCircle,
+  Upload,
+} from 'lucide-react'
+import {
+  Card,
+  CardContent,
+} from '@/components/ui/card'
+import {
+  EmptyState,
+  ErrorState,
+  SkeletonBlock,
+  SkeletonDocRow,
+} from '@/components/ui/state-views'
+import { HeatmapCalendar, type HeatmapEntry } from '@/components/stats/HeatmapCalendar'
 import { cn } from '@/lib/utils'
+import type { DashboardSummary } from '@/types'
 
 export interface HomePageDocument {
   id: string
@@ -15,92 +35,189 @@ export interface HomePageDocument {
 }
 
 export interface HomePageProps {
-  stats: Array<{ value: number | string; label: string }>
-  overview: Array<{ label: string; value: string | number }>
+  metrics: Array<{ value: number | string; label: string; hint: string }>
   heatmap: HeatmapEntry[]
+  documentProgress: DashboardSummary['documentProgress']
+  groupProgress: DashboardSummary['groupProgress']
   recentDocuments: HomePageDocument[]
-  isDocumentsLoading?: boolean
-  hasDocuments?: boolean
-  quickActions: Array<{ label: string; description: string; icon: React.ComponentType<{ className?: string }>; onClick: () => void }>
-  weeklySignals: Array<{ label: string; trend: 'up' | 'down' | 'neutral' }>
-  workbenchStatus: Array<{ label: string; value: string; tone: 'default' | 'active' | 'warn' }>
+  alerts?: Array<{ id: string; title: string; detail: string; tone: 'warning' | 'danger'; actionLabel?: string; onAction?: () => void }>
+  isLoading?: boolean
+  isError?: boolean
+  errorMessage?: string
+  quickActions: Array<{
+    label: string
+    description: string
+    icon: ComponentType<{ className?: string }>
+    onClick: () => void
+    primary?: boolean
+  }>
+  onRetry: () => void
   onOpenLibrary: () => void
-  onOpenReview: () => void
-  onOpenCards: () => void
   onOpenDocument: (id: string) => void
 }
 
 function PageHeader() {
   return (
-    <div className="mb-6">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">STUDY CENTER</p>
-      <h1 className="mt-1 text-2xl font-medium text-foreground" data-testid="app-shell-page-title">
-        今日学习中心
+    <div className="flex flex-col gap-2">
+      <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">Study Dashboard</p>
+      <h1 className="font-ui text-2xl font-medium text-ink" data-testid="app-shell-page-title">
+        今日学习工作台
       </h1>
-      <p className="mt-1 text-sm text-muted-foreground">按参考编码的首页结构重建：总览、热力、最近文档、快捷入口和右侧信息轨。</p>
+      <p className="max-w-3xl text-sm leading-6 text-ink-muted">
+        从待复习卡片、最近文档和掌握进度开始，快速判断今天下一步该做什么。
+      </p>
     </div>
   )
 }
 
-function StatsCircle({ value, label }: { value: number | string; label: string }) {
+function MetricGrid({ metrics }: Pick<HomePageProps, 'metrics'>) {
   return (
-    <div className="flex flex-col items-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-foreground/10 bg-card">
-        <span className="text-xl font-semibold tabular-nums text-foreground">{value}</span>
-      </div>
-      <span className="mt-2 text-xs text-muted-foreground">{label}</span>
-    </div>
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="home-metrics">
+      {metrics.map((item) => (
+        <div
+          key={item.label}
+          className="rounded-lg border border-line-soft bg-paper-card/92 px-4 py-4"
+        >
+          <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">{item.label}</p>
+          <p className="mt-2 font-ui text-2xl font-medium tabular-nums text-ink">{item.value}</p>
+          <p className="mt-2 text-xs leading-5 text-ink-muted">{item.hint}</p>
+        </div>
+      ))}
+    </section>
   )
 }
 
-function HeroStats({ stats, onOpenReview, onOpenCards }: Pick<HomePageProps, 'stats' | 'onOpenReview' | 'onOpenCards'>) {
+function QuickActionsPanel({ quickActions }: Pick<HomePageProps, 'quickActions'>) {
   return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="flex flex-col gap-5 p-6">
-        <div className="flex flex-wrap gap-6">
-          {stats.map((item) => (
-            <StatsCircle key={item.label} value={item.value} label={item.label} />
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Button className="rounded-lg" onClick={onOpenReview}>
-            进入复习
-          </Button>
-          <Button variant="outline" className="rounded-lg" onClick={onOpenCards}>
-            打开卡片工坊
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function StudyOverviewPanel({ overview }: Pick<HomePageProps, 'overview'>) {
-  return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-foreground">学习概览</h3>
-          <span className="text-xs text-muted-foreground">今日</span>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          {overview.map((item) => (
-            <div key={item.label}>
-              <p className="text-xs text-muted-foreground">{item.label}</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{item.value}</p>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+    <section
+      className="grid gap-3 md:grid-cols-3"
+      data-testid="home-quick-actions-panel"
+      aria-label="首页快捷操作"
+    >
+      {quickActions.map((action) => {
+        const Icon = action.icon
+        return (
+          <button
+            key={action.label}
+            type="button"
+            onClick={action.onClick}
+            className={cn(
+              'flex min-h-[88px] items-center gap-3 rounded-lg border px-4 py-3 text-left transition hover:border-ink/20',
+              action.primary
+                ? 'border-ink/15 bg-ink text-paper-card hover:bg-ink/90'
+                : 'border-line-soft bg-paper-card/88 text-ink hover:bg-paper-muted'
+            )}
+          >
+            <span
+              className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+                action.primary ? 'bg-paper-card/12' : 'bg-paper-muted'
+              )}
+            >
+              <Icon className="h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate font-ui text-sm font-medium">{action.label}</span>
+              <span
+                className={cn(
+                  'mt-1 line-clamp-2 block text-xs leading-5',
+                  action.primary ? 'text-paper-card/74' : 'text-ink-muted'
+                )}
+              >
+                {action.description}
+              </span>
+            </span>
+          </button>
+        )
+      })}
+    </section>
   )
 }
 
 function HeatmapPanel({ heatmap }: Pick<HomePageProps, 'heatmap'>) {
   return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="p-5">
-        <HeatmapCalendar entries={heatmap} weeks={16} />
+    <Card data-testid="home-heatmap-panel">
+      <CardContent className="p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-ui text-sm font-medium text-ink">学习热力图</h2>
+          <span className="text-xs text-ink-soft">最近 16 周</span>
+        </div>
+        <HeatmapCalendar
+          entries={heatmap}
+          weeks={16}
+          getTooltip={(entry, date) =>
+            entry.count > 0 ? `${date}：学习 ${entry.count} 次` : `${date}：暂无学习记录`
+          }
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
+function ProgressPanel({
+  title,
+  emptyTitle,
+  items,
+  getName,
+  getAccent,
+  testId,
+}: {
+  title: string
+  emptyTitle: string
+  items: Array<{
+    id: string
+    learnedCards: number
+    totalCards: number
+    progressPercent: number
+    title?: string
+    name?: string
+    color?: string | null
+  }>
+  getName: (item: (typeof items)[number]) => string
+  getAccent?: (item: (typeof items)[number]) => string | null | undefined
+  testId: string
+}) {
+  return (
+    <Card data-testid={testId}>
+      <CardContent className="p-4">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="font-ui text-sm font-medium text-ink">{title}</h2>
+          <span className="text-xs text-ink-soft">已学 / 总数</span>
+        </div>
+
+        {items.length === 0 ? (
+          <EmptyState
+            icon={Layers3}
+            title={emptyTitle}
+            description="导入文档并生成卡片后，这里会显示掌握进度。"
+            className="py-8"
+          />
+        ) : (
+          <div className="space-y-3">
+            {items.map((item) => (
+              <div key={item.id} className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full bg-highlight-green"
+                      style={getAccent ? { backgroundColor: getAccent(item) ?? undefined } : undefined}
+                    />
+                    <p className="truncate text-sm text-ink">{getName(item) || '未命名'}</p>
+                  </div>
+                  <span className="shrink-0 font-latin text-xs tabular-nums text-ink-soft">
+                    {item.learnedCards}/{item.totalCards}
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-paper-muted">
+                  <div
+                    className="h-full rounded-full bg-highlight-green transition-all"
+                    style={{ width: `${item.progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -110,10 +227,10 @@ function DocumentStatusBadge({ tone, label }: { tone: HomePageDocument['statusTo
   return (
     <span
       className={cn(
-        'rounded-full px-2 py-0.5 text-[10px] font-medium',
-        tone === 'ready' && 'bg-chart-1/15 text-chart-1',
-        tone === 'processing' && 'bg-chart-5/15 text-chart-5',
-        tone === 'error' && 'bg-destructive/15 text-destructive'
+        'rounded-md px-2 py-0.5 text-[10px] font-medium',
+        tone === 'ready' && 'bg-highlight-green/18 text-ink',
+        tone === 'processing' && 'bg-highlight-yellow/24 text-ink',
+        tone === 'error' && 'bg-destructive/12 text-destructive'
       )}
     >
       {label}
@@ -123,50 +240,50 @@ function DocumentStatusBadge({ tone, label }: { tone: HomePageDocument['statusTo
 
 function RecentDocumentsPanel({
   recentDocuments,
-  isDocumentsLoading,
   onOpenLibrary,
   onOpenDocument,
-}: Pick<HomePageProps, 'recentDocuments' | 'isDocumentsLoading' | 'onOpenLibrary' | 'onOpenDocument'>) {
+}: Pick<HomePageProps, 'recentDocuments' | 'onOpenLibrary' | 'onOpenDocument'>) {
   return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="p-5">
+    <Card data-testid="home-recent-documents-panel">
+      <CardContent className="p-4">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-foreground">最近文档</h3>
-          <button onClick={onOpenLibrary} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <h2 className="font-ui text-sm font-medium text-ink">最近文档</h2>
+          <button
+            type="button"
+            onClick={onOpenLibrary}
+            className="flex items-center gap-1 text-xs text-ink-soft hover:text-ink"
+          >
             查看全部 <ArrowRight className="h-3 w-3" />
           </button>
         </div>
-        {isDocumentsLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <SkeletonDocRow key={i} />
-            ))}
-          </div>
-        ) : recentDocuments.length === 0 ? (
+
+        {recentDocuments.length === 0 ? (
           <EmptyState
             icon={FolderOpen}
-            title="还没有已接通的文档"
-            description="上传第一份 PDF 后，这里会展示最近可继续处理的资料。"
-            action={{ label: '上传文档', onClick: onOpenLibrary }}
+            title="还没有可阅读的文档"
+            description="导入 PDF 后，可以在这里继续阅读并生成卡片。"
+            action={{ label: '导入文档', onClick: onOpenLibrary }}
+            className="py-8"
           />
         ) : (
-          <div className="space-y-2" data-testid="home-recent-documents-panel">
+          <div className="space-y-2">
             {recentDocuments.map((doc) => (
               <button
                 key={doc.id}
-                className="flex w-full items-center justify-between rounded-lg border border-border/50 bg-background/50 p-3 text-left transition-colors hover:bg-muted/30"
+                type="button"
+                className="flex w-full items-center justify-between gap-3 rounded-lg border border-line-soft bg-paper-base/70 p-3 text-left transition hover:border-ink/20"
                 onClick={() => onOpenDocument(doc.id)}
               >
-                <div className="flex items-center gap-3">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{doc.title}</p>
-                    <p className="text-xs text-muted-foreground">{doc.subtitle}</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <FileText className="h-4 w-4 shrink-0 text-ink-soft" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink">{doc.title}</p>
+                    <p className="truncate text-xs text-ink-muted">{doc.subtitle}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-2">
                   <DocumentStatusBadge tone={doc.statusTone} label={doc.statusLabel} />
-                  <span className="text-xs text-muted-foreground">{doc.pageCountLabel}</span>
+                  <span className="text-xs text-ink-soft">{doc.pageCountLabel}</span>
                 </div>
               </button>
             ))}
@@ -177,197 +294,139 @@ function RecentDocumentsPanel({
   )
 }
 
-function QuickActionsPanel({ quickActions }: Pick<HomePageProps, 'quickActions'>) {
-  return (
-    <Card className="border-border/50 bg-card" data-testid="home-quick-actions-panel">
-      <CardContent className="p-5">
-        <h3 className="mb-4 text-sm font-medium text-foreground">快速开始</h3>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {quickActions.map((action) => {
-            const Icon = action.icon
-            return (
-              <button
-                key={action.label}
-                onClick={action.onClick}
-                className="flex items-center gap-3 rounded-lg border border-border/50 bg-background/50 p-3 text-left transition-colors hover:bg-muted/30"
-              >
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50">
-                  <Icon className="h-4 w-4 text-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">{action.label}</p>
-                  <p className="text-xs text-muted-foreground">{action.description}</p>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function DeskNotePanel() {
-  const { note, saveNote } = useStickyNote()
-  const [isEditing, setIsEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  const startEditing = useCallback(() => {
-    setDraft(note)
-    setIsEditing(true)
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus()
-      textareaRef.current?.select()
-    })
-  }, [note])
-
-  const finishEditing = useCallback(() => {
-    saveNote(draft)
-    setIsEditing(false)
-  }, [draft, saveNote])
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault()
-        finishEditing()
-      }
-      if (e.key === 'Escape') {
-        setIsEditing(false)
-      }
-    },
-    [finishEditing]
-  )
+function AlertsPanel({ alerts }: { alerts: NonNullable<HomePageProps['alerts']> }) {
+  if (alerts.length === 0) return null
 
   return (
-    <Card className="border-border/50 bg-chart-2/10">
-      <CardContent className="p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-xs font-medium text-foreground">桌面便笺</h3>
-          <Sparkles className="h-3.5 w-3.5 text-chart-2" />
-        </div>
-        {isEditing ? (
-          <div className="space-y-2">
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={finishEditing}
-              onKeyDown={handleKeyDown}
-              className="w-full resize-none rounded-lg border border-border/50 bg-background/80 p-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-chart-2/50"
-              rows={3}
-              placeholder="写下你的学习目标..."
-            />
-            <div className="flex justify-end">
-              <button
-                onClick={finishEditing}
-                className="flex items-center gap-1 rounded-md bg-chart-2/20 px-2 py-1 text-xs text-chart-2 hover:bg-chart-2/30"
-              >
-                <Check className="h-3 w-3" />
-                保存
-              </button>
+    <section className="space-y-2" data-testid="home-alerts-panel" aria-label="学习异常提醒">
+      {alerts.map((alert) => (
+        <div
+          key={alert.id}
+          className={cn(
+            'flex items-start justify-between gap-3 rounded-lg border px-4 py-3',
+            alert.tone === 'danger'
+              ? 'border-destructive/25 bg-destructive/7'
+              : 'border-highlight-yellow/40 bg-highlight-yellow/12'
+          )}
+        >
+          <div className="flex min-w-0 gap-3">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-ink">{alert.title}</p>
+              <p className="mt-1 text-xs leading-5 text-ink-muted">{alert.detail}</p>
             </div>
           </div>
-        ) : (
-          <>
-            <p
-              className="cursor-pointer text-sm leading-relaxed text-muted-foreground italic"
-              onClick={startEditing}
-              title="点击编辑"
+          {alert.actionLabel && alert.onAction ? (
+            <button
+              type="button"
+              onClick={alert.onAction}
+              className="shrink-0 rounded-md border border-line-soft bg-paper-card px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
             >
-              {note.split('\n').map((line, i) => (
-                <span key={i}>
-                  {i > 0 && <br />}
-                  {line || <br />}
-                </span>
-              ))}
-            </p>
-            <div className="mt-3 flex justify-end">
-              <button onClick={startEditing}>
-                <Pen className="h-4 w-4 text-muted-foreground/50 hover:text-muted-foreground/80" />
-              </button>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+              {alert.actionLabel}
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </section>
   )
 }
 
-function WeeklySignalsPanel({ weeklySignals }: Pick<HomePageProps, 'weeklySignals'>) {
+function LoadingDashboard() {
   return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="p-4">
-        <h3 className="mb-3 text-xs font-medium text-foreground">本周信号</h3>
-        <div className="space-y-2">
-          {weeklySignals.map((signal) => (
-            <div key={signal.label} className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">•</span>
-              <span className="flex-1 text-xs text-muted-foreground">{signal.label}</span>
-              {signal.trend === 'down' ? <TrendingUp className="h-3 w-3 rotate-180 text-destructive" /> : null}
-              {signal.trend === 'up' ? <TrendingUp className="h-3 w-3 text-chart-1" /> : null}
-              {signal.trend === 'neutral' ? <div className="h-2 w-2 rounded-full bg-chart-1" /> : null}
-            </div>
+    <div className="h-full overflow-auto p-5" data-testid="home-dashboard-loading">
+      <div className="space-y-4">
+        <SkeletonBlock className="h-20" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[0, 1, 2, 3].map((item) => (
+            <SkeletonBlock key={item} className="h-28" />
           ))}
         </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function WorkbenchStatusPanel({ workbenchStatus }: Pick<HomePageProps, 'workbenchStatus'>) {
-  return (
-    <Card className="border-border/50 bg-card">
-      <CardContent className="p-4">
-        <h3 className="mb-3 text-xs font-medium text-foreground">工作台状态</h3>
-        <div className="space-y-2">
-          {workbenchStatus.map((item) => (
-            <div key={item.label} className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">{item.label}</span>
-              <span
-                className={cn(
-                  'rounded-full px-2 py-0.5 text-[10px]',
-                  item.tone === 'active' && 'bg-chart-1/15 text-chart-1',
-                  item.tone === 'warn' && 'bg-chart-2/15 text-chart-2',
-                  item.tone === 'default' && 'bg-muted text-muted-foreground'
-                )}
-              >
-                {item.value}
-              </span>
-            </div>
-          ))}
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+          <SkeletonBlock className="h-56" />
+          <div className="space-y-2">
+            <SkeletonDocRow />
+            <SkeletonDocRow />
+            <SkeletonDocRow />
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }
 
 export function HomePage(props: HomePageProps) {
+  if (props.isLoading) {
+    return <LoadingDashboard />
+  }
+
+  if (props.isError) {
+    return (
+      <div className="flex h-full items-center justify-center p-6" data-testid="home-dashboard-error">
+        <ErrorState
+          title="学习仪表盘加载失败"
+          description={props.errorMessage ?? '无法读取学习统计，请稍后重试。'}
+          onRetry={props.onRetry}
+        />
+      </div>
+    )
+  }
+
+  const hasAnyProgress = props.documentProgress.length > 0 || props.groupProgress.length > 0
+  const alerts = props.alerts ?? []
+
   return (
-    <div className="h-full p-6">
-      <PageHeader />
-      <HeroStats stats={props.stats} onOpenReview={props.onOpenReview} onOpenCards={props.onOpenCards} />
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3 xl:grid-cols-4">
-        <div className="space-y-6 lg:col-span-2 xl:col-span-3">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <StudyOverviewPanel overview={props.overview} />
+    <div className="h-full overflow-auto p-5" data-testid="home-dashboard">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4">
+        <PageHeader />
+        <QuickActionsPanel quickActions={props.quickActions} />
+        <AlertsPanel alerts={alerts} />
+        <MetricGrid metrics={props.metrics} />
+
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+          <div className="min-w-0 space-y-4">
             <HeatmapPanel heatmap={props.heatmap} />
+            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+              <ProgressPanel
+                title="文档掌握进度"
+                emptyTitle="暂无文档进度"
+                items={props.documentProgress}
+                getName={(item) => item.title ?? ''}
+                testId="home-document-progress-panel"
+              />
+              <ProgressPanel
+                title="分组掌握进度"
+                emptyTitle="暂无分组进度"
+                items={props.groupProgress}
+                getName={(item) => item.name ?? ''}
+                getAccent={(item) => item.color}
+                testId="home-group-progress-panel"
+              />
+            </div>
           </div>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+
+          <div className="min-w-0 space-y-4">
             <RecentDocumentsPanel
               recentDocuments={props.recentDocuments}
-              isDocumentsLoading={props.isDocumentsLoading}
               onOpenLibrary={props.onOpenLibrary}
               onOpenDocument={props.onOpenDocument}
             />
-            <QuickActionsPanel quickActions={props.quickActions} />
+
+            <Card className={cn(!hasAnyProgress && 'bg-paper-muted/70')}>
+              <CardContent className="flex items-start gap-3 p-4">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-highlight-green" />
+                <div>
+                  <p className="text-sm font-medium text-ink">
+                    {hasAnyProgress ? '学习记录正在同步' : '从第一份文档开始'}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-ink-muted">
+                    {hasAnyProgress
+                      ? 'Reader、卡片和复习记录会汇总到这里，方便检查长期趋势。'
+                      : '导入文档并生成 Basic 卡片后，首页会显示热力图、最近文档和掌握进度。'}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        </div>
-        <div className="space-y-4 lg:col-span-1">
-          <DeskNotePanel />
-          <WeeklySignalsPanel weeklySignals={props.weeklySignals} />
-          <WorkbenchStatusPanel workbenchStatus={props.workbenchStatus} />
         </div>
       </div>
     </div>
@@ -378,5 +437,5 @@ export const homePageIcons = {
   review: RefreshCcw,
   upload: Upload,
   cards: Plus,
-  qa: MessageSquare,
+  library: Library,
 }

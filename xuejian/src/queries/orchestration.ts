@@ -13,11 +13,13 @@ export const orchestrationQueryKeys = {
   manifest: () => [...orchestrationQueryKeys.all, 'manifest'] as const,
 }
 
-export function useOrchestrationServiceHealthQuery() {
+export function useOrchestrationServiceHealthQuery(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: orchestrationQueryKeys.health(),
     queryFn: () => orchestrationGateway.getHealth(),
-    refetchInterval: 10_000,
+    enabled: options?.enabled ?? true,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   })
 }
 

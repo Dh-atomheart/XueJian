@@ -6,7 +6,7 @@ import { settingsGateway } from '@/services/gateway/settings'
 beforeEach(async () => {
   resetMockGatewayState()
   await settingsGateway.update({
-    theme: 'default',
+    theme: 'light',
     language: 'zh-CN',
     dailyNewCardLimit: 20,
     reviewTimeLimit: 30,
@@ -27,7 +27,7 @@ describe('gateway mocks', () => {
   it('returns redesigned default settings outside Tauri', async () => {
     const settings = await settingsGateway.get()
 
-    expect(settings.theme).toBe('default')
+    expect(settings.theme).toBe('light')
     expect(settings.language).toBe('zh-CN')
     expect(settings.dailyNewCardLimit).toBe(20)
     expect(settings.podcastTtsProvider).toBe('auto')
@@ -54,7 +54,7 @@ describe('gateway mocks', () => {
 
   it('updates and re-reads app settings outside Tauri', async () => {
     const updated = await settingsGateway.update({
-      theme: 'default',
+      theme: 'dark',
       learningGoal: 'exam_preparation',
       studyTimePreferences: ['morning', 'evening'],
       podcastTtsProvider: 'edge_tts',
@@ -67,7 +67,7 @@ describe('gateway mocks', () => {
       defaultPodcastStyle: 'deep_dive',
     })
 
-    expect(updated.theme).toBe('default')
+    expect(updated.theme).toBe('dark')
     expect(updated.learningGoal).toBe('exam_preparation')
     expect(updated.studyTimePreferences).toEqual(['morning', 'evening'])
     expect(updated.podcastTtsProvider).toBe('edge_tts')
@@ -78,7 +78,7 @@ describe('gateway mocks', () => {
     expect(updated.defaultPodcastStyle).toBe('deep_dive')
 
     const persisted = await settingsGateway.get()
-    expect(persisted.theme).toBe('default')
+    expect(persisted.theme).toBe('dark')
     expect(persisted.learningGoal).toBe('exam_preparation')
     expect(persisted.studyTimePreferences).toEqual(['morning', 'evening'])
     expect(persisted.podcastTtsProvider).toBe('edge_tts')

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Button, Panel } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import type { CardCandidate } from '@/types'
+import { SourceQuoteBlock } from './SourceQuoteBlock'
 
 export interface CardCandidatePanelProps {
   candidates: CardCandidate[]
@@ -183,11 +184,12 @@ export function CardCandidatePanel({
                       </p>
                     </div>
 
-                    {candidate.sourceQuote && (
-                      <blockquote className="rounded-[14px] border-l-2 border-ink/20 bg-paper-muted/60 px-3 py-2 font-body text-xs leading-5 text-ink-muted">
-                        {candidate.sourceQuote}
-                      </blockquote>
-                    )}
+                    {candidate.sourceQuote ? (
+                      <SourceQuoteBlock
+                        quote={candidate.sourceQuote}
+                        pageLabel={candidate.sourcePage}
+                      />
+                    ) : null}
 
                     {candidate.evaluationSummary && (
                       <div className="rounded-[14px] border border-line-soft/60 bg-paper-base/70 px-3 py-2 font-body text-xs leading-5 text-ink-muted">

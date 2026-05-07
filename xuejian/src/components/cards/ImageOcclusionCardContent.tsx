@@ -110,7 +110,7 @@ export function ImageOcclusionCardContent({
                 className={cn(
                   'absolute transition-all',
                   revealed
-                    ? 'border-2 border-green-500/80 bg-green-500/15'
+                    ? 'border-2 border-themeAccent-success/70 bg-themeAccent-success/15'
                     : 'border border-ink/20 bg-paper-base/85 backdrop-blur-[1px]'
                 )}
                 style={{
@@ -121,7 +121,7 @@ export function ImageOcclusionCardContent({
                 }}
               >
                 {revealed && zone.label ? (
-                  <span className="absolute left-1 top-1 rounded bg-paper-base/90 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
+                  <span className="absolute left-1 top-1 rounded bg-paper-base/90 px-1.5 py-0.5 text-[10px] font-medium text-themeAccent-success">
                     {zone.label}
                   </span>
                 ) : null}

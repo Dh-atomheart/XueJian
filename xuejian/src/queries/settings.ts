@@ -6,10 +6,12 @@ export const settingsQueryKeys = {
   all: ['settings'] as const,
 }
 
-export function useAppSettingsQuery() {
+export function useAppSettingsQuery(options?: { enabled?: boolean; staleTime?: number }) {
   return useQuery({
     queryKey: settingsQueryKeys.all,
     queryFn: () => settingsGateway.get(),
+    enabled: options?.enabled ?? true,
+    staleTime: options?.staleTime,
   })
 }
 

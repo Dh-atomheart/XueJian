@@ -1,13 +1,16 @@
 use std::{collections::BTreeMap, net::TcpListener, sync::Arc};
 
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 
 use crate::app_state::AppState;
 use crate::commands::settings::resolve_effective_embedding_profile;
 use crate::db::{
-    ApiConfig, ChunkEmbeddingRecord, CreateCardCandidateRequest, EmbeddingProfile, ModelProfile,
-    ProviderBudgetUsage, SettingsRepository, VectorRepository, WorkflowModelAssignment,
+    rag_embedding_readiness_status, rag_required_chunk_count, ApiConfig, ChunkEmbeddingRecord,
+    CreateCardCandidateRequest, EmbeddingProfile, ModelProfile, Mvp0BackgroundJobRepository,
+    ProviderBudgetUsage, SettingsRepository, UpdateMvp0BackgroundJobStatusRequest,
+    VectorRepository, WorkflowModelAssignment,
 };
 use crate::gateway::ORCHESTRATION_PROTOCOL_VERSION;
 
@@ -153,6 +156,12 @@ fn handle_connection(mut stream: std::net::TcpStream, state: &HostGatewayState) 
         .get("x-xuejian-trace-id")
         .map(String::as_str)
         .unwrap_or("-");
+    if duration_ms >= 500.0 {
+        log::warn!(
+            target: "host_gateway",
+            "host_gateway.slow_request method={method} path={path} status={status_code} trace={trace_id} duration_ms={duration_ms:.2}"
+        );
+    }
     if status_code >= 500 {
         log::error!(
             target: "host_gateway",
@@ -164,15 +173,28 @@ fn handle_connection(mut stream: std::net::TcpStream, state: &HostGatewayState) 
             "HTTP {method} {path} -> {status_code} trace={trace_id} ({duration_ms:.2}ms)"
         );
     }
+    let reason_phrase = http_reason_phrase(status_code);
     let response_bytes = format!(
-        "HTTP/1.1 {} OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {} {}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         status_code,
+        reason_phrase,
         response.body().len(),
         response.body(),
     );
 
     let _ = stream.write_all(response_bytes.as_bytes());
     let _ = stream.flush();
+}
+
+fn http_reason_phrase(status_code: u16) -> &'static str {
+    match status_code {
+        200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        _ => "Unknown",
+    }
 }
 
 enum GatewayResponse {
@@ -345,6 +367,84 @@ fn route_request(
             }
         },
 
+        ("GET", path) if path.starts_with("/tool-gateway/jobs/") && path.ends_with("/status") => {
+            let job_id = path
+                .strip_prefix("/tool-gateway/jobs/")
+                .and_then(|p| p.strip_suffix("/status"))
+                .unwrap_or("");
+            match get_background_job_status_json(&app_state, job_id) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "not_found"}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("GET", path)
+            if path.starts_with("/tool-gateway/jobs/") && path.ends_with("/checkpoint") =>
+        {
+            let job_id = path
+                .strip_prefix("/tool-gateway/jobs/")
+                .and_then(|p| p.strip_suffix("/checkpoint"))
+                .unwrap_or("");
+            match get_background_job_checkpoint_json(&app_state, job_id) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => {
+                    GatewayResponse::NotFound(json!({"error": "no_checkpoint"}).to_string())
+                }
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", path)
+            if path.starts_with("/tool-gateway/jobs/") && path.ends_with("/progress") =>
+        {
+            let job_id = path
+                .strip_prefix("/tool-gateway/jobs/")
+                .and_then(|p| p.strip_suffix("/progress"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match update_background_job_progress_json(&app_state, job_id, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", path)
+            if path.starts_with("/tool-gateway/jobs/") && path.ends_with("/checkpoint") =>
+        {
+            let job_id = path
+                .strip_prefix("/tool-gateway/jobs/")
+                .and_then(|p| p.strip_suffix("/checkpoint"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match update_background_job_checkpoint_json(&app_state, job_id, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
         ("GET", path) if path.starts_with("/tool-gateway/documents/") => {
             let document_id = path.strip_prefix("/tool-gateway/documents/").unwrap_or("");
             // Check if this is a sub-route (status update or analysis)
@@ -504,6 +604,23 @@ fn route_request(
                 }
             };
             match persist_chunk_embeddings_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", "/tool-gateway/embeddings/readiness") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match document_embedding_readiness_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
                 Err(error) => {
                     GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
@@ -819,7 +936,7 @@ fn get_api_config_json(state: &AppState, id: &str) -> Result<Option<Value>> {
 }
 
 fn get_api_key_json(state: &AppState, config_id: &str) -> Result<Value> {
-    let secrets = state.lock_secrets()?;
+    let mut secrets = state.lock_secrets()?;
     let api_key = secrets.get_api_key(config_id)?;
     Ok(json!({"apiKey": api_key}))
 }
@@ -831,6 +948,112 @@ fn get_provider_budget_usage_json(state: &AppState, api_config_id: &str) -> Resu
     Ok(repo
         .get_budget_usage(api_config_id, &period)?
         .map(provider_budget_usage_to_json))
+}
+
+fn get_background_job_status_json(state: &AppState, job_id: &str) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = Mvp0BackgroundJobRepository::new(db.connection());
+    Ok(repo.find_by_id(job_id)?.map(|job| {
+        json!({
+            "status": job.status,
+            "cancelRequestedAt": job.cancel_requested_at,
+        })
+    }))
+}
+
+fn get_background_job_checkpoint_json(state: &AppState, job_id: &str) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = Mvp0BackgroundJobRepository::new(db.connection());
+    let Some(job) = repo.find_by_id(job_id)? else {
+        return Ok(None);
+    };
+    let Some(raw) = job.checkpoint_json else {
+        return Ok(None);
+    };
+    let checkpoint: Value = serde_json::from_str(&raw)?;
+    Ok(Some(checkpoint))
+}
+
+fn update_background_job_checkpoint_json(
+    state: &AppState,
+    job_id: &str,
+    request: Value,
+) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = Mvp0BackgroundJobRepository::new(db.connection());
+    let job = repo
+        .find_by_id(job_id)?
+        .ok_or_else(|| HostGatewayError::App("background job not found".to_string()))?;
+    if job.status != "running" {
+        return Ok(json!({
+            "ok": true,
+            "status": job.status,
+            "checkpoint": job.checkpoint_json
+                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok()),
+        }));
+    }
+
+    let checkpoint_json = serde_json::to_string(&request)?;
+    let updated = repo.update_checkpoint(job_id, Some(&checkpoint_json))?;
+    Ok(json!({
+        "ok": true,
+        "status": updated.status,
+        "checkpoint": request,
+    }))
+}
+
+fn update_background_job_progress_json(
+    state: &AppState,
+    job_id: &str,
+    request: Value,
+) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = Mvp0BackgroundJobRepository::new(db.connection());
+    let job = repo
+        .find_by_id(job_id)?
+        .ok_or_else(|| HostGatewayError::App("background job not found".to_string()))?;
+    if job.status != "running" {
+        return Ok(json!({
+            "ok": true,
+            "status": job.status,
+            "cancelRequestedAt": job.cancel_requested_at,
+        }));
+    }
+
+    let progress_current = request
+        .get("progressCurrent")
+        .and_then(Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())
+        .or(job.progress_current);
+    let progress_total = request
+        .get("progressTotal")
+        .and_then(Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())
+        .or(job.progress_total);
+    let progress_message = request
+        .get("progressMessage")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .or(job.progress_message);
+
+    let updated = repo.update_status(
+        job_id,
+        UpdateMvp0BackgroundJobStatusRequest {
+            status: "running".to_string(),
+            result_json: job.result_json,
+            error_message: job.error_message,
+            error_details: job.error_details,
+            progress_current,
+            progress_total,
+            progress_message,
+        },
+    )?;
+
+    Ok(json!({
+        "ok": true,
+        "status": updated.status,
+        "cancelRequestedAt": updated.cancel_requested_at,
+    }))
 }
 
 fn list_workflow_assignments_json(state: &AppState) -> Result<Value> {
@@ -992,14 +1215,14 @@ fn embedding_profile_to_json(profile: EmbeddingProfile) -> Value {
 
 fn get_document_json(state: &AppState, document_id: &str) -> Result<Option<Value>> {
     let db = state.lock_db()?;
-    let repo = crate::db::DocumentRepository::new(&db);
-    Ok(repo.find_by_id(document_id)?.map(|document| {
+    let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
+    Ok(repo.find_document_by_id(document_id)?.map(|document| {
         json!({
             "id": document.id,
             "title": document.title,
             "filePath": document.file_path,
-            "fileType": document.file_type,
-            "status": document.status,
+            "fileType": host_document_file_type(&document.original_filename),
+            "status": host_document_status(&document.parse_status),
             "pageCount": document.page_count,
         })
     }))
@@ -1012,8 +1235,8 @@ fn update_document_status_json(
 ) -> Result<Value> {
     let status = request["status"].as_str().unwrap_or("unknown");
     let db = state.lock_db()?;
-    let repo = crate::db::DocumentRepository::new(&db);
-    repo.update_status(document_id, status)?;
+    let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
+    repo.update_parse_status(document_id, host_persisted_parse_status(status))?;
     Ok(json!({"ok": true, "status": status}))
 }
 
@@ -1023,114 +1246,71 @@ fn save_document_analysis_json(
     request: Value,
 ) -> Result<Value> {
     let page_count = request["pageCount"].as_i64().unwrap_or(0) as i32;
-    let anchors: Vec<crate::db::CreateDocumentAnchorRequest> = request["anchors"]
+    let anchors: Vec<crate::db::CreateMvp0SourceAnchorRequest> = request["anchors"]
         .as_array()
         .unwrap_or(&Vec::new())
         .iter()
-        .map(|a| crate::db::CreateDocumentAnchorRequest {
-            id: a["id"].as_str().map(String::from),
-            page: a["page"].as_i64().unwrap_or(1) as i32,
-            paragraph: a["paragraph"].as_i64().map(|v| v as i32),
-            text_quote: a["textQuote"].as_str().unwrap_or("").to_string(),
-            rects: a["rects"]
-                .as_array()
-                .unwrap_or(&Vec::new())
-                .iter()
-                .map(|r| crate::db::DocumentAnchorRect {
-                    x: r["x"].as_f64().unwrap_or(0.0),
-                    y: r["y"].as_f64().unwrap_or(0.0),
-                    width: r["width"].as_f64().unwrap_or(0.0),
-                    height: r["height"].as_f64().unwrap_or(0.0),
-                })
-                .collect(),
-            hash: a["hash"].as_str().unwrap_or("").to_string(),
-            hierarchy_path: a["hierarchyPath"].as_array().map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            }),
-            quote_hash: a["quoteHash"]
-                .as_str()
-                .map(String::from)
-                .or_else(|| Some(a["hash"].as_str().unwrap_or("").to_string())),
-        })
-        .collect();
-    let sections: Vec<crate::db::CreateDocumentSectionRequest> = request["sections"]
-        .as_array()
-        .unwrap_or(&Vec::new())
-        .iter()
-        .map(|s| crate::db::CreateDocumentSectionRequest {
-            id: s["id"].as_str().map(String::from),
-            section_index: s["sectionIndex"].as_i64().unwrap_or(0) as i32,
-            heading: s["heading"].as_str().map(String::from),
-            hierarchy_path: s["hierarchyPath"].as_array().map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            }),
-            page_start: s["pageStart"].as_i64().map(|v| v as i32),
-            page_end: s["pageEnd"].as_i64().map(|v| v as i32),
-            anchor_start_id: s["anchorStartId"].as_str().map(String::from),
-            anchor_end_id: s["anchorEndId"].as_str().map(String::from),
-            content: s["content"].as_str().unwrap_or("").to_string(),
-            token_count: s["tokenCount"].as_i64().map(|v| v as i32),
-            metadata: if s["metadata"].is_null() {
-                None
+        .map(|anchor| crate::db::CreateMvp0SourceAnchorRequest {
+            document_id: document_id.to_string(),
+            chunk_id: None,
+            page: anchor["page"].as_i64().unwrap_or(1) as i32,
+            quote: anchor["textQuote"].as_str().unwrap_or("").to_string(),
+            bbox_json: if anchor["rects"].is_array()
+                && !anchor["rects"].as_array().unwrap_or(&Vec::new()).is_empty()
+            {
+                Some(anchor["rects"].to_string())
             } else {
-                Some(s["metadata"].clone())
+                None
             },
         })
         .collect();
-    let chunks: Vec<crate::db::CreateDocumentChunkRequest> = request["chunks"]
+    let chunks: Vec<crate::db::CreateMvp0DocumentChunkRequest> = request["chunks"]
         .as_array()
         .unwrap_or(&Vec::new())
         .iter()
-        .map(|c| crate::db::CreateDocumentChunkRequest {
-            id: c["id"].as_str().map(String::from),
-            section_id: c["sectionId"].as_str().map(String::from),
-            anchor_id: c["anchorId"].as_str().map(String::from),
-            page_start: c["pageStart"].as_i64().map(|v| v as i32),
-            page_end: c["pageEnd"].as_i64().map(|v| v as i32),
-            chunk_index: c["chunkIndex"].as_i64().unwrap_or(0) as i32,
-            chunk_kind: c["chunkKind"].as_str().map(String::from),
-            content: c["content"].as_str().unwrap_or("").to_string(),
-            token_count: c["tokenCount"].as_i64().map(|v| v as i32),
-            metadata: if c["metadata"].is_null() {
-                None
-            } else {
-                Some(c["metadata"].clone())
-            },
+        .map(|chunk| crate::db::CreateMvp0DocumentChunkRequest {
+            document_id: document_id.to_string(),
+            page_start: chunk["pageStart"]
+                .as_i64()
+                .or_else(|| chunk["pageEnd"].as_i64())
+                .unwrap_or(1) as i32,
+            page_end: chunk["pageEnd"]
+                .as_i64()
+                .or_else(|| chunk["pageStart"].as_i64())
+                .unwrap_or(1) as i32,
+            chunk_index: chunk["chunkIndex"].as_i64().unwrap_or(0) as i32,
+            text: chunk["content"].as_str().unwrap_or("").to_string(),
+            parser: format!(
+                "pymupdf::{}",
+                chunk["chunkKind"].as_str().unwrap_or("semantic")
+            ),
         })
         .collect();
 
     let db = state.lock_db()?;
-    let repo = crate::db::DocumentRepository::new(&db);
-    repo.replace_analysis(
-        document_id,
-        crate::db::ReplaceDocumentAnalysisRequest {
-            page_count,
-            anchors,
-            sections,
-            chunks,
-        },
-    )?;
+    let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
+    repo.replace_analysis(document_id, page_count, &chunks, &anchors)?;
     Ok(json!({"ok": true}))
 }
 
 fn list_anchors_json(state: &AppState, document_id: &str) -> Result<Value> {
     let db = state.lock_db()?;
-    let repo = crate::db::DocumentRepository::new(&db);
-    let anchors = repo.list_anchors(document_id)?;
+    let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
+    let anchors = repo.list_source_anchors(document_id)?;
     Ok(anchors
         .into_iter()
         .map(|anchor| {
+            let quote_hash = host_quote_hash(&anchor.quote);
             json!({
                 "id": anchor.id,
                 "documentId": anchor.document_id,
                 "page": anchor.page,
-                "paragraph": anchor.paragraph,
-                "textQuote": anchor.text_quote,
-                "hash": anchor.hash,
+                "paragraph": Value::Null,
+                "textQuote": anchor.quote,
+                "rects": host_anchor_rects(anchor.bbox_json.as_deref()),
+                "hash": quote_hash,
+                "hierarchyPath": [],
+                "quoteHash": quote_hash,
             })
         })
         .collect::<Vec<_>>()
@@ -1139,7 +1319,7 @@ fn list_anchors_json(state: &AppState, document_id: &str) -> Result<Value> {
 
 fn list_chunks_json(state: &AppState, document_id: &str) -> Result<Value> {
     let db = state.lock_db()?;
-    let repo = crate::db::DocumentRepository::new(&db);
+    let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
     let chunks = repo.list_chunks(document_id)?;
     Ok(chunks
         .into_iter()
@@ -1147,44 +1327,70 @@ fn list_chunks_json(state: &AppState, document_id: &str) -> Result<Value> {
             json!({
                 "id": chunk.id,
                 "documentId": chunk.document_id,
-                "sectionId": chunk.section_id,
-                "anchorId": chunk.anchor_id,
-                "chunkIndex": chunk.chunk_index,
+                "sectionId": Value::Null,
+                "anchorId": Value::Null,
                 "pageStart": chunk.page_start,
                 "pageEnd": chunk.page_end,
-                "chunkKind": chunk.chunk_kind,
-                "content": chunk.content,
-                "metadata": chunk.metadata,
+                "chunkIndex": chunk.chunk_index,
+                "chunkKind": host_chunk_kind(&chunk.parser),
+                "content": chunk.text,
+                "tokenCount": chunk.char_count,
+                "metadata": Value::Null,
             })
         })
         .collect::<Vec<_>>()
         .into())
 }
 
-fn list_sections_json(state: &AppState, document_id: &str) -> Result<Value> {
-    let db = state.lock_db()?;
-    let repo = crate::db::DocumentRepository::new(&db);
-    let sections = repo.list_sections(document_id)?;
-    Ok(sections
-        .into_iter()
-        .map(|section| {
-            json!({
-                "id": section.id,
-                "documentId": section.document_id,
-                "sectionIndex": section.section_index,
-                "heading": section.heading,
-                "hierarchyPath": section.hierarchy_path,
-                "pageStart": section.page_start,
-                "pageEnd": section.page_end,
-                "anchorStartId": section.anchor_start_id,
-                "anchorEndId": section.anchor_end_id,
-                "content": section.content,
-                "tokenCount": section.token_count,
-                "metadata": section.metadata,
-            })
-        })
-        .collect::<Vec<_>>()
-        .into())
+fn list_sections_json(_state: &AppState, _document_id: &str) -> Result<Value> {
+    Ok(Value::Array(Vec::new()))
+}
+
+fn host_document_file_type(file_name: &str) -> String {
+    std::path::Path::new(file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_else(|| "pdf".to_string())
+}
+
+fn host_document_status(parse_status: &str) -> &str {
+    match parse_status {
+        "pending" | "parsing" => "uploading",
+        "parsed" | "embedding" | "ready" | "embedding_failed" | "embedding_stale" => parse_status,
+        "deleted" => "deleted",
+        "failed" | "unsupported" => "error",
+        _ => "uploading",
+    }
+}
+
+fn host_persisted_parse_status(status: &str) -> &str {
+    match status {
+        "parsed" | "ready" | "embedding" | "embedding_failed" | "embedding_stale" => status,
+        "failed" | "error" => "failed",
+        "unsupported" => "unsupported",
+        _ => "pending",
+    }
+}
+
+fn host_chunk_kind(parser: &str) -> &str {
+    parser
+        .split("::")
+        .nth(1)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("semantic")
+}
+
+fn host_quote_hash(quote: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(quote.trim().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn host_anchor_rects(bbox_json: Option<&str>) -> Value {
+    bbox_json
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .unwrap_or_else(|| Value::Array(Vec::new()))
 }
 
 fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
@@ -1386,13 +1592,13 @@ fn search_chunks_json(state: &AppState, request: Value) -> Result<Value> {
         .unwrap_or_default();
 
     let db = state.lock_db()?;
-    let repo = crate::db::DocumentRepository::new(&db);
-
-    let results = if document_ids.is_empty() {
-        repo.search_chunks(&query, Some(limit))?
+    let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
+    let scoped_document_ids = if document_ids.is_empty() {
+        None
     } else {
-        repo.search_chunks_scoped(&query, &document_ids, Some(limit))?
+        Some(document_ids.as_slice())
     };
+    let results = repo.search_chunks(&query, scoped_document_ids, limit)?;
 
     Ok(results
         .into_iter()
@@ -1448,6 +1654,91 @@ fn persist_chunk_embeddings_json(state: &AppState, request: Value) -> Result<Val
     }))
 }
 
+fn document_embedding_readiness_json(state: &AppState, request: Value) -> Result<Value> {
+    let profile_id = request["profileId"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if profile_id.is_empty() {
+        return Ok(json!({
+            "status": "embedding_missing",
+            "documents": [],
+        }));
+    }
+
+    let requested_document_ids: Vec<String> = request["documentIds"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|value| value.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let db = state.lock_db()?;
+    let document_repo = crate::db::Mvp0DocumentRepository::new(db.connection());
+    let vector_repo = VectorRepository::new(&db);
+    let documents = if requested_document_ids.is_empty() {
+        document_repo.list_documents(false)?
+    } else {
+        let mut documents = Vec::new();
+        for document_id in requested_document_ids {
+            if let Some(document) = document_repo.find_document_by_id(&document_id)? {
+                documents.push(document);
+            }
+        }
+        documents
+    };
+
+    if documents.is_empty() {
+        return Ok(json!({
+            "status": "embedding_missing",
+            "documents": [],
+        }));
+    }
+
+    let mut overall_status = "ready";
+    let mut items = Vec::new();
+    for document in documents {
+        let chunks = document_repo.list_chunks(&document.id)?;
+        let total_chunks = chunks.len() as i64;
+        let required_chunks = rag_required_chunk_count(chunks);
+        let embedded_chunks = vector_repo.count_document_embeddings(&document.id, &profile_id)?;
+        let document_status = host_document_status(&document.parse_status);
+        let status =
+            rag_embedding_readiness_status(document_status, required_chunks, embedded_chunks);
+        let response_document_status = if status == "ready" && document_status == "embedding_stale"
+        {
+            document_repo.update_parse_status(&document.id, "ready")?;
+            "ready"
+        } else {
+            document_status
+        };
+
+        if status == "embedding_missing" {
+            overall_status = "embedding_missing";
+        } else if status == "embedding_stale" && overall_status == "ready" {
+            overall_status = "embedding_stale";
+        }
+
+        items.push(json!({
+            "documentId": document.id,
+            "title": document.title,
+            "documentStatus": response_document_status,
+            "status": status,
+            "totalChunks": total_chunks,
+            "requiredChunks": required_chunks,
+            "embeddedChunks": embedded_chunks,
+        }));
+    }
+
+    Ok(json!({
+        "status": overall_status,
+        "documents": items,
+    }))
+}
+
 fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
     let query = request["query"].as_str().unwrap_or("").trim().to_string();
     if query.is_empty() {
@@ -1475,14 +1766,14 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
         .flatten();
 
     let db = state.lock_db()?;
-    let document_repo = crate::db::DocumentRepository::new(&db);
+    let document_repo = crate::db::Mvp0DocumentRepository::new(db.connection());
     let vector_repo = VectorRepository::new(&db);
-
-    let lexical_results = if document_ids.is_empty() {
-        document_repo.search_chunks(&query, Some(limit * 3))?
+    let scoped_document_ids = if document_ids.is_empty() {
+        None
     } else {
-        document_repo.search_chunks_scoped(&query, &document_ids, Some(limit * 3))?
+        Some(document_ids.as_slice())
     };
+    let lexical_results = document_repo.search_chunks(&query, scoped_document_ids, limit * 3)?;
 
     let vector_results = if let Some(query_embedding) = query_embedding.as_deref() {
         vector_repo.search_chunk_embeddings(
@@ -1504,25 +1795,31 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
         let rank = index + 1;
         let rrf_score = 1.0 / (rrf_k + rank as f64);
         let entry = merged.entry(result.id.clone()).or_insert_with(|| {
+            let chunk_id = result.id.clone();
             json!({
-                "id": result.id,
+                "id": chunk_id,
+                "chunkId": result.id,
                 "documentId": result.document_id,
                 "sectionId": result.section_id,
                 "anchorId": result.anchor_id,
                 "chunkIndex": result.chunk_index,
+                "page": result.page_start,
                 "pageStart": result.page_start,
                 "pageEnd": result.page_end,
                 "content": result.content,
                 "snippet": result.snippet,
+                "score": 0.0,
                 "rrfScore": 0.0,
                 "ftsRank": Value::Null,
                 "vectorRank": Value::Null,
                 "distance": Value::Null,
+                "vectorBacked": false,
             })
         });
 
         let current_score = entry["rrfScore"].as_f64().unwrap_or(0.0);
         entry["rrfScore"] = json!(current_score + rrf_score);
+        entry["score"] = entry["rrfScore"].clone();
         entry["ftsRank"] = json!(rank as i64);
     }
 
@@ -1530,28 +1827,35 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
         let rank = index + 1;
         let rrf_score = 1.0 / (rrf_k + rank as f64);
         let entry = merged.entry(result.chunk_id.clone()).or_insert_with(|| {
+            let chunk_id = result.chunk_id.clone();
             let snippet = result.content.chars().take(240).collect::<String>();
             json!({
-                "id": result.chunk_id,
+                "id": chunk_id,
+                "chunkId": result.chunk_id,
                 "documentId": result.document_id,
                 "sectionId": result.section_id,
                 "anchorId": result.anchor_id,
                 "chunkIndex": result.chunk_index,
+                "page": result.page_start,
                 "pageStart": result.page_start,
                 "pageEnd": result.page_end,
                 "content": result.content,
                 "snippet": snippet,
+                "score": 0.0,
                 "rrfScore": 0.0,
                 "ftsRank": Value::Null,
                 "vectorRank": Value::Null,
                 "distance": Value::Null,
+                "vectorBacked": false,
             })
         });
 
         let current_score = entry["rrfScore"].as_f64().unwrap_or(0.0);
         entry["rrfScore"] = json!(current_score + rrf_score);
+        entry["score"] = entry["rrfScore"].clone();
         entry["vectorRank"] = json!(rank as i64);
         entry["distance"] = json!(result.distance);
+        entry["vectorBacked"] = json!(true);
     }
 
     let mut merged_results = merged.into_values().collect::<Vec<_>>();
@@ -2179,10 +2483,7 @@ mod tests {
         assert!(!is_gateway_authorized(&wrong_headers, expected));
 
         let mut correct_headers = BTreeMap::new();
-        correct_headers.insert(
-            "x-xuejian-gateway-token".to_string(),
-            expected.to_string(),
-        );
+        correct_headers.insert("x-xuejian-gateway-token".to_string(), expected.to_string());
         assert!(is_gateway_authorized(&correct_headers, expected));
     }
 }

@@ -119,7 +119,7 @@ pub fn start_card_animation_workflow(
     };
 
     {
-        let secrets = state.lock_secrets()?;
+        let mut secrets = state.lock_secrets()?;
         if !secrets.has_api_key(&assigned_config_id)? {
             return Err(CommandError::InvalidInput(
                 "card_animation 绑定的 BYOK 配置尚未存储 API Key。".to_string(),

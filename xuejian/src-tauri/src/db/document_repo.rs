@@ -1113,20 +1113,21 @@ mod tests {
         db.connection()
             .execute(
                 "INSERT INTO cards (id, document_id, front, back) VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    Uuid::new_v4().to_string(),
-                    &document.id,
-                    "front",
-                    "back",
-                ],
+                params![Uuid::new_v4().to_string(), &document.id, "front", "back",],
             )
             .expect("insert card");
 
         repo.delete(&document.id).expect("soft delete document");
 
-        assert!(repo.find_by_id(&document.id).expect("find deleted").is_none());
+        assert!(repo
+            .find_by_id(&document.id)
+            .expect("find deleted")
+            .is_none());
         assert!(repo.list_all(None).expect("list documents").is_empty());
-        assert!(repo.list_chunks(&document.id).expect("list chunks").is_empty());
+        assert!(repo
+            .list_chunks(&document.id)
+            .expect("list chunks")
+            .is_empty());
 
         let card_count: i64 = db
             .connection()

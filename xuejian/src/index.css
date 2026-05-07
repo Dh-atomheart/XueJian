@@ -29,7 +29,7 @@
   --paper-card: 251 249 246;
   --ink: 43 38 34;
   --ink-muted: 104 95 88;
-  --ink-soft: 141 131 123;
+  --ink-soft: 142 128 113;
   --line-soft: 220 215 208;
   --highlight-yellow: 229 206 142;
   --highlight-green: 172 196 162;
@@ -39,6 +39,37 @@
   --shadow-sticky: 0 20px 55px rgba(57, 48, 39, 0.08);
   --shadow-card: 0 10px 30px rgba(57, 48, 39, 0.045);
   --theme-wash: 232 227 219;
+  --body-spot-opacity: 0.7;
+  --body-wash-opacity: 0.42;
+  --paper-texture-sheen: 255 255 255 / 0.26;
+  --paper-texture-grain: 58 49 38 / 0.015;
+  --scrollbar-track: 238 236 231;
+  --scrollbar-thumb: 220 215 208;
+  --scrollbar-thumb-hover: 142 128 113;
+  --selection-bg: 43 38 34 / 0.12;
+  --selection-fg: 43 38 34;
+  --reader-highlight-fill: 229 206 142 / 0.22;
+  --reader-highlight-stroke: 43 38 34 / 0.32;
+  --overlay-backdrop: 24 22 20 / 0.42;
+
+  --surface-app: 245 243 239;
+  --surface-muted: 238 236 231;
+  --surface-card: 251 249 246;
+  --surface-elevated: 255 252 247;
+  --surface-reader: 238 233 221;
+  --surface-reader-page: 255 255 252;
+  --text-primary: 43 38 34;
+  --text-secondary: 104 95 88;
+  --text-tertiary: 142 128 113;
+  --text-inverse: 251 249 246;
+  --border-default: 220 215 208;
+  --border-subtle: 228 223 216;
+  --accent-primary: 127 96 65;
+  --success: 81 130 86;
+  --warning: 161 118 45;
+  --danger: 189 77 77;
+  --info: 79 120 158;
+  --highlight-orange: 236 195 148;
 
   --background: 245 243 239;
   --foreground: 43 38 34;
@@ -82,9 +113,17 @@ html {
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.95), rgba(245, 243, 239, 0) 38%),
-    radial-gradient(circle at right 10% bottom 12%, rgba(233, 226, 211, 0.65), rgba(245, 243, 239, 0) 30%),
-    linear-gradient(180deg, rgb(var(--paper-base)), rgb(var(--paper-soft)));
+    radial-gradient(
+      circle at top left,
+      rgb(var(--surface-elevated) / var(--body-spot-opacity)),
+      rgb(var(--surface-app) / 0) 38%
+    ),
+    radial-gradient(
+      circle at right 10% bottom 12%,
+      rgb(var(--theme-wash) / var(--body-wash-opacity)),
+      rgb(var(--surface-app) / 0) 30%
+    ),
+    linear-gradient(180deg, rgb(var(--surface-app)), rgb(var(--paper-soft)));
   color: rgb(var(--foreground));
   font-family: var(--font-geist-sans);
 }
@@ -103,8 +142,8 @@ body {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0)),
-    radial-gradient(circle at center, transparent 0%, rgba(58, 49, 38, 0.015) 100%);
+    linear-gradient(180deg, rgb(var(--paper-texture-sheen)), rgb(var(--surface-app) / 0)),
+    radial-gradient(circle at center, transparent 0%, rgb(var(--paper-texture-grain)) 100%);
 }
 
 .app-shell-frame > :not([data-app-overlay-root]) {
@@ -135,21 +174,21 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(var(--paper-muted));
+  background: rgb(var(--scrollbar-track));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--line-soft));
+  background: rgb(var(--scrollbar-thumb));
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--ink-soft));
+  background: rgb(var(--scrollbar-thumb-hover));
 }
 
 ::selection {
-  background: rgb(var(--ink) / 0.12);
-  color: rgb(var(--ink));
+  background: rgb(var(--selection-bg));
+  color: rgb(var(--selection-fg));
 }
 
 .flip-card {

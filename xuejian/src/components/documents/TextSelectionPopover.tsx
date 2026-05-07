@@ -50,7 +50,7 @@ export function TextSelectionPopover({
       className="absolute z-30 w-[320px] max-w-[calc(100%-24px)] -translate-x-1/2 -translate-y-full"
       data-testid="reader-selection-popover"
     >
-      <div className="rounded-[20px] border border-ink/10 bg-paper-base/95 px-4 py-3 shadow-[0_18px_46px_rgba(33,30,24,0.14)] backdrop-blur">
+      <div className="rounded-[20px] border border-line-soft bg-paper-base/95 px-4 py-3 shadow-card backdrop-blur">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">

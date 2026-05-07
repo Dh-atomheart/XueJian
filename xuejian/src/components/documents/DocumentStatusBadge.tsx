@@ -1,13 +1,13 @@
 import type { Document } from '@/types'
 
 const statusStyles: Record<Document['status'], string> = {
-  uploading: 'border-amber-200 bg-amber-50 text-amber-700',
-  parsed: 'border-sky-200 bg-sky-50 text-sky-700',
-  embedding: 'border-cyan-200 bg-cyan-50 text-cyan-700',
-  ready: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  embedding_failed: 'border-rose-200 bg-rose-50 text-rose-700',
-  embedding_stale: 'border-orange-200 bg-orange-50 text-orange-700',
-  error: 'border-rose-200 bg-rose-50 text-rose-700',
+  uploading: 'border-themeAccent-warning/30 bg-themeAccent-warning/10 text-ink',
+  parsed: 'border-themeAccent-info/30 bg-themeAccent-info/10 text-ink',
+  embedding: 'border-themeAccent-info/30 bg-themeAccent-info/10 text-ink',
+  ready: 'border-themeAccent-success/30 bg-themeAccent-success/10 text-ink',
+  embedding_failed: 'border-destructive/30 bg-destructive/10 text-destructive',
+  embedding_stale: 'border-themeAccent-warning/30 bg-themeAccent-warning/10 text-ink',
+  error: 'border-destructive/30 bg-destructive/10 text-destructive',
 }
 
 const statusLabels: Record<Document['status'], string> = {

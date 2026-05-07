@@ -8,8 +8,10 @@ pub mod animation_repo;
 pub mod card_repo;
 pub mod document_repo;
 pub mod knowledge_qa_repo;
+pub mod mvp0;
 pub mod podcast_repo;
 pub mod points_repo;
+pub mod rag_readiness;
 pub mod section_repo;
 pub mod settings_repo;
 pub mod vector_repo;
@@ -19,13 +21,16 @@ pub use animation_repo::*;
 pub use card_repo::*;
 pub use document_repo::*;
 pub use knowledge_qa_repo::*;
+pub use mvp0::*;
 pub use podcast_repo::*;
 pub use points_repo::*;
+pub use rag_readiness::*;
 pub use section_repo::*;
 pub use settings_repo::*;
 pub use vector_repo::*;
 pub use workflow_repo::*;
 
+// Keep the embedded migration set in sync with the canonical runtime schema.
 embed_migrations!("src/migrations");
 
 static SQLITE_VEC_AUTO_EXTENSION: Once = Once::new();
@@ -53,7 +58,10 @@ pub struct Database {
 impl Database {
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         let db_path = get_db_path(app_handle)?;
+        Self::new_at(db_path)
+    }
 
+    pub fn new_at(db_path: PathBuf) -> Result<Self> {
         // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -108,8 +116,48 @@ fn register_sqlite_vec_auto_extension() {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use super::{configure_connection, migrations};
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+    use uuid::Uuid;
+
+    pub struct TestDatabase {
+        conn: Connection,
+        path: PathBuf,
+    }
+
+    impl TestDatabase {
+        pub fn new() -> Self {
+            let path =
+                std::env::temp_dir().join(format!("xuejian-mvp0-db-{}.sqlite", Uuid::new_v4()));
+            let mut conn = Connection::open(&path).expect("temp db should open");
+            configure_connection(&conn).expect("connection should be configured");
+            migrations::runner()
+                .run(&mut conn)
+                .expect("mvp0 migrations should apply");
+
+            Self { conn, path }
+        }
+
+        pub fn connection(&self) -> &Connection {
+            &self.conn
+        }
+    }
+
+    impl Drop for TestDatabase {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_file(self.path.with_extension("sqlite-wal"));
+            let _ = std::fs::remove_file(self.path.with_extension("sqlite-shm"));
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::configure_connection;
+    use super::test_support::TestDatabase;
     use rusqlite::Connection;
     use uuid::Uuid;
 
@@ -134,5 +182,33 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(db_path.with_extension("sqlite-wal"));
         let _ = std::fs::remove_file(db_path.with_extension("sqlite-shm"));
+    }
+
+    #[test]
+    fn db_init_creates_all_mvp0_tables() {
+        let test_db = TestDatabase::new();
+        let table_names = [
+            "documents",
+            "document_chunks",
+            "source_anchors",
+            "card_groups",
+            "cards",
+            "review_states",
+            "study_events",
+            "background_jobs",
+        ];
+
+        for table_name in table_names {
+            let exists = test_db
+                .connection()
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+                    [table_name],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("table lookup should succeed");
+
+            assert_eq!(exists, 1, "expected table {table_name} to exist");
+        }
     }
 }

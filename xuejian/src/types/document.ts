@@ -108,6 +108,18 @@ export interface Document {
   updatedAt: Date
 }
 
+export interface DocumentLibraryItem {
+  id: string
+  title: string
+  fileType: Document['fileType']
+  pageCount: number | null
+  status: Document['status']
+  updatedAt: Date
+  lastUsedAt: Date | null
+  basicCardCount: number
+  lastFailureReason: string | null
+}
+
 export interface DocumentSection {
   id: string
   documentId: string
@@ -231,6 +243,56 @@ export interface CardGroup {
   createdAt: Date
 }
 
+export interface BasicCardSource {
+  documentId: string | null
+  documentTitle: string | null
+  anchorId: string | null
+  page: number | null
+  quote: string | null
+}
+
+export interface BasicCard {
+  id: string
+  groupId: string
+  groupName: string
+  title: string
+  front: string
+  back: string
+  tags: string[]
+  origin: string
+  source: BasicCardSource
+  createdAt: Date
+  updatedAt: Date
+  deletedAt: Date | null
+}
+
+export interface BasicCardGroup {
+  id: string
+  name: string
+  description: string | null
+  color: string | null
+  isEnabled: boolean
+  cardCount: number
+  createdAt: Date
+  updatedAt: Date
+  deletedAt: Date | null
+}
+
+export interface StudyQueueItem {
+  id: string
+  groupId: string
+  title: string
+  front: string
+  back: string
+  state: 'new' | 'learning' | 'review' | 'relearning'
+  dueAt: Date
+}
+
+export interface StudyReviewResult {
+  nextDueAt: Date
+  newState: 'new' | 'learning' | 'review' | 'relearning'
+}
+
 export interface Highlight {
   id: string
   cardId: string | null
@@ -318,9 +380,31 @@ export interface HeatmapEntry {
   count: number
 }
 
+export interface DashboardProgressItem {
+  id: string
+  title?: string
+  name?: string
+  color?: string | null
+  learnedCards: number
+  totalCards: number
+  progressPercent: number
+}
+
+export interface DashboardSummary {
+  todayCompletedCount: number
+  todayNewDueCount: number
+  todayReviewDueCount: number
+  todayStudyMinutes: number
+  totalStudyMinutes: number
+  streakDays: number
+  heatmap: HeatmapEntry[]
+  documentProgress: Array<DashboardProgressItem & { title: string }>
+  groupProgress: Array<DashboardProgressItem & { name: string; color: string | null }>
+}
+
 // ==================== API配置相关 ====================
 
-export type AppThemeId = 'default'
+export type AppThemeId = 'light' | 'dark' | 'system'
 
 export type LearningGoalId =
   | 'knowledge_understanding'
@@ -366,10 +450,7 @@ export type ApiAuthMode = 'api_key' | 'adc'
 
 export type KeyStatus = 'none' | 'stored' | 'verified' | 'invalid' | 'expired'
 
-export type WorkflowType =
-  | 'card_generation'
-  | 'document_embedding'
-  | 'knowledge_qa'
+export type WorkflowType = 'card_generation' | 'document_embedding' | 'knowledge_qa'
 
 export interface ModelCapabilities {
   vision: boolean
@@ -547,6 +628,25 @@ export interface WorkflowRun {
   updatedAt: Date
 }
 
+export interface BackgroundJob {
+  id: string
+  jobType: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  targetType: string
+  targetId: string
+  payloadJson: string
+  resultJson: string | null
+  errorMessage: string | null
+  errorDetails: string | null
+  progressCurrent: number | null
+  progressTotal: number | null
+  progressMessage: string | null
+  createdAt: Date
+  startedAt: Date | null
+  finishedAt: Date | null
+  cancelRequestedAt: Date | null
+}
+
 export interface WorkflowCheckpoint {
   id: string
   runId: string
@@ -660,6 +760,13 @@ export interface RagAnswer {
     | 'embedding_missing'
     | 'embedding_stale'
     | 'embedding_failed'
+    | 'embedding_config_error'
+    | 'embedding_auth_error'
+    | 'embedding_timeout'
+    | 'embedding_rate_limited'
+    | 'embedding_dimension_mismatch'
+    | 'embedding_network_error'
+    | 'query_embedding_failed'
     | 'no_hits'
   citations: Citation[]
 }

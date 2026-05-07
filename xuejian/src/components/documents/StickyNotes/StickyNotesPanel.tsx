@@ -149,7 +149,7 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
 
   return (
     <div
-      className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(251,251,249,0.96),rgba(245,243,236,0.98))]"
+      className="flex h-full flex-col bg-[linear-gradient(180deg,rgb(var(--paper-card)/0.96),rgb(var(--paper-muted)/0.98))]"
       data-testid="reader-context-rail"
     >
       <div className="border-b border-line-soft px-4 py-4">
@@ -228,7 +228,7 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
               aria-hidden
               className="absolute left-1/2 top-0 h-4 w-16 -translate-x-1/2 -translate-y-1/2 rotate-[-4deg] rounded-sm bg-highlight-yellow/40 ring-1 ring-ink/5"
             />
-            <div className="rounded-[24px] border border-dashed border-line-soft bg-white/80 px-4 py-7 text-center">
+            <div className="rounded-[24px] border border-dashed border-line-soft bg-paper-card/80 px-4 py-7 text-center">
               <p className="font-ui text-sm text-ink">当前范围内还没有贴笺</p>
               <p className="mt-2 text-sm leading-6 text-ink-soft">
                 可以在正文里直接圈句建卡，也可以切到整份文档范围继续搜索。
@@ -346,7 +346,7 @@ export function StickyNotesPanel({ documentId }: StickyNotesPanelProps) {
 
 function RailMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[18px] border border-line-soft bg-white/75 px-3 py-3">
+    <div className="rounded-[18px] border border-line-soft bg-paper-card/75 px-3 py-3">
       <p className="text-[10px] uppercase tracking-[0.22em] text-ink-soft">{label}</p>
       <p className="mt-2 font-latin text-sm text-ink">{value}</p>
     </div>

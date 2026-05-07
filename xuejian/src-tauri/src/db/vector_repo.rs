@@ -311,6 +311,20 @@ impl<'a> VectorRepository<'a> {
         Ok(stored_count)
     }
 
+    pub fn count_document_embeddings(&self, document_id: &str, profile_id: &str) -> Result<i64> {
+        self.db
+            .connection()
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM document_chunk_embedding_state state
+                 JOIN document_chunks chunks ON chunks.id = state.chunk_id
+                 WHERE chunks.document_id = ?1 AND state.profile_id = ?2",
+                params![document_id, profile_id],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
     pub fn search_chunk_embeddings(
         &self,
         query_vector: &[f32],

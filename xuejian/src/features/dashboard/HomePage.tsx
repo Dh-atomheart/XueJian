@@ -1,82 +1,130 @@
 import { useMemo } from 'react'
 import { HomePage as HomePageView, homePageIcons } from '@/components/pages/home-page'
-import {
-  hasUsableApiConfig,
-  useApiConfigsQuery,
-  useDailyStatsQuery,
-  useDocumentsQuery,
-  usePointsSummaryQuery,
-  useReviewHeatmapQuery,
-  useStudyStatsQuery,
-} from '@/queries'
+import { getErrorMessage } from '@/lib/appFeedback'
+import { useDashboardSummaryQuery } from '@/queries/dashboard'
+import { useDocumentsQuery } from '@/queries/documents'
 import { useAppUiStore } from '@/store'
+
+function formatMinutes(minutes: number) {
+  if (minutes <= 0) return '0 分钟'
+  if (minutes < 1) return '<1 分钟'
+
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (hours <= 0) return `${minutes} 分钟`
+  return rest > 0 ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`
+}
 
 export function HomePage() {
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const openReader = useAppUiStore((state) => state.openReader)
 
-  const { data: dailyStats } = useDailyStatsQuery()
-  const { data: studyStats } = useStudyStatsQuery()
-  const { data: pointsSummary } = usePointsSummaryQuery()
-  const { data: heatmapEntries = [] } = useReviewHeatmapQuery(63)
-  const { data: documents = [], isLoading: isDocumentsLoading } = useDocumentsQuery()
-  const { data: apiConfigs = [] } = useApiConfigsQuery()
+  const dashboardQuery = useDashboardSummaryQuery(63, 6)
+  const documentsQuery = useDocumentsQuery()
+  const dashboard = dashboardQuery.data
+  const documents = documentsQuery.data ?? []
 
   const readyDocuments = useMemo(
     () => documents.filter((document) => document.status === 'ready').slice(0, 5),
     [documents]
   )
+  const failedDocuments = useMemo(
+    () => documents.filter((document) => document.status === 'error').slice(0, 3),
+    [documents]
+  )
 
-  const reviewCards = dailyStats?.reviewCards ?? 0
-  const newCards = dailyStats?.newCards ?? 0
-  const todayPoints = pointsSummary?.todayPoints ?? 0
-  const hasApiConfig = hasUsableApiConfig(apiConfigs)
+  const todayDue = (dashboard?.todayNewDueCount ?? 0) + (dashboard?.todayReviewDueCount ?? 0)
+  const reviewDueCount = dashboard?.todayReviewDueCount ?? 0
 
   return (
     <HomePageView
-      stats={[
-        { value: reviewCards, label: '待复习' },
-        { value: newCards, label: '新知识' },
-        { value: reviewCards + newCards, label: '今日任务' },
-        { value: `+${todayPoints}`, label: '今日积分' },
-        { value: studyStats?.streakDays ?? 0, label: '连续天数' },
+      isLoading={dashboardQuery.isLoading || documentsQuery.isLoading}
+      isError={dashboardQuery.isError || documentsQuery.isError}
+      errorMessage={getErrorMessage(
+        dashboardQuery.error ?? documentsQuery.error,
+        '学习统计暂时不可用，请稍后重试。'
+      )}
+      onRetry={() => {
+        void dashboardQuery.refetch()
+        void documentsQuery.refetch()
+      }}
+      metrics={[
+        {
+          value: dashboard?.todayCompletedCount ?? 0,
+          label: '今日完成',
+          hint: '来自今日学习事件记录。',
+        },
+        {
+          value: todayDue,
+          label: '今日待学',
+          hint: `${dashboard?.todayNewDueCount ?? 0} 张新卡，${dashboard?.todayReviewDueCount ?? 0} 张复习卡`,
+        },
+        {
+          value: formatMinutes(dashboard?.totalStudyMinutes ?? 0),
+          label: '累计时长',
+          hint: `今天 ${formatMinutes(dashboard?.todayStudyMinutes ?? 0)}`,
+        },
+        {
+          value: dashboard?.streakDays ?? 0,
+          label: '连续天数',
+          hint: '连续有学习记录的天数。',
+        },
       ]}
-      overview={[
-        { label: '学习时长', value: `${studyStats?.todayMinutes ?? 0} 分钟` },
-        { label: '文档数量', value: documents.length },
-        { label: '待复习卡片', value: reviewCards + newCards },
-        { label: '本周时长', value: `${studyStats?.weekMinutes ?? 0} 分钟` },
-      ]}
-      heatmap={heatmapEntries}
+      heatmap={dashboard?.heatmap ?? []}
+      documentProgress={dashboard?.documentProgress ?? []}
+      groupProgress={dashboard?.groupProgress ?? []}
       recentDocuments={readyDocuments.map((document) => ({
         id: document.id,
         title: document.title,
         subtitle: `${document.fileType.toUpperCase()} 文档`,
         pageCountLabel: `${document.pageCount ?? '--'} 页`,
-        statusLabel: '已就绪',
+        statusLabel: '可阅读',
         statusTone: 'ready' as const,
       }))}
-      isDocumentsLoading={isDocumentsLoading}
-      hasDocuments={documents.length > 0}
+      alerts={[
+        ...failedDocuments.map((document) => ({
+          id: `parse-${document.id}`,
+          title: `解析失败：${document.title}`,
+          detail: '该文档暂时不能生成可靠卡片。请前往文档页查看失败原因或重试解析。',
+          tone: 'danger' as const,
+          actionLabel: '查看文档',
+          onAction: () => setActiveNavItem('library'),
+        })),
+        ...(reviewDueCount >= 100
+          ? [
+              {
+                id: 'review-backlog',
+                title: '待复习卡片堆积',
+                detail: `当前有 ${reviewDueCount} 张复习卡到期，建议先完成复习再新增卡片。`,
+                tone: 'warning' as const,
+                actionLabel: '开始复习',
+                onAction: () => setActiveNavItem('learning'),
+              },
+            ]
+          : []),
+      ]}
       quickActions={[
-        { label: '继续复习', description: `${reviewCards} 张卡片待处理`, icon: homePageIcons.review, onClick: () => setActiveNavItem('learning') },
-        { label: '上传文档', description: '接入新的 PDF 资料', icon: homePageIcons.upload, onClick: () => setActiveNavItem('library') },
-        { label: '卡片工坊', description: '整理与审核候选卡片', icon: homePageIcons.cards, onClick: () => setActiveNavItem('cards') },
-        { label: 'AI 问答', description: hasApiConfig ? '基于文档进行提问' : '先配置 AI 后接通', icon: homePageIcons.qa, onClick: () => setActiveNavItem(hasApiConfig ? 'knowledge' : 'settings') },
-      ]}
-      weeklySignals={[
-        { label: `本周学习 ${studyStats?.weekMinutes ?? 0} 分钟`, trend: 'up' },
-        { label: `连续学习 ${studyStats?.streakDays ?? 0} 天`, trend: 'neutral' },
-        { label: `${readyDocuments.length} 份文档已可继续处理`, trend: readyDocuments.length > 0 ? 'up' : 'down' },
-      ]}
-      workbenchStatus={[
-        { label: '文档库', value: `${documents.length} 份`, tone: 'default' },
-        { label: 'AI 能力', value: hasApiConfig ? '已配置' : '未配置', tone: hasApiConfig ? 'active' : 'warn' },
-        { label: '卡片复习', value: `${reviewCards + newCards} 项`, tone: reviewCards + newCards > 0 ? 'active' : 'default' },
+        {
+          label: '开始复习',
+          description: todayDue > 0 ? `${todayDue} 张卡片等待复习` : '今日队列已清空',
+          icon: homePageIcons.review,
+          primary: true,
+          onClick: () => setActiveNavItem('learning'),
+        },
+        {
+          label: '导入文档',
+          description: '添加 PDF 并准备生成学习卡片',
+          icon: homePageIcons.upload,
+          onClick: () => setActiveNavItem('library'),
+        },
+        {
+          label: '管理卡片',
+          description: '查看 Basic 卡、分组和来源',
+          icon: homePageIcons.cards,
+          onClick: () => setActiveNavItem('cards'),
+        },
       ]}
       onOpenLibrary={() => setActiveNavItem('library')}
-      onOpenReview={() => setActiveNavItem('learning')}
-      onOpenCards={() => setActiveNavItem('cards')}
       onOpenDocument={(id) => {
         const document = documents.find((item) => item.id === id)
         if (!document) return

@@ -16,6 +16,18 @@ class BudgetExceededError(RuntimeError):
     """Raised when the selected provider configuration is blocked by its monthly budget."""
 
 
+class HostGatewayHttpError(RuntimeError):
+    """Raised when the Rust host gateway returns a non-success HTTP response."""
+
+    def __init__(self, method: str, path: str, code: int, body: str) -> None:
+        self.method = method
+        self.path = path
+        self.code = code
+        self.body = body
+        detail = body.strip() or "empty response body"
+        super().__init__(f"Host gateway {method} {path} returned HTTP {code}: {detail}")
+
+
 def _normalize_provider(provider: Any) -> str:
     value = str(provider or "openai").strip().lower()
     if value in {"custom", "qianfan", "openai_compatible"}:
@@ -48,7 +60,7 @@ class HostGatewayClient:
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             logger.error("Host gateway %s returned %s: %s", path, exc.code, body)
-            raise
+            raise HostGatewayHttpError("GET", path, exc.code, body) from exc
         except urllib.error.URLError as exc:
             logger.error("Host gateway %s unreachable: %s", path, exc)
             raise
@@ -65,7 +77,7 @@ class HostGatewayClient:
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             logger.error("Host gateway POST %s returned %s: %s", path, exc.code, body)
-            raise
+            raise HostGatewayHttpError("POST", path, exc.code, body) from exc
         except urllib.error.URLError as exc:
             logger.error("Host gateway POST %s unreachable: %s", path, exc)
             raise
@@ -81,8 +93,11 @@ class HostGatewayClient:
     def get_api_config(self, config_id: str) -> dict | None:
         try:
             return self._get(f"/model-gateway/configs/{config_id}")
-        except urllib.error.HTTPError:
+        except (urllib.error.HTTPError, HostGatewayHttpError):
             return None
+
+    def get_config(self, config_id: str) -> dict | None:
+        return self.get_api_config(config_id)
 
     def get_api_key(self, config_id: str) -> str:
         result = self._get(f"/model-gateway/api-key/{config_id}")
@@ -91,7 +106,7 @@ class HostGatewayClient:
     def get_provider_budget_usage(self, config_id: str) -> dict | None:
         try:
             return self._get(f"/model-gateway/budget-usage/{config_id}")
-        except urllib.error.HTTPError:
+        except (urllib.error.HTTPError, HostGatewayHttpError):
             return None
 
     def _ensure_budget_available(self, config: dict) -> None:
@@ -172,7 +187,7 @@ class HostGatewayClient:
     def get_workflow_assignment(self, workflow_type: str) -> dict | None:
         try:
             return self._get(f"/model-gateway/workflow-assignments/{workflow_type}")
-        except urllib.error.HTTPError:
+        except (urllib.error.HTTPError, HostGatewayHttpError):
             return None
 
     def get_config_for_workflow(self, workflow_type: str) -> tuple[dict, str] | None:
@@ -220,7 +235,7 @@ class HostGatewayClient:
     def get_active_embedding_profile(self) -> dict | None:
         try:
             return self._get("/model-gateway/embedding-profiles/active")
-        except urllib.error.HTTPError:
+        except (urllib.error.HTTPError, HostGatewayHttpError):
             return None
 
     # ── ToolGateway ────────────────────────────────────
@@ -234,7 +249,7 @@ class HostGatewayClient:
     def get_document(self, document_id: str) -> dict | None:
         try:
             return self._get(f"/tool-gateway/documents/{document_id}")
-        except urllib.error.HTTPError:
+        except (urllib.error.HTTPError, HostGatewayHttpError):
             return None
 
     def list_anchors(self, document_id: str) -> list[dict]:
@@ -282,6 +297,19 @@ class HostGatewayClient:
             },
         )
 
+    def get_document_embedding_readiness(
+        self,
+        profile_id: str,
+        document_ids: list[str] | None = None,
+    ) -> dict:
+        return self._post(
+            "/tool-gateway/embeddings/readiness",
+            {
+                "profileId": profile_id,
+                "documentIds": document_ids or [],
+            },
+        )
+
     def search_hybrid(
         self,
         query: str,
@@ -310,6 +338,32 @@ class HostGatewayClient:
             return self._get(f"/tool-gateway/runs/{run_id}")
         except Exception:
             return None
+
+    def update_background_job_progress(
+        self,
+        job_id: str,
+        *,
+        progress_current: int | None = None,
+        progress_total: int | None = None,
+        progress_message: str | None = None,
+    ) -> dict:
+        payload: dict[str, Any] = {}
+        if progress_current is not None:
+            payload["progressCurrent"] = progress_current
+        if progress_total is not None:
+            payload["progressTotal"] = progress_total
+        if progress_message is not None:
+            payload["progressMessage"] = progress_message
+        return self._post(f"/tool-gateway/jobs/{job_id}/progress", payload)
+
+    def get_background_job_checkpoint(self, job_id: str) -> dict | None:
+        try:
+            return self._get(f"/tool-gateway/jobs/{job_id}/checkpoint")
+        except Exception:
+            return None
+
+    def update_background_job_checkpoint(self, job_id: str, checkpoint: dict) -> dict:
+        return self._post(f"/tool-gateway/jobs/{job_id}/checkpoint", checkpoint)
 
     def save_checkpoint(self, run_id: str, checkpoint: dict) -> dict:
         """Persist a checkpoint dict for the given workflow run."""
@@ -351,6 +405,14 @@ class HostGatewayClient:
             return False
         return status.get("status") == "cancelled"
 
+    def is_job_cancelled(self, job_id: str) -> bool:
+        """Check whether a background job has a cancellation request."""
+        try:
+            status = self._get(f"/tool-gateway/jobs/{job_id}/status")
+        except Exception:
+            return False
+        return bool(status.get("cancelRequestedAt") or status.get("cancel_requested_at"))
+
     # ── Cards (for export) ─────────────────────────────────────
 
     def update_document_status(self, document_id: str, status: str) -> dict:
@@ -369,7 +431,7 @@ class HostGatewayClient:
     def get_podcast_episode(self, episode_id: str) -> dict | None:
         try:
             return self._get(f"/tool-gateway/podcasts/{episode_id}")
-        except urllib.error.HTTPError:
+        except (urllib.error.HTTPError, HostGatewayHttpError):
             return None
 
     def update_podcast_episode(self, episode_id: str, updates: dict) -> dict:

@@ -37,9 +37,9 @@ export function StickyNoteCard({
       id={`sticky-card-${card.id}`}
       data-selected={isSelected ? 'true' : 'false'}
       className={cn(
-        'relative overflow-visible rounded-[24px] border bg-white/92 px-4 pb-4 pt-5 text-left shadow-[0_18px_42px_rgba(34,30,25,0.09)] transition-all duration-200 before:absolute before:left-1/2 before:top-0 before:h-4 before:w-16 before:-translate-x-1/2 before:-translate-y-1/2 before:rotate-[-4deg] before:rounded-sm before:bg-highlight-yellow/40 before:ring-1 before:ring-ink/5',
+        'relative overflow-visible rounded-[24px] border bg-paper-card/92 px-4 pb-4 pt-5 text-left shadow-card transition-all duration-200 before:absolute before:left-1/2 before:top-0 before:h-4 before:w-16 before:-translate-x-1/2 before:-translate-y-1/2 before:rotate-[-4deg] before:rounded-sm before:bg-highlight-yellow/40 before:ring-1 before:ring-ink/5',
         isSelected
-          ? 'border-ink/25 shadow-[0_20px_48px_rgba(34,30,25,0.13)] ring-1 ring-ink/10'
+          ? 'border-ink/25 ring-1 ring-ink/10'
           : 'border-line-soft hover:-translate-y-0.5 hover:border-ink/15'
       )}
     >

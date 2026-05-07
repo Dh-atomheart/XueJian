@@ -2,6 +2,7 @@ const colorVar = (name) => `rgb(var(${name}) / <alpha-value>)`
 
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
@@ -21,11 +22,37 @@ export default {
         line: {
           soft: colorVar('--line-soft'),
         },
+        surface: {
+          app: colorVar('--surface-app'),
+          muted: colorVar('--surface-muted'),
+          card: colorVar('--surface-card'),
+          elevated: colorVar('--surface-elevated'),
+          reader: colorVar('--surface-reader'),
+          'reader-page': colorVar('--surface-reader-page'),
+        },
+        themeText: {
+          primary: colorVar('--text-primary'),
+          secondary: colorVar('--text-secondary'),
+          tertiary: colorVar('--text-tertiary'),
+          inverse: colorVar('--text-inverse'),
+        },
+        themeBorder: {
+          DEFAULT: colorVar('--border-default'),
+          subtle: colorVar('--border-subtle'),
+        },
+        themeAccent: {
+          primary: colorVar('--accent-primary'),
+          success: colorVar('--success'),
+          warning: colorVar('--warning'),
+          danger: colorVar('--danger'),
+          info: colorVar('--info'),
+        },
         highlight: {
           yellow: colorVar('--highlight-yellow'),
           green: colorVar('--highlight-green'),
           blue: colorVar('--highlight-blue'),
           pink: colorVar('--highlight-pink'),
+          orange: colorVar('--highlight-orange'),
         },
         // shadcn-compatible tokens
         background: colorVar('--background'),

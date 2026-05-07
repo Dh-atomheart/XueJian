@@ -5,7 +5,7 @@ import { useDocumentImport } from '@/features/documents/useDocumentImport'
 import { cardsGateway } from '@/services/gateway/cards'
 import { documentGateway } from '@/services/gateway/documents'
 import { embeddingProfileGateway } from '@/services/gateway/models'
-import type { Document } from '@/types'
+import type { BackgroundJob, Document } from '@/types'
 
 const importedDocument: Document = {
   id: '22222222-2222-4222-8222-222222222222',
@@ -25,6 +25,63 @@ const parsedDocument: Document = {
   pageCount: 2,
   status: 'parsed',
   updatedAt: new Date('2026-04-19T10:01:00.000Z'),
+}
+
+const readyDocument: Document = {
+  ...parsedDocument,
+  status: 'ready',
+  updatedAt: new Date('2026-04-19T10:02:00.000Z'),
+}
+
+const activeEmbeddingProfile = {
+  id: 'profile-1',
+  provider: 'custom_openai',
+  model: 'embedding-model',
+  dimensions: 1024,
+  distanceMetric: 'cosine',
+  isActive: true,
+  revision: 1,
+  createdAt: new Date('2026-04-19T10:00:00.000Z'),
+}
+
+function makeBackgroundJob(overrides: Partial<BackgroundJob> = {}): BackgroundJob {
+  return {
+    id: '33333333-3333-4333-8333-333333333333',
+    jobType: 'document_embedding',
+    status: 'succeeded',
+    targetType: 'document',
+    targetId: parsedDocument.id,
+    payloadJson: '{}',
+    resultJson: null,
+    errorMessage: null,
+    errorDetails: null,
+    progressCurrent: 2,
+    progressTotal: 2,
+    progressMessage: 'done',
+    createdAt: new Date('2026-04-19T10:01:00.000Z'),
+    startedAt: new Date('2026-04-19T10:01:00.000Z'),
+    finishedAt: new Date('2026-04-19T10:02:00.000Z'),
+    cancelRequestedAt: null,
+    ...overrides,
+  }
+}
+
+function makeCardGenerationRun() {
+  return {
+    id: '11111111-1111-4111-8111-111111111111',
+    workflowType: 'card_generation' as const,
+    presetId: 'm3-card-production-line',
+    status: 'queued' as const,
+    threadId: `card-generation:${parsedDocument.id}`,
+    checkpointRef: 'queued',
+    approvalPayload: null,
+    costUsd: null,
+    errorMessage: null,
+    startedAt: null,
+    finishedAt: null,
+    createdAt: new Date('2026-04-19T10:02:00.000Z'),
+    updatedAt: new Date('2026-04-19T10:02:00.000Z'),
+  }
 }
 
 function createTestQueryClient() {
@@ -65,6 +122,7 @@ function ImportHarness() {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -86,27 +144,14 @@ describe('useDocumentImport', () => {
     })
   })
 
-  it('runs backend parsing and starts card generation after import', async () => {
+  it('runs backend parsing but blocks automation when embedding profile is missing', async () => {
     const queryClient = createTestQueryClient()
 
     vi.spyOn(documentGateway, 'pickAndImportDocument').mockResolvedValue(importedDocument)
     vi.spyOn(documentGateway, 'runParseWorkflow').mockResolvedValue(parsedDocument)
     vi.spyOn(embeddingProfileGateway, 'getActive').mockResolvedValue(null)
-    vi.spyOn(cardsGateway, 'startGeneration').mockResolvedValue({
-      id: '11111111-1111-4111-8111-111111111111',
-      workflowType: 'card_generation',
-      presetId: 'm3-card-production-line',
-      status: 'queued',
-      threadId: `card-generation:${parsedDocument.id}`,
-      checkpointRef: 'queued',
-      approvalPayload: null,
-      costUsd: null,
-      errorMessage: null,
-      startedAt: null,
-      finishedAt: null,
-      createdAt: new Date('2026-04-19T10:02:00.000Z'),
-      updatedAt: new Date('2026-04-19T10:02:00.000Z'),
-    })
+    const embeddingSpy = vi.spyOn(documentGateway, 'startEmbeddingJob')
+    const generationSpy = vi.spyOn(cardsGateway, 'startGeneration')
     const deleteSpy = vi.spyOn(documentGateway, 'delete')
     const updateStatusSpy = vi.spyOn(documentGateway, 'updateStatus')
 
@@ -120,10 +165,46 @@ describe('useDocumentImport', () => {
 
     await waitFor(() => {
       expect(documentGateway.runParseWorkflow).toHaveBeenCalledWith(importedDocument.id)
-      expect(cardsGateway.startGeneration).toHaveBeenCalledWith(parsedDocument.id)
+      expect(screen.getByText('导入完成，但需要先配置向量模型。')).toBeInTheDocument()
     })
+    expect(embeddingSpy).not.toHaveBeenCalled()
+    expect(generationSpy).not.toHaveBeenCalled()
     expect(deleteSpy).not.toHaveBeenCalled()
     expect(updateStatusSpy).not.toHaveBeenCalledWith(importedDocument.id, 'parsed')
+    expect(screen.getByText('前往设置补全 embedding 模型')).toBeInTheDocument()
+  })
+
+  it('waits for embedding completion before starting card generation', async () => {
+    const queryClient = createTestQueryClient()
+
+    vi.spyOn(documentGateway, 'pickAndImportDocument').mockResolvedValue(importedDocument)
+    vi.spyOn(documentGateway, 'runParseWorkflow').mockResolvedValue(parsedDocument)
+    vi.spyOn(documentGateway, 'startEmbeddingJob').mockResolvedValue(
+      makeBackgroundJob({ status: 'running', progressCurrent: 0 })
+    )
+    vi.spyOn(documentGateway, 'get').mockResolvedValue(readyDocument)
+    vi.spyOn(embeddingProfileGateway, 'getActive').mockResolvedValue(activeEmbeddingProfile)
+    vi.spyOn(cardsGateway, 'getBackgroundJob').mockResolvedValue(makeBackgroundJob())
+    vi.spyOn(cardsGateway, 'startGeneration').mockResolvedValue(makeCardGenerationRun())
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ImportHarness />
+      </QueryClientProvider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'import' }))
+
+    await waitFor(() => {
+      expect(documentGateway.startEmbeddingJob).toHaveBeenCalledWith(parsedDocument.id)
+    })
+    await waitFor(() => {
+      expect(cardsGateway.startGeneration).toHaveBeenCalledWith(readyDocument.id)
+    })
+    expect(cardsGateway.getBackgroundJob).toHaveBeenCalledWith('33333333-3333-4333-8333-333333333333')
+    expect(vi.mocked(cardsGateway.getBackgroundJob).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(cardsGateway.startGeneration).mock.invocationCallOrder[0]
+    )
   })
 
   it('keeps the imported document when backend parsing fails', async () => {
@@ -150,12 +231,14 @@ describe('useDocumentImport', () => {
     expect(generationSpy).not.toHaveBeenCalled()
   })
 
-  it('finishes import if automatic card generation fails', async () => {
+  it('finishes import if automatic card generation fails after embedding succeeds', async () => {
     const queryClient = createTestQueryClient()
 
     vi.spyOn(documentGateway, 'pickAndImportDocument').mockResolvedValue(importedDocument)
     vi.spyOn(documentGateway, 'runParseWorkflow').mockResolvedValue(parsedDocument)
-    vi.spyOn(embeddingProfileGateway, 'getActive').mockResolvedValue(null)
+    vi.spyOn(documentGateway, 'startEmbeddingJob').mockResolvedValue(makeBackgroundJob())
+    vi.spyOn(documentGateway, 'get').mockResolvedValue(readyDocument)
+    vi.spyOn(embeddingProfileGateway, 'getActive').mockResolvedValue(activeEmbeddingProfile)
     vi.spyOn(cardsGateway, 'startGeneration').mockRejectedValue(new Error('generation unavailable'))
 
     render(
@@ -167,12 +250,37 @@ describe('useDocumentImport', () => {
     fireEvent.click(screen.getByRole('button', { name: 'import' }))
 
     await waitFor(() => {
-      expect(screen.getByText('导入完成，但还有 2 项后续处理需要完成。')).toBeInTheDocument()
+      expect(screen.getByText('导入完成，但还有 1 项后续处理需要完成。')).toBeInTheDocument()
     })
-    expect(
-      screen.getByText('文档已完成解析，但当前没有可用的嵌入模型，知识问答和检索命中率会受到影响。')
-    ).toBeInTheDocument()
-    expect(screen.getByText('前往设置补全嵌入模型')).toBeInTheDocument()
-    expect(screen.getByText('前往卡片工坊手动重试')).toBeInTheDocument()
+    expect(screen.getByText(/自动卡片生成没有成功启动/)).toBeInTheDocument()
+    expect(screen.getByText('前往卡片页手动处理')).toBeInTheDocument()
+  })
+
+  it('stops automatic card generation when embedding fails', async () => {
+    const queryClient = createTestQueryClient()
+
+    vi.spyOn(documentGateway, 'pickAndImportDocument').mockResolvedValue(importedDocument)
+    vi.spyOn(documentGateway, 'runParseWorkflow').mockResolvedValue(parsedDocument)
+    vi.spyOn(documentGateway, 'startEmbeddingJob').mockResolvedValue(
+      makeBackgroundJob({ status: 'failed', errorMessage: 'embedding provider failed' })
+    )
+    vi.spyOn(documentGateway, 'get').mockResolvedValue(parsedDocument)
+    vi.spyOn(embeddingProfileGateway, 'getActive').mockResolvedValue(activeEmbeddingProfile)
+    const generationSpy = vi.spyOn(cardsGateway, 'startGeneration')
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ImportHarness />
+      </QueryClientProvider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'import' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('导入完成，但向量生成需要重试。')).toBeInTheDocument()
+    })
+    expect(generationSpy).not.toHaveBeenCalled()
+    expect(screen.getByText(/文档向量生成没有成功/)).toBeInTheDocument()
+    expect(screen.getByText('回到文档库重试向量化')).toBeInTheDocument()
   })
 })

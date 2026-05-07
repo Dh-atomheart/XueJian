@@ -1,14 +1,14 @@
 import { create } from 'zustand'
-import type { Card } from '@/types'
+import type { StudyQueueItem } from '@/types'
 
 interface LearningSessionState {
-  queue: Card[]
+  queue: StudyQueueItem[]
   currentIndex: number
   isFlipped: boolean
   reviewedCount: number
   sessionStartedAt: number | null
 
-  loadQueue: (cards: Card[]) => void
+  loadQueue: (cards: StudyQueueItem[]) => void
   flipCard: () => void
   advanceCard: () => void
   resetSession: () => void

@@ -17,7 +17,7 @@ export function PageNavBar({
   const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1)
 
   return (
-    <aside className="flex h-full min-h-0 flex-col rounded-[28px] border border-line-soft bg-[linear-gradient(180deg,rgba(249,247,240,0.95),rgba(242,239,230,0.98))] shadow-paper">
+    <aside className="flex h-full min-h-0 flex-col rounded-[28px] border border-line-soft bg-[linear-gradient(180deg,rgb(var(--paper-card)/0.95),rgb(var(--paper-muted)/0.98))] shadow-paper">
       <div className="border-b border-line-soft px-4 py-4">
         <p className="text-[11px] uppercase tracking-[0.24em] text-ink-soft">Pages</p>
         <h2 className="mt-2 font-ui text-base text-ink">页码索引</h2>
@@ -41,7 +41,7 @@ export function PageNavBar({
                     'flex w-full items-center justify-between rounded-[18px] border px-3 py-2 text-left transition-all duration-200',
                     isActive
                       ? 'border-ink/20 bg-paper-base text-ink shadow-card'
-                      : 'border-transparent bg-white/60 text-ink-soft hover:border-ink/10 hover:bg-white'
+                      : 'border-transparent bg-paper-card/60 text-ink-soft hover:border-ink/10 hover:bg-paper-card'
                   )}
                 >
                   <span className="font-latin text-sm tabular-nums">

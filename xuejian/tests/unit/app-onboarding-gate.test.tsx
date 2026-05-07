@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiConfigGateway } from '@/services/gateway/models'
+import { useAppUiStore } from '@/store'
 
 vi.mock('@/features/dashboard', () => ({
   HomePage: () => <div>Home Page</div>,
@@ -49,6 +50,10 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   delete (window as Window & { __TAURI__?: unknown }).__TAURI__
+  useAppUiStore.setState((state) => ({
+    ...state,
+    activeNavItem: 'home',
+  }))
 })
 
 // @acceptance:v4-4-a1
@@ -72,5 +77,17 @@ describe('app onboarding gate', () => {
     expect(screen.getByTestId('sidebar-nav-learning')).not.toBeDisabled()
     expect(screen.getByTestId('sidebar-nav-knowledge')).not.toBeDisabled()
     expect(screen.getByTestId('sidebar-nav-settings')).not.toBeDisabled()
+  })
+
+  it('renders the Knowledge page from the formal V1.1 navigation item', async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <App />
+      </QueryClientProvider>
+    )
+
+    fireEvent.click(await screen.findByTestId('sidebar-nav-knowledge'))
+
+    expect(await screen.findByText('Knowledge Page')).toBeInTheDocument()
   })
 })

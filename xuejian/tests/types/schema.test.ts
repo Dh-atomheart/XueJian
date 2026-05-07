@@ -30,6 +30,7 @@ describe('structured schemas', () => {
       podcastMaxEstimatedCostUsd: 1,
     })
 
+    expect(settings.theme).toBe('light')
     expect(settings.learningGoal).toBe('knowledge_understanding')
     expect(settings.dailyStudyMinutes).toBe(30)
     expect(settings.studyTimePreference).toBe('evening')
@@ -81,7 +82,7 @@ describe('structured schemas', () => {
       podcastMaxEstimatedCostUsd: -1,
     })
 
-    expect(settings.theme).toBe('default')
+    expect(settings.theme).toBe('light')
     expect(settings.language).toBe('zh-CN')
     expect(settings.dailyNewCardLimit).toBe(0)
     expect(settings.reviewTimeLimit).toBe(0)

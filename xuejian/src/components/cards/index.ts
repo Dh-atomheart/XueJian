@@ -1,4 +1,6 @@
 export { CardCandidatePanel, type CardCandidatePanelProps } from './CardCandidatePanel'
 export { CardClusterView, type CardClusterMode, type CardClusterViewProps } from './CardClusterView'
+export { CardPreview, type CardPreviewProps } from './CardPreview'
+export { SourceQuoteBlock, type SourceQuoteBlockProps } from './SourceQuoteBlock'
 export { AnimationPreviewModal } from './AnimationPreviewModal'
 export { AnimationRenderer } from './AnimationRenderer'

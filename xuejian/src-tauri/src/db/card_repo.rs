@@ -467,19 +467,18 @@ impl<'a> CardRepository<'a> {
         let today_minutes = Some(today_review_count);
 
         // Single query for week stats: total reviews + distinct active days
-        let (week_minutes, active_days_this_week): (i64, i64) = self.db
-            .connection()
-            .query_row(
-                "SELECT COUNT(*), COUNT(DISTINCT date(reviewed_at, 'localtime'))
+        let (week_minutes, active_days_this_week): (i64, i64) = self.db.connection().query_row(
+            "SELECT COUNT(*), COUNT(DISTINCT date(reviewed_at, 'localtime'))
                  FROM review_logs
                  WHERE date(reviewed_at, 'localtime') BETWEEN date(?1, '-6 days') AND ?1",
-                params![today],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )?;
+            params![today],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
 
-        let total_minutes: i64 = self.db
-            .connection()
-            .query_row("SELECT COUNT(*) FROM review_logs", [], |row| row.get(0))?;
+        let total_minutes: i64 =
+            self.db
+                .connection()
+                .query_row("SELECT COUNT(*) FROM review_logs", [], |row| row.get(0))?;
 
         // Streak: only look at last 366 days, stop at first gap
         let mut streak_days = 0_i64;
@@ -492,22 +491,14 @@ impl<'a> CardRepository<'a> {
                  ORDER BY date(reviewed_at, 'localtime') DESC",
             )?;
             let rows = stmt.query_map(params![today], |row| row.get::<_, String>(0))?;
-            let dates: Vec<String> = rows
-                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let dates: Vec<String> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
 
-            let mut cursor =
-                chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d").map_err(|e| {
-                    crate::db::DbError::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        e,
-                    ))
-                })?;
+            let mut cursor = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d").map_err(|e| {
+                crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+            })?;
             for date in dates {
                 let parsed = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|e| {
-                    crate::db::DbError::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        e,
-                    ))
+                    crate::db::DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
                 })?;
                 if parsed == cursor {
                     streak_days += 1;
@@ -1441,6 +1432,29 @@ impl<'a> CardRepository<'a> {
 
     pub fn delete_card(&self, id: &str) -> Result<()> {
         let transaction = self.db.connection().unchecked_transaction()?;
+
+        // Clean up the corresponding card_candidate if one exists (linked by document_id + dedupe_key)
+        if let Some(card) = transaction
+            .query_row(
+                "SELECT document_id, dedupe_key FROM cards WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                    ))
+                },
+            )
+            .optional()?
+        {
+            if let (Some(doc_id), Some(dedup_key)) = card {
+                transaction.execute(
+                    "DELETE FROM card_candidates WHERE document_id = ?1 AND dedupe_key = ?2",
+                    params![doc_id, dedup_key],
+                )?;
+            }
+        }
+
         transaction.execute("DELETE FROM highlights WHERE card_id = ?1", params![id])?;
         transaction.execute("DELETE FROM review_logs WHERE card_id = ?1", params![id])?;
         transaction.execute("DELETE FROM card_media WHERE card_id = ?1", params![id])?;

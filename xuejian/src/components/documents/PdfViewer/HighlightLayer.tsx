@@ -42,8 +42,8 @@ export function HighlightLayer({
             height={resolvedRect.height}
             rx={3}
             ry={3}
-            fill="rgba(245, 158, 11, 0.28)"
-            stroke="rgba(194, 65, 12, 0.32)"
+            fill="rgb(var(--reader-highlight-fill))"
+            stroke="rgb(var(--reader-highlight-stroke))"
             strokeWidth={1}
           />
         )
@@ -73,9 +73,9 @@ export function HighlightLayer({
               height={resolvedRect.height}
               rx={3}
               ry={3}
-              fill={highlight.color || '#F8E16C'}
+              fill={highlight.color || 'rgb(var(--highlight-yellow))'}
               fillOpacity={isSelected ? 0.45 : isHovered ? 0.36 : isMuted ? 0.08 : 0.25}
-              stroke={isSelected || isHovered ? 'rgba(26,26,26,0.3)' : 'transparent'}
+              stroke={isSelected || isHovered ? 'rgb(var(--reader-highlight-stroke))' : 'transparent'}
               strokeWidth={isSelected || isHovered ? 2 : 0}
               onMouseEnter={() => onHighlightHover?.(highlight.id)}
               onMouseLeave={() => onHighlightHover?.(null)}

@@ -86,7 +86,14 @@ def resolve_model_runtime(config: dict) -> tuple[str, str, str | None]:
     return provider, model_name, base_url
 
 
-def build_langchain_chat_model(config: dict, api_key: str, temperature: float):
+def build_langchain_chat_model(
+    config: dict,
+    api_key: str,
+    temperature: float,
+    *,
+    timeout: float | None = None,
+    max_tokens: int | None = None,
+):
     from langchain_openai import ChatOpenAI
 
     provider, model_name, base_url = resolve_model_runtime(config)
@@ -96,6 +103,10 @@ def build_langchain_chat_model(config: dict, api_key: str, temperature: float):
         "api_key": api_key,
         "temperature": temperature,
     }
+    if timeout is not None:
+        llm_kwargs["timeout"] = timeout
+    if max_tokens is not None:
+        llm_kwargs["max_tokens"] = max_tokens
     if base_url:
         llm_kwargs["base_url"] = base_url
 
@@ -103,12 +114,17 @@ def build_langchain_chat_model(config: dict, api_key: str, temperature: float):
         try:
             from langchain_anthropic import ChatAnthropic
 
-            return ChatAnthropic(
-                model=model_name,
-                api_key=api_key,
-                temperature=temperature,
-                base_url=base_url,
-            )
+            anthropic_kwargs: dict[str, Any] = {
+                "model": model_name,
+                "api_key": api_key,
+                "temperature": temperature,
+                "base_url": base_url,
+            }
+            if timeout is not None:
+                anthropic_kwargs["timeout"] = timeout
+            if max_tokens is not None:
+                anthropic_kwargs["max_tokens"] = max_tokens
+            return ChatAnthropic(**anthropic_kwargs)
         except ImportError:
             logger.warning("langchain-anthropic not installed, using OpenAI-compatible endpoint")
             return ChatOpenAI(**llm_kwargs)
@@ -117,11 +133,16 @@ def build_langchain_chat_model(config: dict, api_key: str, temperature: float):
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
 
-            return ChatGoogleGenerativeAI(
-                model=model_name,
-                google_api_key=api_key,
-                temperature=temperature,
-            )
+            google_kwargs: dict[str, Any] = {
+                "model": model_name,
+                "google_api_key": api_key,
+                "temperature": temperature,
+            }
+            if timeout is not None:
+                google_kwargs["timeout"] = timeout
+            if max_tokens is not None:
+                google_kwargs["max_output_tokens"] = max_tokens
+            return ChatGoogleGenerativeAI(**google_kwargs)
         except ImportError:
             logger.warning("langchain-google-genai not installed, falling back to OpenAI-compatible client")
             return ChatOpenAI(**llm_kwargs)

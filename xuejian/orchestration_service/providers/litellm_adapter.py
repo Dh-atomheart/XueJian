@@ -10,6 +10,8 @@ import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
+EMBEDDING_TIMEOUT_SECONDS = 60
+COMPLETION_TIMEOUT_SECONDS = 60
 
 
 def _build_litellm_model_str(provider: str, model_name: str, base_url: str | None) -> str:
@@ -29,8 +31,9 @@ def litellm_completion(
     config: dict,
     api_key: str,
     messages: list[dict[str, str]],
-    temperature: float = 0.4,
+    temperature: float = 1.0,
     max_tokens: int = 1024,
+    response_format: dict[str, Any] | None = None,
 ) -> str:
     """Call litellm.completion() and return the assistant message text.
 
@@ -67,7 +70,11 @@ def litellm_completion(
         "temperature": temperature,
         "max_tokens": max_tokens,
         "api_key": api_key,
+        "timeout": COMPLETION_TIMEOUT_SECONDS,
+        "num_retries": 1,
     }
+    if response_format is not None:
+        kwargs["response_format"] = response_format
 
     if provider == "anthropic":
         pass  # litellm handles anthropic API natively
@@ -99,6 +106,15 @@ def litellm_embedding(
             task_type=str(config.get("taskType") or "").strip() or None,
         )
 
+    if provider == "custom_openai" and base_url:
+        return _openai_compatible_embedding(
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name,
+            texts=texts,
+            dimensions=config.get("dimensions"),
+        )
+
     try:
         import litellm  # type: ignore[import]
     except ImportError as exc:
@@ -112,6 +128,8 @@ def litellm_embedding(
         "model": model_str,
         "input": texts,
         "api_key": api_key,
+        "timeout": EMBEDDING_TIMEOUT_SECONDS,
+        "num_retries": 1,
     }
 
     if provider == "google":
@@ -124,6 +142,42 @@ def litellm_embedding(
     response = litellm.embedding(**kwargs)
     items = getattr(response, "data", None) or response.get("data", [])
     return [list(item["embedding"]) for item in items]
+
+
+def _openai_compatible_embedding(
+    *,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    texts: list[str],
+    dimensions: Any,
+) -> list[list[float]]:
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise ImportError(
+            "openai is not installed. Add 'openai' to requirements.txt."
+        ) from exc
+
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "input": texts,
+    }
+    try:
+        parsed_dimensions = int(dimensions or 0)
+    except (TypeError, ValueError):
+        parsed_dimensions = 0
+    if parsed_dimensions > 0:
+        kwargs["dimensions"] = parsed_dimensions
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        timeout=float(EMBEDDING_TIMEOUT_SECONDS),
+        max_retries=1,
+    )
+    response = client.embeddings.create(**kwargs)
+    return [list(item.embedding) for item in response.data]
 
 
 def _google_native_embedding(
@@ -141,7 +195,13 @@ def _google_native_embedding(
             "google-genai is not installed. Add 'google-genai' to requirements.txt."
         ) from exc
 
-    client = genai.Client(api_key=api_key)
+    try:
+        from google.genai import client as genai_client
+
+        http_options = genai_client.HttpOptions(timeout=EMBEDDING_TIMEOUT_SECONDS * 1000)
+        client = genai.Client(api_key=api_key, http_options=http_options)
+    except Exception:
+        client = genai.Client(api_key=api_key)
     config = None
     if task_type:
         config = types.EmbedContentConfig(task_type=task_type)

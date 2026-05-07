@@ -2,8 +2,12 @@ import { z } from 'zod'
 import type {
   ApiConfig,
   ApiConnectionTestResult,
+  BasicCard,
+  BasicCardGroup,
+  BasicCardSource,
   DiscoveredModel,
   AppSettings,
+  BackgroundJob,
   Card,
   CardCandidate,
   CardGenerationCandidate,
@@ -11,6 +15,7 @@ import type {
   DocumentAnchor,
   DocumentChunk,
   Document,
+  DocumentLibraryItem,
   DocumentIR,
   DocumentIRAsset,
   DocumentIRBlock,
@@ -30,6 +35,8 @@ import type {
   RagAnswer,
   ReviewLog,
   ServiceHealthStatus,
+  StudyQueueItem,
+  StudyReviewResult,
   WorkflowModelAssignment,
   WorkflowCheckpoint,
   WorkflowRun,
@@ -179,8 +186,14 @@ function normalizeLegacyAppSettingsPayload(value: unknown) {
 
   const payload = { ...(value as Record<string, unknown>) }
 
-  if (typeof payload.theme === 'string' && payload.theme !== 'default') {
-    payload.theme = 'default'
+  if (typeof payload.theme === 'string') {
+    const normalizedTheme = payload.theme.trim()
+    payload.theme =
+      normalizedTheme === 'default'
+        ? 'light'
+        : ['light', 'dark', 'system'].includes(normalizedTheme)
+          ? normalizedTheme
+          : 'light'
   }
 
   if (typeof payload.learningGoal === 'string') {
@@ -309,7 +322,7 @@ export const documentIRSchema = z.object({
 export const appSettingsSchema = z.preprocess(
   normalizeLegacyAppSettingsPayload,
   z.object({
-    theme: z.literal('default').catch('default').default('default'),
+    theme: z.enum(['light', 'dark', 'system']).catch('light').default('light'),
     language: z.enum(['zh-CN', 'en-US']).catch('zh-CN').default('zh-CN'),
     dailyNewCardLimit: boundedIntSettingSchema(20, 0, 1000),
     reviewTimeLimit: boundedIntSettingSchema(30, 0, 1440),
@@ -428,11 +441,7 @@ export const discoveredModelSchema = z.object({
   isRecommended: z.boolean(),
 }) as z.ZodType<DiscoveredModel>
 
-export const workflowTypeSchema = z.enum([
-  'card_generation',
-  'document_embedding',
-  'knowledge_qa',
-])
+export const workflowTypeSchema = z.enum(['card_generation', 'document_embedding', 'knowledge_qa'])
 
 export const apiConfigSchema = z.object({
   id: z.string().uuid(),
@@ -525,6 +534,27 @@ export const documentSchema = z.object({
   updatedAt: dateValueSchema,
 }) as z.ZodType<Document>
 
+export const documentLibraryItemSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1),
+  fileType: z.enum(['pdf', 'md', 'txt', 'docx']),
+  pageCount: z.number().int().nullable(),
+  status: z.enum([
+    'uploading',
+    'parsed',
+    'embedding',
+    'ready',
+    'embedding_failed',
+    'embedding_stale',
+    'error',
+    'deleted',
+  ]),
+  updatedAt: dateValueSchema,
+  lastUsedAt: nullableDateValueSchema,
+  basicCardCount: z.number().int().nonnegative(),
+  lastFailureReason: z.string().nullable(),
+}) as z.ZodType<DocumentLibraryItem>
+
 export const documentSectionSchema = z.object({
   id: z.string().uuid(),
   documentId: z.string().uuid(),
@@ -582,6 +612,56 @@ export const cardSourceCoordinatesSchema = z.object({
   width: z.number().nonnegative(),
   height: z.number().nonnegative(),
 })
+
+export const basicCardSourceSchema = z.object({
+  documentId: z.string().uuid().nullable(),
+  documentTitle: z.string().nullable(),
+  anchorId: z.string().uuid().nullable(),
+  page: z.number().int().positive().nullable(),
+  quote: z.string().nullable(),
+}) as z.ZodType<BasicCardSource>
+
+export const basicCardSchema = z.object({
+  id: z.string().uuid(),
+  groupId: z.string().uuid(),
+  groupName: z.string().min(1),
+  title: z.string().min(1),
+  front: z.string().min(1),
+  back: z.string().min(1),
+  tags: z.array(z.string()),
+  origin: z.string().min(1),
+  source: basicCardSourceSchema,
+  createdAt: dateValueSchema,
+  updatedAt: dateValueSchema,
+  deletedAt: nullableDateValueSchema,
+}) as z.ZodType<BasicCard>
+
+export const basicCardGroupSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  color: z.string().nullable(),
+  isEnabled: z.boolean(),
+  cardCount: z.number().int().nonnegative(),
+  createdAt: dateValueSchema,
+  updatedAt: dateValueSchema,
+  deletedAt: nullableDateValueSchema,
+}) as z.ZodType<BasicCardGroup>
+
+export const studyQueueItemSchema = z.object({
+  id: z.string().uuid(),
+  groupId: z.string().uuid(),
+  title: z.string().min(1),
+  front: z.string().min(1),
+  back: z.string().min(1),
+  state: z.enum(['new', 'learning', 'review', 'relearning']),
+  dueAt: dateValueSchema,
+}) as z.ZodType<StudyQueueItem>
+
+export const studyReviewResultSchema = z.object({
+  nextDueAt: dateValueSchema,
+  newState: z.enum(['new', 'learning', 'review', 'relearning']),
+}) as z.ZodType<StudyReviewResult>
 
 export const cardSchema = z.object({
   id: z.string().uuid(),
@@ -695,6 +775,25 @@ export const workflowRunSchema = z.object({
   updatedAt: dateValueSchema,
 }) as z.ZodType<WorkflowRun>
 
+export const backgroundJobSchema = z.object({
+  id: z.string().uuid(),
+  jobType: z.string().min(1),
+  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']),
+  targetType: z.string().min(1),
+  targetId: z.string().min(1),
+  payloadJson: z.string(),
+  resultJson: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  errorDetails: z.string().nullable(),
+  progressCurrent: z.number().int().nullable(),
+  progressTotal: z.number().int().nullable(),
+  progressMessage: z.string().nullable(),
+  createdAt: dateValueSchema,
+  startedAt: nullableDateValueSchema,
+  finishedAt: nullableDateValueSchema,
+  cancelRequestedAt: nullableDateValueSchema,
+}) as z.ZodType<BackgroundJob>
+
 export const workflowCheckpointSchema = z.object({
   id: z.string().uuid(),
   runId: z.string().uuid(),
@@ -797,6 +896,13 @@ export const ragAnswerSchema = z.object({
     'embedding_missing',
     'embedding_stale',
     'embedding_failed',
+    'embedding_config_error',
+    'embedding_auth_error',
+    'embedding_timeout',
+    'embedding_rate_limited',
+    'embedding_dimension_mismatch',
+    'embedding_network_error',
+    'query_embedding_failed',
     'no_hits',
   ]),
   citations: z.array(citationSchema),
@@ -859,3 +965,31 @@ export const heatmapEntrySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   count: z.number().int().nonnegative(),
 }) as z.ZodType<import('./document').HeatmapEntry>
+
+const dashboardProgressBaseSchema = z.object({
+  id: z.string().uuid(),
+  learnedCards: z.number().int().nonnegative(),
+  totalCards: z.number().int().nonnegative(),
+  progressPercent: z.number().int().min(0).max(100),
+})
+
+export const dashboardDocumentProgressSchema = dashboardProgressBaseSchema.extend({
+  title: z.string().min(1),
+})
+
+export const dashboardGroupProgressSchema = dashboardProgressBaseSchema.extend({
+  name: z.string().min(1),
+  color: z.string().nullable(),
+})
+
+export const dashboardSummarySchema = z.object({
+  todayCompletedCount: z.number().int().nonnegative(),
+  todayNewDueCount: z.number().int().nonnegative(),
+  todayReviewDueCount: z.number().int().nonnegative(),
+  todayStudyMinutes: z.number().int().nonnegative(),
+  totalStudyMinutes: z.number().int().nonnegative(),
+  streakDays: z.number().int().nonnegative(),
+  heatmap: z.array(heatmapEntrySchema),
+  documentProgress: z.array(dashboardDocumentProgressSchema),
+  groupProgress: z.array(dashboardGroupProgressSchema),
+}) as z.ZodType<import('./document').DashboardSummary>
