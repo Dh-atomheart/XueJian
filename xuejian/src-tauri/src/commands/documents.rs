@@ -709,6 +709,10 @@ async fn run_document_orchestration_workflow(
         }
     };
 
+    if let Some(job_id) = &parse_job_id {
+        update_parse_job_progress(state, job_id, 1, "Parsing document")?;
+    }
+
     let request_result =
         execute_orchestration_request(state, workflow_path, document_id, parse_job_id.as_deref())
             .await;
@@ -716,6 +720,7 @@ async fn run_document_orchestration_workflow(
     match request_result {
         Ok(payload) => {
             if let Some(job_id) = &parse_job_id {
+                update_parse_job_progress(state, job_id, 2, "Saving parsed document")?;
                 mark_parse_job_succeeded(state, job_id, &payload)?;
             }
 
@@ -1659,7 +1664,7 @@ fn create_document_parse_job(
             target_type: "document".to_string(),
             target_id: document.id.clone(),
             payload_json: payload.to_string(),
-            progress_total: Some(1),
+            progress_total: Some(3),
         })
         .map_err(Into::into)
 }
@@ -1690,12 +1695,36 @@ fn prepare_document_parse_job(
             error_message: None,
             error_details: None,
             progress_current: Some(0),
-            progress_total: Some(1),
+            progress_total: Some(3),
             progress_message: Some("正在解析 PDF".to_string()),
         },
     )?;
 
     Ok(running.id)
+}
+
+fn update_parse_job_progress(
+    state: &State<'_, AppState>,
+    job_id: &str,
+    progress_current: i32,
+    progress_message: &str,
+) -> CommandResult<()> {
+    let db = state.lock_db()?;
+    let job_repo = Mvp0BackgroundJobRepository::new(db.connection());
+    let job = job_repo.find_by_id(job_id)?.ok_or(CommandError::NotFound)?;
+    job_repo.update_status(
+        job_id,
+        UpdateMvp0BackgroundJobStatusRequest {
+            status: job.status,
+            result_json: job.result_json,
+            error_message: None,
+            error_details: None,
+            progress_current: Some(progress_current),
+            progress_total: Some(3),
+            progress_message: Some(progress_message.to_string()),
+        },
+    )?;
+    Ok(())
 }
 
 fn mark_parse_job_succeeded(
@@ -1712,8 +1741,8 @@ fn mark_parse_job_succeeded(
             result_json: Some(payload.to_string()),
             error_message: None,
             error_details: None,
-            progress_current: Some(1),
-            progress_total: Some(1),
+            progress_current: Some(3),
+            progress_total: Some(3),
             progress_message: Some("解析完成".to_string()),
         },
     )?;
@@ -1744,8 +1773,8 @@ fn mark_parse_job_failed(
             result_json: None,
             error_message: Some(message.to_string()),
             error_details: Some(message.to_string()),
-            progress_current: Some(1),
-            progress_total: Some(1),
+            progress_current: Some(3),
+            progress_total: Some(3),
             progress_message: Some("解析失败".to_string()),
         },
     )?;

@@ -9,8 +9,9 @@ use crate::commands::settings::resolve_effective_embedding_profile;
 use crate::db::{
     rag_embedding_readiness_status, rag_required_chunk_count, ApiConfig, ChunkEmbeddingRecord,
     CreateCardCandidateRequest, EmbeddingProfile, ModelProfile, Mvp0BackgroundJobRepository,
-    ProviderBudgetUsage, SettingsRepository, UpdateMvp0BackgroundJobStatusRequest,
-    VectorRepository, WorkflowModelAssignment,
+    ProviderBudgetUsage, QueryEmbeddingCacheRepository, SettingsRepository,
+    UpdateMvp0BackgroundJobStatusRequest, UpsertQueryEmbeddingCacheRequest, VectorRepository,
+    WorkflowModelAssignment,
 };
 use crate::gateway::ORCHESTRATION_PROTOCOL_VERSION;
 
@@ -621,6 +622,57 @@ fn route_request(
                 }
             };
             match document_embedding_readiness_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", "/tool-gateway/query-embedding-cache/get") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match get_query_embedding_cache_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", "/tool-gateway/query-embedding-cache/put") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match put_query_embedding_cache_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", "/tool-gateway/query-embedding-cache/prune") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match prune_query_embedding_cache_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
                 Err(error) => {
                     GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
@@ -1736,6 +1788,90 @@ fn document_embedding_readiness_json(state: &AppState, request: Value) -> Result
     Ok(json!({
         "status": overall_status,
         "documents": items,
+    }))
+}
+
+fn get_query_embedding_cache_json(state: &AppState, request: Value) -> Result<Value> {
+    let cache_key = request["cacheKey"].as_str().unwrap_or("").trim();
+    let expected_dimensions = request["expectedDimensions"].as_i64().unwrap_or(0) as i32;
+    let max_age_seconds = request["maxAgeSeconds"]
+        .as_i64()
+        .unwrap_or(7 * 24 * 60 * 60);
+    if cache_key.is_empty() || expected_dimensions <= 0 {
+        return Ok(json!({"hit": false}));
+    }
+
+    let db = state.lock_db()?;
+    let repo = QueryEmbeddingCacheRepository::new(&db);
+    match repo.get(cache_key, expected_dimensions, max_age_seconds)? {
+        Some(entry) => Ok(json!({
+            "hit": true,
+            "cacheKey": entry.cache_key,
+            "vector": entry.vector,
+            "createdAt": entry.created_at,
+            "lastUsedAt": entry.last_used_at,
+            "hitCount": entry.hit_count,
+        })),
+        None => Ok(json!({"hit": false})),
+    }
+}
+
+fn put_query_embedding_cache_json(state: &AppState, request: Value) -> Result<Value> {
+    let vector = request["vector"]
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .map(|value| value.as_f64().map(|number| number as f32))
+                .collect::<Option<Vec<_>>>()
+        })
+        .flatten()
+        .unwrap_or_default();
+
+    let cache_request = UpsertQueryEmbeddingCacheRequest {
+        cache_key: request["cacheKey"].as_str().unwrap_or("").trim().to_string(),
+        profile_id: request["profileId"].as_str().unwrap_or("").trim().to_string(),
+        provider: request["provider"].as_str().unwrap_or("").trim().to_string(),
+        model: request["model"].as_str().unwrap_or("").trim().to_string(),
+        dimensions: request["dimensions"].as_i64().unwrap_or(0) as i32,
+        task_type: request["taskType"].as_str().unwrap_or("").trim().to_string(),
+        question_hash: request["questionHash"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        vector,
+    };
+
+    let db = state.lock_db()?;
+    let repo = QueryEmbeddingCacheRepository::new(&db);
+    let stored = repo.upsert(cache_request)?;
+    let max_age_seconds = request["maxAgeSeconds"]
+        .as_i64()
+        .unwrap_or(7 * 24 * 60 * 60);
+    let max_entries = request["maxEntries"].as_i64().unwrap_or(2000);
+    let (deleted_expired, deleted_overflow) = repo.prune(max_age_seconds, max_entries)?;
+
+    Ok(json!({
+        "stored": stored,
+        "deletedExpired": deleted_expired,
+        "deletedOverflow": deleted_overflow,
+    }))
+}
+
+fn prune_query_embedding_cache_json(state: &AppState, request: Value) -> Result<Value> {
+    let max_age_seconds = request["maxAgeSeconds"]
+        .as_i64()
+        .unwrap_or(7 * 24 * 60 * 60);
+    let max_entries = request["maxEntries"].as_i64().unwrap_or(2000);
+
+    let db = state.lock_db()?;
+    let repo = QueryEmbeddingCacheRepository::new(&db);
+    let (deleted_expired, deleted_overflow) = repo.prune(max_age_seconds, max_entries)?;
+
+    Ok(json!({
+        "deletedExpired": deleted_expired,
+        "deletedOverflow": deleted_overflow,
     }))
 }
 

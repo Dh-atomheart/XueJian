@@ -4,8 +4,11 @@ import { KnowledgeQaPage as KnowledgeQaPageView } from '@/components/pages/knowl
 import {
   knowledgeQueryKeys,
   useCancelKnowledgeQaMessageMutation,
+  useDeleteKnowledgeQaConversationMutation,
+  useDeleteKnowledgeQaTurnMutation,
   useKnowledgeQaConversationQuery,
   useKnowledgeQaConversationsQuery,
+  useRegenerateKnowledgeQaTurnMutation,
   useSendKnowledgeQaMessageMutation,
 } from '@/queries/knowledge'
 import {
@@ -98,7 +101,10 @@ export function KnowledgeQaPage() {
     Boolean(activeConversationId)
   )
   const sendQaMutation = useSendKnowledgeQaMessageMutation()
+  const regenerateQaMutation = useRegenerateKnowledgeQaTurnMutation()
   const cancelQaMutation = useCancelKnowledgeQaMessageMutation()
+  const deleteConversationMutation = useDeleteKnowledgeQaConversationMutation()
+  const deleteTurnMutation = useDeleteKnowledgeQaTurnMutation()
 
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const knowledgeDraft = useAppUiStore((state) => state.knowledgeDraft)
@@ -141,6 +147,13 @@ export function KnowledgeQaPage() {
   const effectiveReadyDocumentIds = useMemo(
     () => scopedDocumentIds.filter((documentId) => readyDocumentIdSet.has(documentId)),
     [readyDocumentIdSet, scopedDocumentIds]
+  )
+  const hasPendingTurn = useMemo(
+    () =>
+      activeConversationDetail?.messages.some(
+        (message) => message.role === 'assistant' && message.status === 'pending'
+      ) ?? false,
+    [activeConversationDetail?.messages]
   )
 
   const documentTitleLookup = useMemo(() => {
@@ -266,6 +279,9 @@ export function KnowledgeQaPage() {
   ])
 
   const submitDisabledReason = useMemo(() => {
+    if (hasPendingTurn) {
+      return '当前回答生成完成后才能继续提问'
+    }
     if (isEmbeddingProfileLoading) {
       return '正在检测嵌入模型配置。'
     }
@@ -290,6 +306,7 @@ export function KnowledgeQaPage() {
     return null
   }, [
     activeEmbeddingProfile,
+    hasPendingTurn,
     isEmbeddingProfileError,
     isEmbeddingProfileLoading,
     qaDocuments,
@@ -316,7 +333,14 @@ export function KnowledgeQaPage() {
   const handleAsk = useCallback(
     async (rawQuestion?: string) => {
       const trimmedQuestion = (rawQuestion ?? question).trim()
-      if (!trimmedQuestion || sendQaMutation.isPending || isRestartingService || submitDisabledReason) {
+      if (
+        !trimmedQuestion ||
+        sendQaMutation.isPending ||
+        regenerateQaMutation.isPending ||
+        isRestartingService ||
+        hasPendingTurn ||
+        submitDisabledReason
+      ) {
         return
       }
 
@@ -353,9 +377,11 @@ export function KnowledgeQaPage() {
       activeConversationId,
       effectiveReadyDocumentIds,
       handleRestartService,
+      hasPendingTurn,
       isRestartingService,
       question,
       queryClient,
+      regenerateQaMutation.isPending,
       sendQaMutation,
       shouldWarnOrchestration,
       submitDisabledReason,
@@ -382,13 +408,31 @@ export function KnowledgeQaPage() {
   )
 
   const handleRetry = useCallback(
-    (turnId: string) => {
+    async (turnId: string) => {
+      if (hasPendingTurn || regenerateQaMutation.isPending || sendQaMutation.isPending) {
+        return
+      }
       const turn = persistedTurns.find((item) => item.id === turnId)
-      if (turn) {
-        void handleAsk(turn.question)
+      const messageId = turn?.assistantMessageId ?? turn?.id
+      if (!messageId) {
+        return
+      }
+      try {
+        const result = await regenerateQaMutation.mutateAsync(messageId)
+        setActiveConversationId(result.conversation.id)
+        await queryClient.invalidateQueries({ queryKey: knowledgeQueryKeys.conversations() })
+        await queryClient.invalidateQueries({
+          queryKey: knowledgeQueryKeys.conversation(result.conversation.id),
+        })
+        await queryClient.invalidateQueries({ queryKey: documentsQueryKeys.all })
+      } catch (error) {
+        reportAppError('Knowledge Q&A', error, {
+          title: '重新生成回答失败',
+          showToast: true,
+        })
       }
     },
-    [handleAsk, persistedTurns]
+    [hasPendingTurn, persistedTurns, queryClient, regenerateQaMutation, sendQaMutation.isPending]
   )
 
   const handleCancel = useCallback(
@@ -412,6 +456,55 @@ export function KnowledgeQaPage() {
       }
     },
     [activeConversationId, cancelQaMutation, persistedTurns, queryClient]
+  )
+
+  const handleDeleteConversation = useCallback(
+    async (conversationId: string) => {
+      try {
+        await deleteConversationMutation.mutateAsync(conversationId)
+        if (activeConversationId === conversationId) {
+          setActiveConversationId(null)
+          setQuestion('')
+        }
+        queryClient.removeQueries({
+          queryKey: knowledgeQueryKeys.conversation(conversationId),
+        })
+        await queryClient.invalidateQueries({
+          queryKey: knowledgeQueryKeys.conversations(),
+        })
+      } catch (error) {
+        reportAppError('Knowledge Q&A', error, {
+          title: '删除对话失败',
+          showToast: true,
+        })
+      }
+    },
+    [activeConversationId, deleteConversationMutation, queryClient]
+  )
+
+  const handleDeleteTurn = useCallback(
+    async (turnId: string) => {
+      if (!activeConversationId) {
+        return
+      }
+      try {
+        await deleteTurnMutation.mutateAsync(turnId)
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: knowledgeQueryKeys.conversation(activeConversationId),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: knowledgeQueryKeys.conversations(),
+          }),
+        ])
+      } catch (error) {
+        reportAppError('Knowledge Q&A', error, {
+          title: '删除问答失败',
+          showToast: true,
+        })
+      }
+    },
+    [activeConversationId, deleteTurnMutation, queryClient]
   )
 
   const latestCitations = persistedTurns.flatMap((turn) => turn.citations).slice(0, 6)
@@ -447,7 +540,8 @@ export function KnowledgeQaPage() {
         snippet: citation.snippet,
       }))}
       searchResults={[]}
-      isSubmitting={sendQaMutation.isPending || isRestartingService}
+      isSubmitting={sendQaMutation.isPending || regenerateQaMutation.isPending || isRestartingService || hasPendingTurn}
+      isRegenerateDisabled={regenerateQaMutation.isPending || sendQaMutation.isPending || hasPendingTurn}
       hasConfiguration
       submitDisabledReason={submitDisabledReason}
       serviceWarningTitle={retrievalWarning.title}
@@ -467,6 +561,12 @@ export function KnowledgeQaPage() {
       onNewConversation={() => {
         setActiveConversationId(null)
         setQuestion('')
+      }}
+      onDeleteConversation={(conversationId) => {
+        void handleDeleteConversation(conversationId)
+      }}
+      onDeleteTurn={(turnId) => {
+        void handleDeleteTurn(turnId)
       }}
       onRestartService={() => {
         void handleRestartService()

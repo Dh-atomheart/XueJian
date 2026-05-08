@@ -5,7 +5,11 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from ..providers.embedding_runtime import embed_texts
+from ..providers.embedding_runtime import (
+    QueryEmbeddingRuntimeError,
+    embed_query_with_resilience,
+    embed_texts,
+)
 from ..providers.runtime import build_langchain_chat_model, estimate_workflow_cost
 
 if TYPE_CHECKING:
@@ -44,10 +48,14 @@ You must answer in valid JSON only. Use this exact JSON object contract:
 Rules:
 - Base the answer only on the retrieved passages.
 - Do not use general knowledge to fill gaps in the documents.
-- If the passages do not contain enough evidence, return answerMode "no_relevant_content".
+- For synthesis, comparison, ranking, table, summary, or "steps" questions, organize the relevant passage evidence into the requested format even when the passages do not literally contain that exact format or count.
+- Evidence is sufficient when the passages contain relevant ideas, facts, examples, or recommendations that can be directly grouped, summarized, or compared for the question.
+- If the user asks for a fixed number of items, choose the strongest supported items from the passages and cite the passage evidence for each item.
+- Return answerMode "no_relevant_content" only when the retrieved passages are empty or unrelated to the question's topic.
 - For grounded answers, citations must reference only passage chunk ids.
 - The answer should be Chinese, structured, concise, and useful for understanding the material.
-- Do not output Markdown, code fences, explanations outside JSON, or a top-level array.
+- The answer string may use Markdown for lists, tables, code, and math when it improves readability.
+- Do not output Markdown outside the JSON object, code fences around the JSON, explanations outside JSON, or a top-level array.
 """
 
 KNOWLEDGE_QA_USER_TEMPLATE = """\
@@ -58,6 +66,8 @@ Retrieved passages:
 {passages}
 
 First decide whether the passages contain enough evidence. Then output JSON only.
+Markdown is allowed only inside the "answer" string.
+If the question asks you to create a table, steps, or a structured synthesis, infer the structure from the retrieved passages and cite the supporting passages. Do not refuse only because the exact table or step count is not explicitly written.
 If evidence is sufficient:
 {{"answer":"直接答案。\\n\\n要点解释：...","answerMode":"grounded","citations":[{{"chunkId":"chunk-id-from-passage","snippet":"short exact excerpt"}}]}}
 If evidence is insufficient:
@@ -68,7 +78,7 @@ JSON_REPAIR_PROMPT = """\
 Repair the previous response into valid JSON only.
 Required JSON object format:
 {"answer":"...","answerMode":"grounded","citations":[{"chunkId":"...","snippet":"..."}]}
-No Markdown, no code fence, no top-level array.
+No Markdown outside the JSON object, no code fence, no top-level array.
 """
 
 
@@ -92,8 +102,15 @@ def _excerpt_fallback_answer(
     retrieval_status: str = "ready",
     retrieval_mode: str = "hybrid",
 ) -> dict[str, Any]:
+    query_embedding_meta: dict[str, Any] = {}
     citations = [_citation_from_chunk(chunk) for chunk in chunks[:3]]
     citations = [citation for citation in citations if citation.get("quote")]
+    if not citations:
+        result = _status_answer("当前资料中没有足够证据回答这个问题。", "no_hits")
+        result["answer"].update(query_embedding_meta)
+        result["answer"]["retrievalMode"] = retrieval_mode
+        return result
+
     if not citations:
         return _status_answer("未能在资料中整理出可引用的片段。请稍后重试。", "no_hits")
 
@@ -114,8 +131,22 @@ def _excerpt_fallback_answer(
 
 
 def _embedding_error_status(exc: Exception) -> tuple[str, str]:
-    raw = str(exc).strip()
+    original = exc.original if isinstance(exc, QueryEmbeddingRuntimeError) else exc
+    raw = str(original).strip()
     lower = raw.casefold()
+    if "dimension mismatch" in lower:
+        return "embedding_dimension_mismatch", "问题向量维度与当前 embedding 配置不一致。请确认当前 embedding 模型与文档向量使用同一配置。"
+    if "timeout" in lower or "timed out" in lower:
+        return "embedding_timeout", "向量检索响应较慢，已先基于原文摘录回答。"
+    if "rate limit" in lower or "429" in lower or "too many requests" in lower:
+        return "embedding_rate_limited", "embedding 服务触发限流。请稍后重试，或切换到可用额度更充足的 embedding 配置。"
+    if "unauthorized" in lower or "forbidden" in lower or "401" in lower or "403" in lower or "invalid api key" in lower:
+        return "embedding_auth_error", "embedding 配置鉴权失败。请检查 API Key、Base URL 和模型权限。"
+    if "no enabled api config" in lower or "api config" in lower or "api key" in lower:
+        return "embedding_config_error", "当前 embedding 配置不可用。请在设置中检查启用状态、API Key 和工作流绑定。"
+    if "connection" in lower or "network" in lower or "dns" in lower or "connection refused" in lower:
+        return "embedding_network_error", "无法连接 embedding 服务。请检查网络、代理或自定义 Base URL。"
+    return "query_embedding_failed", f"问题向量生成失败。{raw}" if raw else "问题向量生成失败。"
     if "dimension mismatch" in lower:
         return "embedding_dimension_mismatch", "问题向量维度与当前 embedding 配置不一致。请确认当前 embedding 模型与文档向量使用同一配置。"
     if "timeout" in lower or "timed out" in lower:
@@ -437,18 +468,47 @@ def run_knowledge_qa_workflow(
             "embedding_stale",
         )
 
+    query_embedding_meta: dict[str, Any] = {
+        "queryEmbeddingStatus": "ready",
+        "cacheHit": False,
+        "attempts": 0,
+        "latencyMs": None,
+    }
+
     try:
-        query_embedding = embed_texts(
+        query_embedding_result = embed_query_with_resilience(
             host,
             active_profile,
-            [question],
+            question,
             task_type="RETRIEVAL_QUERY",
-        )[0]
+        )
+        query_embedding = query_embedding_result.vector
+        query_embedding_meta = {
+            "queryEmbeddingStatus": query_embedding_result.status,
+            "cacheHit": query_embedding_result.cache_hit,
+            "attempts": query_embedding_result.attempts,
+            "latencyMs": round(query_embedding_result.latency_ms, 2),
+        }
     except Exception as exc:
         if isinstance(exc, WorkflowCancelled):
             raise
         status, message = _embedding_error_status(exc)
-        logger.warning("Query embedding failed for knowledge QA: status=%s error=%s", status, exc)
+        attempts = exc.attempts if isinstance(exc, QueryEmbeddingRuntimeError) else 0
+        latency_ms = exc.latency_ms if isinstance(exc, QueryEmbeddingRuntimeError) else None
+        logger.warning(
+            "Query embedding failed for knowledge QA: status=%s attempts=%s latency_ms=%s error=%s",
+            status,
+            attempts,
+            round(latency_ms, 2) if isinstance(latency_ms, (int, float)) else None,
+            exc,
+        )
+        failure_meta = {
+            "queryEmbeddingStatus": status,
+            "cacheHit": False,
+            "attempts": attempts,
+            "latencyMs": round(latency_ms, 2) if isinstance(latency_ms, (int, float)) else None,
+            "fallbackReason": status,
+        }
         try:
             lexical_chunks = host.search_hybrid(
                 question,
@@ -461,13 +521,17 @@ def run_knowledge_qa_workflow(
             logger.warning("Lexical fallback failed for knowledge QA: %s", lexical_exc)
             packed_lexical_chunks = []
         if packed_lexical_chunks:
-            return _excerpt_fallback_answer(
+            result = _excerpt_fallback_answer(
                 packed_lexical_chunks,
                 f"{status}: {message}",
                 retrieval_status=status,
                 retrieval_mode="fts5",
             )
-        return _status_answer(message, status)
+            result["answer"].update(failure_meta)
+            return result
+        result = _status_answer(message, status)
+        result["answer"].update(failure_meta)
+        return result
 
     _check_cancelled(host, run_id)
     chunks = host.search_hybrid(
@@ -476,15 +540,27 @@ def run_knowledge_qa_workflow(
         document_ids=document_ids if document_ids else None,
         limit=RETRIEVAL_CANDIDATE_LIMIT,
     )
+    retrieval_mode = "hybrid"
     packed_chunks = _dedupe_and_pack_chunks(_vector_backed_chunks(chunks))
     if not packed_chunks:
-        return _status_answer(
+        lexical_packed_chunks = _dedupe_and_pack_chunks(chunks)
+        if lexical_packed_chunks:
+            packed_chunks = lexical_packed_chunks
+            retrieval_mode = "fts5"
+    if not packed_chunks:
+        result = _status_answer(
             "当前资料中没有检索到足够相关的内容，无法基于文档回答。",
             "no_hits",
         )
+        result["answer"].update(query_embedding_meta)
+        return result
 
     config_with_key = host.get_config_for_workflow("knowledge_qa")
     if not config_with_key:
+        if retrieval_mode == "fts5":
+            result = _status_answer("当前资料中没有足够证据回答这个问题。", "no_hits")
+            result["answer"].update(query_embedding_meta)
+            return result
         raise RuntimeError("Knowledge Q&A model is not configured")
 
     passages_text = _build_passages(packed_chunks)
@@ -496,7 +572,9 @@ def run_knowledge_qa_workflow(
         if isinstance(exc, WorkflowCancelled):
             raise
         logger.warning("Knowledge QA model answer failed, using excerpt fallback: %s", exc)
-        return _excerpt_fallback_answer(packed_chunks, f"model_error: {exc}")
+        result = _excerpt_fallback_answer(packed_chunks, f"model_error: {exc}", retrieval_mode=retrieval_mode)
+        result["answer"].update(query_embedding_meta)
+        return result
     _check_cancelled(host, run_id)
 
     answer_mode = answer_data.get("answerMode")
@@ -507,14 +585,17 @@ def run_knowledge_qa_workflow(
             "answer": {
                 "answer": str(answer_data.get("answer") or "当前资料中没有足够证据回答这个问题。").strip(),
                 "answerMode": "no_relevant_content",
-                "retrievalMode": "hybrid",
+                "retrievalMode": retrieval_mode,
                 "retrievalStatus": "no_hits",
                 "citations": [],
+                **query_embedding_meta,
             },
         }
 
     if not citations:
-        return _status_answer("当前资料中没有足够证据回答这个问题。", "no_hits")
+        result = _status_answer("当前资料中没有足够证据回答这个问题。", "no_hits")
+        result["answer"].update(query_embedding_meta)
+        return result
 
     if config.get("id"):
         try:
@@ -527,8 +608,9 @@ def run_knowledge_qa_workflow(
         "answer": {
             "answer": str(answer_data.get("answer") or "").strip(),
             "answerMode": "grounded",
-            "retrievalMode": "hybrid",
+            "retrievalMode": retrieval_mode,
             "retrievalStatus": "ready",
             "citations": citations,
+            **query_embedding_meta,
         },
     }

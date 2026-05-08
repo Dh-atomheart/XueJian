@@ -3140,6 +3140,8 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       createdAt: new Date(MOCK_NOW).toISOString(),
       updatedAt: new Date(MOCK_NOW).toISOString(),
     },
+    delete_knowledge_qa_conversation: true,
+    delete_knowledge_qa_turn: true,
     list_points_ledger: [
       {
         id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',

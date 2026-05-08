@@ -51,6 +51,14 @@ export function useDocumentImport(options?: UseDocumentImportOptions) {
         return null
       }
 
+      await queryClient.invalidateQueries({ queryKey: documentsQueryKeys.all })
+      await queryClient.invalidateQueries({
+        queryKey: cardsQueryKeys.backgroundJobs({
+          jobType: 'document_parse',
+          targetType: 'document',
+        }),
+      })
+
       setStage('parsing')
       setMessage(`正在解析 ${importedDocument.title}`)
 

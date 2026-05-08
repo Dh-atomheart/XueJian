@@ -1,8 +1,11 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   cancelKnowledgeQaMessage,
+  deleteKnowledgeQaConversation,
+  deleteKnowledgeQaTurn,
   getKnowledgeQaConversation,
   listKnowledgeQaConversations,
+  regenerateKnowledgeQaTurn,
   searchKnowledge,
   sendKnowledgeQaMessage,
   startKnowledgeQaWorkflow,
@@ -54,8 +57,26 @@ export function useSendKnowledgeQaMessageMutation() {
   })
 }
 
+export function useRegenerateKnowledgeQaTurnMutation() {
+  return useMutation({
+    mutationFn: (messageId: string) => regenerateKnowledgeQaTurn(messageId),
+  })
+}
+
 export function useCancelKnowledgeQaMessageMutation() {
   return useMutation({
     mutationFn: (messageId: string) => cancelKnowledgeQaMessage(messageId),
+  })
+}
+
+export function useDeleteKnowledgeQaConversationMutation() {
+  return useMutation({
+    mutationFn: (conversationId: string) => deleteKnowledgeQaConversation(conversationId),
+  })
+}
+
+export function useDeleteKnowledgeQaTurnMutation() {
+  return useMutation({
+    mutationFn: (messageId: string) => deleteKnowledgeQaTurn(messageId),
   })
 }

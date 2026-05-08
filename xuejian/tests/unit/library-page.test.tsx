@@ -4,6 +4,7 @@ import {
   LibraryPage,
   type LibraryPageAiJob,
   type LibraryPageDocument,
+  type LibraryPageProcessingJob,
 } from '@/components/pages/library-page'
 
 function makeDocument(overrides: Partial<LibraryPageDocument> = {}): LibraryPageDocument {
@@ -21,10 +22,29 @@ function makeDocument(overrides: Partial<LibraryPageDocument> = {}): LibraryPage
   }
 }
 
+function makeProcessingJob(overrides: Partial<LibraryPageProcessingJob> = {}): LibraryPageProcessingJob {
+  return {
+    id: 'parse-job-1',
+    jobType: 'document_parse',
+    status: 'running',
+    targetId: 'doc-1',
+    payloadJson: JSON.stringify({ documentId: 'doc-1' }),
+    resultJson: null,
+    errorMessage: null,
+    progressCurrent: 2,
+    progressTotal: 5,
+    progressMessage: 'Parsing pages',
+    createdAt: new Date('2026-04-24T10:00:00.000Z'),
+    cancelRequestedAt: null,
+    ...overrides,
+  }
+}
+
 describe('LibraryPage document actions', () => {
-  it('allows parsed documents to open reader and cards without exposing embedding actions', () => {
+  it('allows parsed documents to open reader, cards, and embedding generation', () => {
     const onOpenReader = vi.fn()
     const onOpenCards = vi.fn()
+    const onRunEmbedding = vi.fn()
 
     render(
       <LibraryPage
@@ -32,15 +52,46 @@ describe('LibraryPage document actions', () => {
         onUpload={vi.fn()}
         onOpenReader={onOpenReader}
         onOpenCards={onOpenCards}
+        onRunEmbedding={onRunEmbedding}
       />
     )
 
     fireEvent.click(screen.getByTestId('library-open-reader'))
     fireEvent.click(screen.getByTestId('library-open-cards'))
+    fireEvent.click(screen.getByTestId('library-run-embedding'))
 
     expect(onOpenReader).toHaveBeenCalledWith('doc-1')
     expect(onOpenCards).toHaveBeenCalledWith('doc-1')
+    expect(onRunEmbedding).toHaveBeenCalledWith('doc-1')
+  })
+
+  it('does not show embedding generation for ready documents', () => {
+    render(
+      <LibraryPage
+        documents={[makeDocument({ status: 'ready' })]}
+        onUpload={vi.fn()}
+        onOpenReader={vi.fn()}
+        onOpenCards={vi.fn()}
+        onRunEmbedding={vi.fn()}
+      />
+    )
+
     expect(screen.queryByTestId('library-run-embedding')).not.toBeInTheDocument()
+  })
+
+  it('uses background job progress for the processing banner', () => {
+    render(
+      <LibraryPage
+        documents={[makeDocument({ status: 'uploading' })]}
+        processingJobs={[makeProcessingJob({ progressCurrent: 2, progressTotal: 5 })]}
+        onUpload={vi.fn()}
+        onOpenReader={vi.fn()}
+        onOpenCards={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText('40%')).toBeInTheDocument()
+    expect(screen.queryByText('38%')).not.toBeInTheDocument()
   })
 
   it('confirms in a dialog before deleting the selected document', () => {
@@ -119,8 +170,9 @@ describe('LibraryPage document actions', () => {
     expect(screen.getByTestId('library-open-cards')).toBeDisabled()
   })
 
-  it('keeps embedding_failed documents readable without exposing embedding or retry parse actions', () => {
+  it('keeps embedding_failed documents readable and exposes embedding retry', () => {
     const onOpenReader = vi.fn()
+    const onRunEmbedding = vi.fn()
 
     render(
       <LibraryPage
@@ -128,13 +180,15 @@ describe('LibraryPage document actions', () => {
         onUpload={vi.fn()}
         onOpenReader={onOpenReader}
         onOpenCards={vi.fn()}
+        onRunEmbedding={onRunEmbedding}
       />
     )
 
     fireEvent.click(screen.getByTestId('library-open-reader'))
+    fireEvent.click(screen.getByTestId('library-run-embedding'))
 
     expect(onOpenReader).toHaveBeenCalledWith('doc-1')
-    expect(screen.queryByTestId('library-run-embedding')).not.toBeInTheDocument()
+    expect(onRunEmbedding).toHaveBeenCalledWith('doc-1')
     expect(screen.queryByTestId('library-retry-parse')).not.toBeInTheDocument()
     expect(screen.getByTestId('library-open-cards')).toBeVisible()
   })
@@ -199,6 +253,8 @@ describe('LibraryPage document actions', () => {
       />
     )
 
+    expect(screen.getByTestId('library-ai-generation-estimate')).toHaveTextContent('预计 8 页，约 12 张卡片')
+
     fireEvent.click(screen.getByTestId('library-start-ai-generation'))
     expect(onStart).toHaveBeenLastCalledWith(
       expect.objectContaining({ pageStart: null, pageEnd: null, density: 'medium' })
@@ -208,6 +264,7 @@ describe('LibraryPage document actions', () => {
     fireEvent.change(screen.getByTestId('library-ai-density'), { target: { value: 'high' } })
     fireEvent.change(screen.getByTestId('library-ai-page-start'), { target: { value: '2' } })
     fireEvent.change(screen.getByTestId('library-ai-page-end'), { target: { value: '5' } })
+    expect(screen.getByTestId('library-ai-generation-estimate')).toHaveTextContent('预计 4 页，约 20 张卡片')
     fireEvent.click(screen.getByTestId('library-start-ai-generation'))
 
     expect(onStart).toHaveBeenLastCalledWith(

@@ -3,6 +3,14 @@ import { Badge, Card, CardContent } from '@/shared/ui'
 import { CardContentRenderer } from './CardContentRenderer'
 import { SourceQuoteBlock } from './SourceQuoteBlock'
 
+const DOCUMENT_LABEL_MAX_CHARS = 20
+
+function truncateDocumentLabel(value: string, maxChars = DOCUMENT_LABEL_MAX_CHARS): string {
+  const trimmed = value.trim()
+  if (trimmed.length <= maxChars) return trimmed
+  return `${trimmed.slice(0, Math.max(0, maxChars - 3))}...`
+}
+
 export interface CardPreviewProps {
   front: string
   back: string
@@ -28,16 +36,21 @@ export function CardPreview({
   className,
   'data-testid': dataTestId,
 }: CardPreviewProps) {
-  const sourceLabel = [documentTitle?.trim(), pageLabel != null ? `P.${pageLabel}` : null]
+  const sourceLabel = [documentTitle?.trim() ? truncateDocumentLabel(documentTitle) : null, pageLabel != null ? `P.${pageLabel}` : null]
+    .filter(Boolean)
+    .join(' · ')
+  const fullSourceLabel = [documentTitle?.trim(), pageLabel != null ? `P.${pageLabel}` : null]
     .filter(Boolean)
     .join(' · ')
 
   return (
     <Card className={cn('gap-0 overflow-hidden', className)} data-testid={dataTestId}>
       <CardContent className="space-y-3 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           {sourceLabel ? (
-            <span className="truncate text-xs text-ink-soft">{sourceLabel}</span>
+            <span className="min-w-0 max-w-full truncate text-xs text-ink-soft" title={fullSourceLabel || sourceLabel}>
+              {sourceLabel}
+            </span>
           ) : (
             <span className="text-xs text-ink-soft">未标注来源</span>
           )}

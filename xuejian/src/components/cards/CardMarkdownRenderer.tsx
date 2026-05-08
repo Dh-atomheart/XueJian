@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
+import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import 'katex/dist/katex.min.css'
 import { cn } from '@/lib/utils'
@@ -8,12 +9,14 @@ export interface CardMarkdownRendererProps {
   content: string
   className?: string
   compact?: boolean
+  variant?: 'card' | 'knowledge'
 }
 
 export function CardMarkdownRenderer({
   content,
   className,
   compact = false,
+  variant = 'card',
 }: CardMarkdownRendererProps) {
   return (
     <div
@@ -26,11 +29,26 @@ export function CardMarkdownRenderer({
         'prose-pre:bg-paper-muted/50 prose-pre:border prose-pre:border-line-soft/40 prose-pre:rounded-lg',
         'prose-ul:my-1 prose-ol:my-1 prose-li:my-0',
         compact && 'text-sm line-clamp-4',
-        !compact && 'text-base',
+        'prose-table:my-0 prose-th:border prose-th:border-line-soft prose-th:bg-paper-muted prose-th:px-2 prose-th:py-1 prose-th:text-left',
+        'prose-td:border prose-td:border-line-soft prose-td:px-2 prose-td:py-1',
+        !compact && variant === 'card' && 'text-base',
+        variant === 'knowledge' && 'text-sm leading-6',
         className
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={{
+          table: ({ children, ...props }) => (
+            <div className="my-3 w-full overflow-x-auto rounded-lg border border-line-soft">
+              <table className="min-w-full border-collapse text-xs" {...props}>
+                {children}
+              </table>
+            </div>
+          ),
+        }}
+      >
         {content}
       </ReactMarkdown>
     </div>

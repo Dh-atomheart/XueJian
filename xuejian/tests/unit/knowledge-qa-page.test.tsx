@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import {
   getKnowledgeQaDisplayError,
@@ -46,6 +46,8 @@ function makeProps(overrides: Partial<KnowledgeQaPageProps> = {}): KnowledgeQaPa
     onOpenCitation: vi.fn(),
     onSelectConversation: vi.fn(),
     onNewConversation: vi.fn(),
+    onDeleteConversation: vi.fn(),
+    onDeleteTurn: vi.fn(),
     onRestartService: vi.fn(),
     onOpenSettings: vi.fn(),
     ...overrides,
@@ -67,10 +69,22 @@ describe('KnowledgeQaPage M14 polish', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '新建对话' }))
-    fireEvent.click(screen.getByRole('button', { name: /间隔重复讨论/ }))
+    fireEvent.click(screen.getByRole('button', { name: /打开对话 间隔重复讨论/ }))
 
     expect(onNewConversation).toHaveBeenCalledTimes(1)
     expect(onSelectConversation).toHaveBeenCalledWith('conversation-1')
+  })
+
+  it('confirms before deleting a conversation', () => {
+    const onDeleteConversation = vi.fn()
+
+    render(<KnowledgeQaPage {...makeProps({ onDeleteConversation })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /删除对话/ }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+
+    expect(onDeleteConversation).toHaveBeenCalledWith('conversation-1')
   })
 
   it('allows ready documents to be selected and submitted', async () => {
@@ -190,6 +204,169 @@ describe('KnowledgeQaPage M14 polish', () => {
     expect(onOpenCitation).not.toHaveBeenCalled()
   })
 
+  it('confirms before deleting a question and answer turn', () => {
+    const onDeleteTurn = vi.fn()
+
+    render(
+      <KnowledgeQaPage
+        {...makeProps({
+          turns: [
+            {
+              id: 'turn-delete',
+              question: 'question to delete',
+              answer: 'answer to delete',
+              answerMode: 'grounded',
+              retrievalStatus: 'ready',
+              status: 'answered',
+              errorMessage: null,
+              citations: [],
+            },
+          ],
+          onDeleteTurn,
+        })}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+
+    expect(onDeleteTurn).toHaveBeenCalledWith('turn-delete')
+  })
+
+  it('regenerates and copies an answered turn from the bottom action bar', async () => {
+    const onRetryQuestion = vi.fn()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+
+    render(
+      <KnowledgeQaPage
+        {...makeProps({
+          turns: [
+            {
+              id: 'turn-actions',
+              question: 'question with actions',
+              answer: 'answer to copy',
+              answerMode: 'grounded',
+              retrievalStatus: 'ready',
+              status: 'answered',
+              errorMessage: null,
+              citations: [],
+            },
+          ],
+          onRetryQuestion,
+        })}
+      />
+    )
+
+    const actions = screen.getByTestId('knowledge-qa-turn-actions')
+    expect(actions).toBeInTheDocument()
+    expect(actions).toHaveClass('justify-end')
+    expect(actions).not.toHaveClass('max-w-2xl')
+    const regenerateButton = screen.getByRole('button', { name: '重新生成' })
+    const copyButton = screen.getByRole('button', { name: '复制' })
+    const deleteButton = screen.getByRole('button', { name: '删除' })
+    expect(regenerateButton).toHaveTextContent('')
+    expect(copyButton).toHaveTextContent('')
+    expect(deleteButton).toHaveTextContent('')
+    fireEvent.focus(regenerateButton)
+    expect((await screen.findAllByText('重新生成')).length).toBeGreaterThan(0)
+    fireEvent.click(regenerateButton)
+    expect(onRetryQuestion).toHaveBeenCalledWith('turn-actions')
+
+    fireEvent.click(copyButton)
+    expect(writeText).toHaveBeenCalledWith('answer to copy')
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeInTheDocument()
+  })
+
+  it('disables regenerate actions while another answer is pending', () => {
+    const onRetryQuestion = vi.fn()
+
+    render(
+      <KnowledgeQaPage
+        {...makeProps({
+          isRegenerateDisabled: true,
+          turns: [
+            {
+              id: 'turn-actions-disabled',
+              question: 'question with disabled actions',
+              answer: 'answer',
+              answerMode: 'grounded',
+              retrievalStatus: 'ready',
+              status: 'answered',
+              errorMessage: null,
+              citations: [],
+            },
+          ],
+          onRetryQuestion,
+        })}
+      />
+    )
+
+    const regenerateButton = screen.getByRole('button', { name: '重新生成' })
+    expect(regenerateButton).toBeDisabled()
+    fireEvent.click(regenerateButton)
+    expect(onRetryQuestion).not.toHaveBeenCalled()
+  })
+
+  it('moves pending cancellation to the composer send button and rotates status words', () => {
+    vi.useFakeTimers()
+    const onCancelQuestion = vi.fn()
+
+    try {
+      const { unmount } = render(
+        <KnowledgeQaPage
+          {...makeProps({
+            turns: [
+              {
+                id: 'turn-pending',
+                question: 'pending question',
+                answer: null,
+                answerMode: null,
+                retrievalStatus: null,
+                status: 'pending',
+                errorMessage: null,
+                citations: [],
+              },
+            ],
+            onCancelQuestion,
+          })}
+        />
+      )
+
+      const messageScroll = screen.getByTestId('knowledge-qa-message-scroll')
+      expect(within(messageScroll).queryByRole('button', { name: '停止' })).not.toBeInTheDocument()
+      expect(screen.getByText('检索中')).toBeInTheDocument()
+
+      const stopButton = screen.getByRole('button', { name: '停止生成' })
+      fireEvent.click(stopButton)
+      expect(onCancelQuestion).toHaveBeenCalledWith('turn-pending')
+
+      act(() => {
+        vi.advanceTimersByTime(1400)
+      })
+      expect(screen.getByText('生成中')).toBeInTheDocument()
+
+      unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the normal send button when there is no pending turn', () => {
+    const onSubmit = vi.fn()
+
+    render(<KnowledgeQaPage {...makeProps({ onSubmit })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '发送问题' }))
+
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: '停止生成' })).not.toBeInTheDocument()
+  })
+
   it('renders a compact turn index and scrolls to indexed messages', async () => {
     const scrollIntoView = vi.fn()
     Element.prototype.scrollIntoView = scrollIntoView
@@ -277,6 +454,31 @@ describe('KnowledgeQaPage M14 polish', () => {
     expect(screen.getByText('当前资料中没有足够证据回答这个问题。')).toBeInTheDocument()
     expect(screen.getByText('当前资料不足以回答')).toBeInTheDocument()
     expect(screen.queryByText(/引用来源/)).not.toBeInTheDocument()
+  })
+
+  it('renders markdown tables in answered turns', async () => {
+    render(
+      <KnowledgeQaPage
+        {...makeProps({
+          turns: [
+            {
+              id: 'turn-markdown',
+              question: 'compare terms',
+              answer: '| 概念 | 说明 |\n| - | - |\n| RAG | 检索增强生成 |',
+              answerMode: 'grounded',
+              retrievalStatus: 'ready',
+              status: 'answered',
+              errorMessage: null,
+              citations: [],
+            },
+          ],
+        })}
+      />
+    )
+
+    expect(await screen.findByRole('table')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '概念' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: '检索增强生成' })).toBeInTheDocument()
   })
 
   it('maps provider and JSON errors to readable Chinese messages', () => {

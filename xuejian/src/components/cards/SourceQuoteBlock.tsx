@@ -2,6 +2,14 @@ import { ExternalLink, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/shared/ui'
 
+const DOCUMENT_LABEL_MAX_CHARS = 20
+
+function truncateDocumentLabel(value: string, maxChars = DOCUMENT_LABEL_MAX_CHARS): string {
+  const trimmed = value.trim()
+  if (trimmed.length <= maxChars) return trimmed
+  return `${trimmed.slice(0, Math.max(0, maxChars - 3))}...`
+}
+
 export interface SourceQuoteBlockProps {
   quote?: string | null
   documentTitle?: string | null
@@ -23,10 +31,14 @@ export function SourceQuoteBlock({
   return (
     <div className={cn('rounded-lg border border-line-soft bg-paper-muted/55 px-3 py-3', className)}>
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-ink-soft">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2 text-xs text-ink-soft">
             <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            {documentTitle?.trim() ? <span className="truncate">{documentTitle.trim()}</span> : null}
+            {documentTitle?.trim() ? (
+              <span className="min-w-0 max-w-full truncate" title={documentTitle.trim()}>
+                {truncateDocumentLabel(documentTitle)}
+              </span>
+            ) : null}
             {pageText ? <span className="shrink-0">{pageText}</span> : null}
             {!documentTitle?.trim() && !pageText ? <span>来源片段</span> : null}
           </div>

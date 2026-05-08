@@ -1,5 +1,11 @@
 # XueJian
 
+![Visitors](https://visitor-badge.laobi.icu/badge?page_id=Dh-atomheart.XueJian)
+![GitHub stars](https://img.shields.io/github/stars/Dh-atomheart/XueJian?style=flat-square)
+![GitHub forks](https://img.shields.io/github/forks/Dh-atomheart/XueJian?style=flat-square)
+![GitHub issues](https://img.shields.io/github/issues/Dh-atomheart/XueJian?style=flat-square)
+![License](https://img.shields.io/github/license/Dh-atomheart/XueJian?style=flat-square)
+
 XueJian 是一款本地优先的 PDF 学习闪卡桌面应用。它围绕“资料导入 -> 阅读加工 -> 卡片生成 -> 分组管理 -> 间隔复习 -> 学习反馈 -> 知识问答”的学习闭环，把 PDF 中的知识沉淀为可管理、可复习、可追踪的学习资产。
 
 项目当前以桌面端为主，优先保证本地数据、文档解析、卡片系统和复习流程稳定；AI 能力作为辅助生产工具，用于降低制卡和问答成本。

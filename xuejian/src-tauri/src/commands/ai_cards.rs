@@ -231,8 +231,11 @@ pub fn start_ai_card_generation(
 
         let payload_json = serde_json::to_string(&data)
             .map_err(|error| CommandError::Internal(error.to_string()))?;
+        let page_count =
+            effective_generation_page_count(document.page_count, data.page_start, data.page_end);
+        let chunk_limit = dynamic_chunk_limit(&data.density, page_count);
         let selected_chunks =
-            rank_generation_chunks(chunks, data.page_start, data.page_end, &data.density);
+            rank_generation_chunks(chunks, data.page_start, data.page_end, chunk_limit);
         if selected_chunks.is_empty() {
             return Err(CommandError::InvalidInput(
                 "The selected page range has no high-value text for AI cards".to_string(),
@@ -383,15 +386,25 @@ async fn execute_ai_card_generation_job_curated(
     payload: StartAiCardGenerationDto,
 ) -> CommandResult<()> {
     let started_at = Instant::now();
-    let (selected_chunks, valid_chunk_ids) = {
+    let (selected_chunks, valid_chunk_ids, card_limit) = {
         let state = app_handle.state::<AppState>();
         let db = state.lock_db()?;
         let document_repo = Mvp0DocumentRepository::new(db.connection());
+        let document = document_repo
+            .find_document_by_id(&payload.document_id)?
+            .ok_or(CommandError::NotFound)?;
+        let page_count = effective_generation_page_count(
+            document.page_count,
+            payload.page_start,
+            payload.page_end,
+        );
+        let chunk_limit = dynamic_chunk_limit(&payload.density, page_count);
+        let card_limit = dynamic_card_limit(&payload.density, page_count);
         let chunks = rank_generation_chunks(
             document_repo.list_chunks(&payload.document_id)?,
             payload.page_start,
             payload.page_end,
-            &payload.density,
+            chunk_limit,
         );
         if chunks.is_empty() {
             return Err(CommandError::InvalidInput(
@@ -402,7 +415,7 @@ async fn execute_ai_card_generation_job_curated(
             .iter()
             .map(|chunk| chunk.id.clone())
             .collect::<HashSet<_>>();
-        (chunks, valid_chunk_ids)
+        (chunks, valid_chunk_ids, card_limit)
     };
 
     let mut checkpoint = load_checkpoint(app_handle, job_id)?.unwrap_or_else(|| {
@@ -432,7 +445,6 @@ async fn execute_ai_card_generation_job_curated(
         &checkpoint.message,
     )?;
 
-    let card_limit = density_card_limit(&payload.density);
     while checkpoint.next_chunk_index < selected_chunks.len() && checkpoint.cards.len() < card_limit
     {
         if job_is_cancel_requested_or_cancelled(app_handle, job_id)? {
@@ -1137,19 +1149,38 @@ fn can_repair_ai_generation_status(parse_status: &str) -> bool {
     matches!(parse_status, "pending" | "parsing" | "failed")
 }
 
-fn density_card_limit(density: &str) -> usize {
+fn effective_generation_page_count(
+    document_page_count: Option<i32>,
+    page_start: Option<i32>,
+    page_end: Option<i32>,
+) -> usize {
+    if let (Some(start), Some(end)) = (page_start, page_end) {
+        if start > 0 && end >= start {
+            return (end - start + 1) as usize;
+        }
+    }
+
+    document_page_count
+        .filter(|count| *count > 0)
+        .map(|count| count as usize)
+        .unwrap_or(1)
+}
+
+fn dynamic_card_limit(density: &str, page_count: usize) -> usize {
+    let pages = page_count.max(1);
     match density {
-        "low" => 6,
-        "high" => 20,
-        _ => 12,
+        "low" => pages.div_ceil(2).max(6).min(40),
+        "high" => pages.saturating_mul(3).div_ceil(2).max(20).min(120),
+        _ => pages.max(12).min(80),
     }
 }
 
-fn density_chunk_limit(density: &str) -> usize {
+fn dynamic_chunk_limit(density: &str, page_count: usize) -> usize {
+    let pages = page_count.max(1);
     match density {
-        "low" => 10,
-        "high" => 28,
-        _ => 18,
+        "low" => pages.saturating_mul(3).div_ceil(2).max(10).min(80),
+        "high" => pages.saturating_mul(3).max(28).min(200),
+        _ => pages.saturating_mul(9).div_ceil(4).max(18).min(140),
     }
 }
 
@@ -1157,7 +1188,7 @@ fn rank_generation_chunks(
     chunks: Vec<Mvp0DocumentChunk>,
     page_start: Option<i32>,
     page_end: Option<i32>,
-    density: &str,
+    chunk_limit: usize,
 ) -> Vec<Mvp0DocumentChunk> {
     let mut seen = HashSet::new();
     let mut scored = filter_chunks(chunks, page_start, page_end)
@@ -1182,7 +1213,7 @@ fn rank_generation_chunks(
     });
     scored
         .into_iter()
-        .take(density_chunk_limit(density))
+        .take(chunk_limit)
         .map(|(_, chunk)| chunk)
         .collect()
 }
@@ -1286,6 +1317,23 @@ mod tests {
     use super::*;
     use crate::db::test_support::TestDatabase;
     use crate::db::{CreateMvp0CardGroupRequest, CreateMvp0DocumentRequest};
+
+    fn ranking_test_chunk(index: i32) -> Mvp0DocumentChunk {
+        let text = format!(
+            "Definition {index}: this method explains a learning principle because it compares evidence, result, and conclusion. The paragraph contains enough distinct explanatory content for a high quality card candidate and keeps a unique fingerprint for ranking."
+        );
+        Mvp0DocumentChunk {
+            id: format!("chunk-{index}"),
+            document_id: "doc".to_string(),
+            page_start: index,
+            page_end: index,
+            chunk_index: index,
+            char_count: text.len() as i32,
+            text,
+            parser: "test".to_string(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
 
     #[test]
     fn commit_ai_cards_writes_anchor_card_and_review_state_transactionally() {
@@ -1415,6 +1463,38 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_ai_card_limits_scale_by_effective_page_count() {
+        assert_eq!(dynamic_card_limit("low", 1), 6);
+        assert_eq!(dynamic_card_limit("medium", 1), 12);
+        assert_eq!(dynamic_card_limit("high", 1), 20);
+        assert_eq!(dynamic_card_limit("medium", 30), 30);
+        assert_eq!(dynamic_card_limit("high", 30), 45);
+        assert_eq!(dynamic_card_limit("medium", 200), 80);
+        assert_eq!(dynamic_card_limit("high", 200), 120);
+    }
+
+    #[test]
+    fn effective_ai_card_page_count_prefers_valid_range() {
+        assert_eq!(
+            effective_generation_page_count(Some(100), Some(10), Some(19)),
+            10
+        );
+        assert_eq!(effective_generation_page_count(Some(100), None, None), 100);
+        assert_eq!(effective_generation_page_count(None, None, None), 1);
+        assert_eq!(effective_generation_page_count(Some(50), Some(9), Some(3)), 50);
+    }
+
+    #[test]
+    fn dynamic_chunk_limits_scale_for_long_documents() {
+        assert_eq!(dynamic_chunk_limit("low", 1), 10);
+        assert_eq!(dynamic_chunk_limit("medium", 1), 18);
+        assert_eq!(dynamic_chunk_limit("high", 1), 28);
+        assert_eq!(dynamic_chunk_limit("high", 30), 90);
+        assert_eq!(dynamic_chunk_limit("medium", 200), 140);
+        assert_eq!(dynamic_chunk_limit("high", 200), 200);
+    }
+
+    #[test]
     fn curated_chunk_ranking_skips_low_value_and_limits_by_density() {
         let now = chrono::Utc::now().to_rfc3339();
         let mut chunks = vec![
@@ -1455,10 +1535,21 @@ mod tests {
             });
         }
 
-        let ranked = rank_generation_chunks(chunks, None, None, "low");
+        let chunk_limit = dynamic_chunk_limit("low", 1);
+        let ranked = rank_generation_chunks(chunks, None, None, chunk_limit);
         assert!(!ranked.iter().any(|chunk| chunk.id == "toc"));
         assert!(ranked.iter().any(|chunk| chunk.id == "definition"));
-        assert!(ranked.len() <= density_chunk_limit("low"));
+        assert!(ranked.len() <= chunk_limit);
+    }
+
+    #[test]
+    fn curated_chunk_ranking_accepts_more_than_old_high_limit_for_long_documents() {
+        let chunks = (1..=60).map(ranking_test_chunk).collect::<Vec<_>>();
+
+        let ranked = rank_generation_chunks(chunks, None, None, dynamic_chunk_limit("high", 30));
+
+        assert!(ranked.len() > 28);
+        assert_eq!(ranked.len(), 60);
     }
 
     #[test]

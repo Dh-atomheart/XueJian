@@ -1,25 +1,36 @@
+import { useEffect, useState, type ReactNode } from 'react'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import {
+  Copy,
   FileText,
   History,
   Loader2,
   MessageSquare,
   Plus,
   RefreshCcw,
+  RotateCcw,
   Send,
   Square,
+  Trash2,
 } from 'lucide-react'
 import {
   Badge,
   Button,
   Card,
   CardContent,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   InlineError,
   Input,
   Tooltip,
   UnconfiguredState,
 } from '@/shared/ui'
 import { cn } from '@/lib/utils'
+import { CardMarkdownRenderer } from '@/components/cards/CardMarkdownRenderer'
 
 export interface KnowledgeQaDocumentScope {
   id: string
@@ -85,6 +96,7 @@ export interface KnowledgeQaPageProps {
   citations: KnowledgeQaCitationView[]
   searchResults: KnowledgeQaSearchResultView[]
   isSubmitting?: boolean
+  isRegenerateDisabled?: boolean
   hasConfiguration?: boolean
   submitDisabledReason?: string | null
   serviceWarningTitle?: string | null
@@ -100,6 +112,8 @@ export interface KnowledgeQaPageProps {
   onOpenCitation: (documentId: string) => void
   onSelectConversation: (conversationId: string) => void
   onNewConversation: () => void
+  onDeleteConversation: (conversationId: string) => void
+  onDeleteTurn: (turnId: string) => void
   onRestartService: () => void
   onOpenSettings: () => void
 }
@@ -111,6 +125,19 @@ const EXAMPLE_PROMPTS = [
   '列出资料中支持这个结论的证据。',
 ]
 
+const STREAMING_STATUS_WORDS = [
+  '检索中',
+  '生成中',
+  '搜罗中',
+  '筛选中',
+  '整理中',
+  '归纳中',
+  '核对中',
+  '引用中',
+  '组织中',
+  '收束中',
+]
+
 const DOCUMENT_STATUS_LABELS: Record<KnowledgeQaDocumentScope['status'], string> = {
   ready: '已向量化',
   embedding_missing: '未向量化',
@@ -118,37 +145,22 @@ const DOCUMENT_STATUS_LABELS: Record<KnowledgeQaDocumentScope['status'], string>
   embedding_failed: '向量失败',
 }
 
-function PageHeader({ scopedCount }: { scopedCount: number }) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">RAG ASSISTANT</p>
-        <h1 className="mt-1 text-2xl font-medium text-foreground" data-testid="app-shell-page-title">
-          知识问答
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          仅基于已解析并完成向量化的文档回答。没有足够证据时会拒答。
-        </p>
-      </div>
-      <div className="hidden rounded-lg border border-line-soft bg-paper-card px-3 py-2 text-xs text-ink-muted sm:block">
-        当前范围：
-        <span className="font-medium text-ink">
-          {scopedCount > 0 ? `${scopedCount} 份文档` : '全部已向量化文档'}
-        </span>
-      </div>
-    </div>
-  )
-}
+type DeleteTarget =
+  | { type: 'conversation'; id: string; title: string }
+  | { type: 'turn'; id: string; question: string }
 
 function ConversationsPanel({
   conversations,
   activeConversationId,
   onSelectConversation,
   onNewConversation,
+  onRequestDelete,
 }: Pick<
   KnowledgeQaPageProps,
   'conversations' | 'activeConversationId' | 'onSelectConversation' | 'onNewConversation'
->) {
+> & {
+  onRequestDelete: (conversation: KnowledgeQaConversationView) => void
+}) {
   return (
     <Card className="h-full border-border/50 bg-card/92" data-testid="knowledge-qa-conversations">
       <CardContent className="flex h-full min-h-0 flex-col p-4">
@@ -171,17 +183,21 @@ function ConversationsPanel({
             conversations.map((conversation) => {
               const active = conversation.id === activeConversationId
               return (
-                <button
+                <div
                   key={conversation.id}
-                  type="button"
-                  onClick={() => onSelectConversation(conversation.id)}
                   className={cn(
-                    'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                    'group/conversation flex w-full items-start gap-2 rounded-lg border px-3 py-3 text-left transition-colors',
                     active
                       ? 'border-foreground/20 bg-foreground/[0.06] text-foreground'
                       : 'border-border/45 bg-card/70 text-muted-foreground hover:border-border hover:bg-muted/35 hover:text-foreground'
                   )}
                 >
+                  <button
+                    type="button"
+                    aria-label={`打开对话 ${conversation.title}`}
+                    onClick={() => onSelectConversation(conversation.id)}
+                    className="min-w-0 flex-1 text-left"
+                  >
                   <span className="block truncate text-sm font-medium">{conversation.title}</span>
                   <span className="mt-1 flex items-center justify-between gap-2 text-[11px]">
                     <span>{formatConversationTime(conversation.updatedAt)}</span>
@@ -191,7 +207,16 @@ function ConversationsPanel({
                         : '全部文档'}
                     </span>
                   </span>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`删除对话 ${conversation.title}`}
+                    onClick={() => onRequestDelete(conversation)}
+                    className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/25 group-hover/conversation:opacity-100"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               )
             })
           )}
@@ -427,12 +452,14 @@ function AssistantMessage({
   answerMode,
   retrievalStatus,
   anchorId,
+  actions,
 }: {
   content: string
   citations: KnowledgeQaCitationView[]
   answerMode?: KnowledgeQaTurnView['answerMode']
   retrievalStatus?: KnowledgeQaTurnView['retrievalStatus']
   anchorId: string
+  actions?: ReactNode
 }) {
   return (
     <div id={anchorId} className="scroll-mt-4">
@@ -444,29 +471,33 @@ function AssistantMessage({
           <Card className="mt-2 border-border/50 bg-card">
             <CardContent className="p-4">
               <AnswerMeta answerMode={answerMode} retrievalStatus={retrievalStatus} />
-              <div className="prose prose-sm max-w-none text-foreground">
-                {content.split('\n\n').map((paragraph, idx) => (
-                  <p key={idx} className="mb-3 text-sm leading-relaxed last:mb-0">
-                    {paragraph}
-                    {idx === 0 && citations.length > 0 ? (
-                      <span className="whitespace-nowrap">
-                        {citations.map((citation, citationIndex) => (
-                          <CitationBadge key={citation.id} citation={citation} index={citationIndex} />
-                        ))}
-                      </span>
-                    ) : null}
-                  </p>
-                ))}
-              </div>
+              <CardMarkdownRenderer content={content} variant="knowledge" />
+              {citations.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-1.5" aria-label="引用">
+                  {citations.map((citation, citationIndex) => (
+                    <CitationBadge key={citation.id} citation={citation} index={citationIndex} />
+                  ))}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
+          {actions}
         </div>
       </div>
     </div>
   )
 }
 
-function StreamingIndicator({ onCancel, anchorId }: { onCancel: () => void; anchorId: string }) {
+function StreamingIndicator({ anchorId }: { anchorId: string }) {
+  const [statusIndex, setStatusIndex] = useState(0)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setStatusIndex((current) => (current + 1) % STREAMING_STATUS_WORDS.length)
+    }, 1400)
+    return () => window.clearInterval(timer)
+  }, [])
+
   return (
     <div id={anchorId} className="scroll-mt-4">
       <div className="flex items-center gap-3">
@@ -474,11 +505,7 @@ function StreamingIndicator({ onCancel, anchorId }: { onCancel: () => void; anch
         <Card className="border-border/50 bg-card">
           <CardContent className="flex items-center gap-2 p-3">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">正在检索资料并生成回答</span>
-            <Button variant="outline" size="sm" className="h-7 gap-1 rounded-lg text-xs" onClick={onCancel}>
-              <Square className="h-3 w-3" />
-              停止
-            </Button>
+            <span className="min-w-12 text-xs text-muted-foreground">{STREAMING_STATUS_WORDS[statusIndex]}</span>
           </CardContent>
         </Card>
       </div>
@@ -633,13 +660,117 @@ function IndexMark({
   )
 }
 
+function TurnActions({
+  answer,
+  copied,
+  onCopy,
+  onRegenerate,
+  regenerateDisabled,
+  onDelete,
+}: {
+  answer?: string | null
+  copied?: boolean
+  onCopy: () => void
+  onRegenerate?: () => void
+  regenerateDisabled?: boolean
+  onDelete: () => void
+}) {
+  const canCopy = Boolean(answer?.trim())
+  const copyLabel = copied ? '已复制' : '复制'
+  return (
+    <div className="mt-2 flex justify-end gap-1 pr-1" data-testid="knowledge-qa-turn-actions">
+      <Tooltip content="重新生成" delayDuration={120}>
+        <Button
+          type="button"
+          aria-label="重新生成"
+          variant="ghost"
+          size="icon-sm"
+          className="h-7 w-7 rounded-md text-muted-foreground"
+          onClick={onRegenerate}
+          disabled={!onRegenerate || regenerateDisabled}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </Button>
+      </Tooltip>
+      <Tooltip content={copyLabel} delayDuration={120}>
+        <Button
+          type="button"
+          aria-label={copyLabel}
+          variant="ghost"
+          size="icon-sm"
+          className="h-7 w-7 rounded-md text-muted-foreground"
+          onClick={onCopy}
+          disabled={!canCopy}
+        >
+          <Copy className="h-3.5 w-3.5" />
+        </Button>
+      </Tooltip>
+      <Tooltip content="删除" delayDuration={120}>
+        <Button
+          type="button"
+          aria-label="删除"
+          variant="ghost"
+          size="icon-sm"
+          className="h-7 w-7 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDelete}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </Tooltip>
+    </div>
+  )
+}
+
+function DeleteConfirmDialog({
+  target,
+  onClose,
+  onConfirm,
+}: {
+  target: DeleteTarget | null
+  onClose: () => void
+  onConfirm: (target: DeleteTarget) => void
+}) {
+  const isConversation = target?.type === 'conversation'
+  const description =
+    target?.type === 'conversation'
+      ? `将永久删除对话「${target.title}」以及其中的全部问答。`
+      : `将永久删除这一次提问和对应回答：${target?.type === 'turn' ? previewText(target.question) : ''}`
+  return (
+    <Dialog open={Boolean(target)} onOpenChange={(open) => (!open ? onClose() : undefined)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{isConversation ? '删除对话' : '删除问答'}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            取消
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              if (target) {
+                onConfirm(target)
+              }
+            }}
+          >
+            确认删除
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ChatInput({
   question,
   documents,
   isSubmitting,
   submitDisabledReason,
+  activePendingTurnId,
   onQuestionChange,
   onSubmit,
+  onCancelActiveQuestion,
   selectedDocumentIds,
   onToggleDocument,
   onClearDocuments,
@@ -654,10 +785,16 @@ function ChatInput({
   | 'selectedDocumentIds'
   | 'onToggleDocument'
   | 'onClearDocuments'
->) {
+> & {
+  activePendingTurnId: string | null
+  onCancelActiveQuestion: (turnId: string) => void
+}) {
   const submitDisabled = Boolean(isSubmitting || submitDisabledReason)
   return (
-    <div className="shrink-0 border-t border-border/30 bg-background/96 p-4 backdrop-blur">
+    <div
+      className="shrink-0 border-t border-border/30 bg-background/96 p-4 backdrop-blur"
+      data-testid="knowledge-qa-toolbar"
+    >
       <div className="flex items-center gap-3">
         <DropdownMenuPrimitive.Root modal={false}>
           <DropdownMenuPrimitive.Trigger asChild>
@@ -692,14 +829,27 @@ function ChatInput({
           className="h-11 flex-1 rounded-xl border-border/50 bg-card px-4"
           disabled={Boolean(isSubmitting)}
         />
-        <Button
-          className="h-11 w-11 rounded-xl p-0"
-          onClick={onSubmit}
-          disabled={submitDisabled || !question.trim()}
-          aria-label="发送问题"
-        >
-          {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-5 w-5" />}
-        </Button>
+        {activePendingTurnId ? (
+          <Tooltip content="停止生成" delayDuration={120}>
+            <Button
+              className="h-11 w-11 rounded-xl p-0"
+              onClick={() => onCancelActiveQuestion(activePendingTurnId)}
+              aria-label="停止生成"
+              variant="outline"
+            >
+              <Square className="h-4 w-4" />
+            </Button>
+          </Tooltip>
+        ) : (
+          <Button
+            className="h-11 w-11 rounded-xl p-0"
+            onClick={onSubmit}
+            disabled={submitDisabled || !question.trim()}
+            aria-label="发送问题"
+          >
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-5 w-5" />}
+          </Button>
+        )}
       </div>
       <p className="mt-2 text-center text-xs text-muted-foreground">
         {submitDisabledReason ?? '回答只使用当前检索到的文档片段，不使用通用知识补全。'}
@@ -710,16 +860,27 @@ function ChatInput({
 
 export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
   const isEmpty = props.turns.length === 0
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [copiedTurnId, setCopiedTurnId] = useState<string | null>(null)
+  const activePendingTurn = [...props.turns].reverse().find((turn) => turn.status === 'pending') ?? null
+  const regenerateDisabled = Boolean(props.isRegenerateDisabled || activePendingTurn)
+
+  const handleCopyAnswer = (turnId: string, answer?: string | null) => {
+    if (!answer?.trim()) {
+      return
+    }
+    void copyTextToClipboard(answer).then(() => {
+      setCopiedTurnId(turnId)
+      window.setTimeout(() => setCopiedTurnId((current) => (current === turnId ? null : current)), 1600)
+    })
+  }
 
   if (!props.hasConfiguration) {
     return (
       <div
-        className="flex h-[calc(100vh-7.25rem)] min-h-[520px] flex-col overflow-hidden md:h-[calc(100vh-4.5rem)]"
+        className="flex h-full min-h-0 flex-col overflow-hidden"
         data-testid="knowledge-qa-page"
       >
-        <div className="shrink-0 p-6 pb-0">
-          <PageHeader scopedCount={props.selectedDocumentIds.length} />
-        </div>
         <div className="flex flex-1 items-center justify-center p-6">
           <UnconfiguredState feature="知识问答" onConfigure={props.onOpenSettings} />
         </div>
@@ -728,8 +889,10 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
           documents={props.documents}
           isSubmitting={props.isSubmitting}
           submitDisabledReason={props.submitDisabledReason}
+          activePendingTurnId={activePendingTurn?.id ?? null}
           onQuestionChange={props.onQuestionChange}
           onSubmit={props.onSubmit}
+          onCancelActiveQuestion={props.onCancelQuestion}
           selectedDocumentIds={props.selectedDocumentIds}
           onToggleDocument={props.onToggleDocument}
           onClearDocuments={props.onClearDocuments}
@@ -740,15 +903,11 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
 
   return (
     <div
-      className="flex h-[calc(100vh-7.25rem)] min-h-[520px] flex-col overflow-hidden md:h-[calc(100vh-4.5rem)]"
+      className="flex h-full min-h-0 flex-col overflow-hidden"
       data-testid="knowledge-qa-page"
     >
-      <div className="shrink-0 p-6 pb-4">
-        <PageHeader scopedCount={props.selectedDocumentIds.length} />
-      </div>
-
       {props.serviceWarningTitle ? (
-        <div className="shrink-0 px-6 pb-4">
+        <div className="shrink-0 px-6 pb-4 pt-6">
           <WarningBanner
             title={props.serviceWarningTitle}
             message={props.serviceWarningMessage}
@@ -758,13 +917,16 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 gap-4 overflow-hidden px-6 pb-0 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_32px]">
+      <div className="grid min-h-0 flex-1 gap-4 overflow-hidden px-6 pb-0 pt-6 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_32px]">
         <aside className="hidden min-h-0 overflow-hidden pb-4 lg:block">
           <ConversationsPanel
             conversations={props.conversations}
             activeConversationId={props.activeConversationId}
             onSelectConversation={props.onSelectConversation}
             onNewConversation={props.onNewConversation}
+            onRequestDelete={(conversation) =>
+              setDeleteTarget({ type: 'conversation', id: conversation.id, title: conversation.title })
+            }
           />
         </aside>
 
@@ -778,9 +940,12 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                   turn.status === 'pending' ? (
                     <div key={turn.id} className="space-y-4">
                       <UserMessage content={turn.question} anchorId={messageAnchor(turn.id, 'user')} />
-                      <StreamingIndicator
-                        onCancel={() => props.onCancelQuestion(turn.id)}
-                        anchorId={messageAnchor(turn.id, 'assistant')}
+                      <StreamingIndicator anchorId={messageAnchor(turn.id, 'assistant')} />
+                      <TurnActions
+                        answer={null}
+                        onCopy={() => undefined}
+                        regenerateDisabled={regenerateDisabled}
+                        onDelete={() => setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })}
                       />
                     </div>
                   ) : turn.status === 'cancelled' ? (
@@ -789,6 +954,13 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                       <CancelledNotice
                         message={turn.errorMessage}
                         anchorId={messageAnchor(turn.id, 'assistant')}
+                      />
+                      <TurnActions
+                        answer={null}
+                        onCopy={() => undefined}
+                        onRegenerate={() => props.onRetryQuestion(turn.id)}
+                        regenerateDisabled={regenerateDisabled}
+                        onDelete={() => setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })}
                       />
                     </div>
                   ) : turn.status === 'error' ? (
@@ -800,6 +972,13 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                           onRetry={() => props.onRetryQuestion(turn.id)}
                         />
                       </div>
+                      <TurnActions
+                        answer={null}
+                        onCopy={() => undefined}
+                        onRegenerate={() => props.onRetryQuestion(turn.id)}
+                        regenerateDisabled={regenerateDisabled}
+                        onDelete={() => setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })}
+                      />
                     </div>
                   ) : (
                     <div key={turn.id} className="space-y-4">
@@ -810,6 +989,16 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                         retrievalStatus={turn.retrievalStatus}
                         citations={turn.citations}
                         anchorId={messageAnchor(turn.id, 'assistant')}
+                        actions={
+                          <TurnActions
+                            answer={turn.answer}
+                            copied={copiedTurnId === turn.id}
+                            onCopy={() => handleCopyAnswer(turn.id, turn.answer)}
+                            onRegenerate={() => props.onRetryQuestion(turn.id)}
+                            regenerateDisabled={regenerateDisabled}
+                            onDelete={() => setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })}
+                          />
+                        }
                       />
                     </div>
                   )
@@ -827,11 +1016,25 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
         documents={props.documents}
         isSubmitting={props.isSubmitting}
         submitDisabledReason={props.submitDisabledReason}
+        activePendingTurnId={activePendingTurn?.id ?? null}
         onQuestionChange={props.onQuestionChange}
         onSubmit={props.onSubmit}
+        onCancelActiveQuestion={props.onCancelQuestion}
         selectedDocumentIds={props.selectedDocumentIds}
         onToggleDocument={props.onToggleDocument}
         onClearDocuments={props.onClearDocuments}
+      />
+      <DeleteConfirmDialog
+        target={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={(target) => {
+          if (target.type === 'conversation') {
+            props.onDeleteConversation(target.id)
+          } else {
+            props.onDeleteTurn(target.id)
+          }
+          setDeleteTarget(null)
+        }}
       />
     </div>
   )
@@ -872,4 +1075,21 @@ function previewText(value: string) {
 
 function scrollToMessage(targetId: string) {
   document.getElementById(targetId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+
+async function copyTextToClipboard(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
 }

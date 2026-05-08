@@ -67,6 +67,24 @@ export async function getKnowledgeQaConversation(
   })
 }
 
+export async function deleteKnowledgeQaConversation(conversationId: string): Promise<boolean> {
+  return invokeWithSchema('delete_knowledge_qa_conversation', z.boolean(), {
+    conversationId,
+  })
+}
+
+export async function deleteKnowledgeQaTurn(messageId: string): Promise<boolean> {
+  return invokeWithSchema('delete_knowledge_qa_turn', z.boolean(), {
+    messageId,
+  })
+}
+
+export async function regenerateKnowledgeQaTurn(messageId: string): Promise<SendKnowledgeQaMessageResult> {
+  return invokeWithSchema('regenerate_knowledge_qa_turn', sendKnowledgeQaMessageResultSchema, {
+    messageId,
+  })
+}
+
 export async function sendKnowledgeQaMessage(
   input: SendKnowledgeQaMessageInput
 ): Promise<SendKnowledgeQaMessageResult> {

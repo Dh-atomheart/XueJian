@@ -22,4 +22,12 @@ describe('CardContentRenderer', () => {
 
     expect(container.firstElementChild?.className).toContain('line-clamp-4')
   })
+
+  it('renders GFM tables', async () => {
+    render(<CardContentRenderer content={'| A | B |\n| - | - |\n| 1 | 2 |'} />)
+
+    expect(await screen.findByRole('table')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'A' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: '2' })).toBeInTheDocument()
+  })
 })

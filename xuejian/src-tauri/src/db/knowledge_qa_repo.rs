@@ -107,6 +107,14 @@ impl<'a> KnowledgeQaRepository<'a> {
         Ok(())
     }
 
+    pub fn delete_conversation(&self, id: &str) -> Result<bool> {
+        let affected = self.db.connection().execute(
+            "DELETE FROM knowledge_qa_conversations WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(affected > 0)
+    }
+
     pub fn list_messages(&self, conversation_id: &str) -> Result<Vec<KnowledgeQaMessage>> {
         let mut stmt = self.db.connection().prepare(
             "SELECT id, conversation_id, role, content, status, workflow_run_id,
@@ -220,6 +228,38 @@ impl<'a> KnowledgeQaRepository<'a> {
         )?;
 
         self.get_message(id)
+    }
+
+    pub fn reset_assistant_message_for_retry(
+        &self,
+        id: &str,
+        workflow_run_id: &str,
+    ) -> Result<Option<KnowledgeQaMessage>> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.db.connection().execute(
+            "UPDATE knowledge_qa_messages
+             SET status = 'pending',
+                 content = '',
+                 workflow_run_id = ?1,
+                 answer_payload = NULL,
+                 error_message = NULL,
+                 updated_at = ?2
+             WHERE id = ?3 AND role = 'assistant'",
+            params![workflow_run_id, &now, id],
+        )?;
+
+        self.get_message(id)
+    }
+
+    pub fn delete_messages(&self, ids: &[String]) -> Result<usize> {
+        let mut affected = 0;
+        for id in ids {
+            affected += self.db.connection().execute(
+                "DELETE FROM knowledge_qa_messages WHERE id = ?1",
+                params![id],
+            )?;
+        }
+        Ok(affected)
     }
 }
 

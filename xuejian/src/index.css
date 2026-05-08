@@ -104,14 +104,18 @@
 }
 
 html {
+  height: 100%;
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
 }
 
 body {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   background:
     radial-gradient(
       circle at top left,
@@ -129,7 +133,9 @@ body {
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .paper-texture {

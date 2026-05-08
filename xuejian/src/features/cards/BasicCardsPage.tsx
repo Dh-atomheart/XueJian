@@ -1,4 +1,4 @@
-import { type ReactNode, useDeferredValue, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useDeferredValue, useEffect, useState } from 'react'
 import { BookOpen, Filter, FolderPlus, Layers3, PencilLine, Plus, Search, Trash2 } from 'lucide-react'
 import {
   Badge,
@@ -59,12 +59,21 @@ type GroupEditorState = {
 }
 
 const ALL_FILTER = '__all__'
+const CARDS_PAGE_SIZE = 6
+const DOCUMENT_LABEL_MAX_CHARS = 20
 const EMPTY_GROUPS: BasicCardGroup[] = []
 const EMPTY_DOCUMENTS: Document[] = []
 const EMPTY_CARDS: BasicCard[] = []
 
+function truncateDocumentLabel(value: string, maxChars = DOCUMENT_LABEL_MAX_CHARS): string {
+  const trimmed = value.trim()
+  if (trimmed.length <= maxChars) return trimmed
+  return `${trimmed.slice(0, Math.max(0, maxChars - 3))}...`
+}
+
 export function BasicCardsPage() {
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const setPageHeaderActions = useAppUiStore((state) => state.setPageHeaderActions)
   const openReader = useAppUiStore((state) => state.openReader)
   const preferredBasicCardsDocumentId = useAppUiStore((state) => state.preferredBasicCardsDocumentId)
   const setPreferredBasicCardsDocumentId = useAppUiStore((state) => state.setPreferredBasicCardsDocumentId)
@@ -74,6 +83,7 @@ export function BasicCardsPage() {
   const [tagQuery, setTagQuery] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
   const [cardEditor, setCardEditor] = useState<CardEditorState | null>(null)
   const [groupEditor, setGroupEditor] = useState<GroupEditorState | null>(null)
   const [deleteDialog, setDeleteDialog] = useState<
@@ -107,6 +117,12 @@ export function BasicCardsPage() {
   const groups = groupsQuery.data ?? EMPTY_GROUPS
   const documents = documentsQuery.data ?? EMPTY_DOCUMENTS
   const cards = cardsQuery.data ?? EMPTY_CARDS
+  const totalPages = Math.max(1, Math.ceil(cards.length / CARDS_PAGE_SIZE))
+  const safeCurrentPage = Math.min(currentPage, totalPages)
+  const pageStartIndex = (safeCurrentPage - 1) * CARDS_PAGE_SIZE
+  const pagedCards = cards.slice(pageStartIndex, pageStartIndex + CARDS_PAGE_SIZE)
+  const visibleStart = cards.length === 0 ? 0 : pageStartIndex + 1
+  const visibleEnd = Math.min(cards.length, pageStartIndex + pagedCards.length)
   const activeGroups = groups.filter((group) => !group.deletedAt)
   const enabledGroups = activeGroups.filter((group) => group.isEnabled)
   const isBusy =
@@ -130,7 +146,15 @@ export function BasicCardsPage() {
     setSelectedCardIds((current) => current.filter((id) => cards.some((card) => card.id === id)))
   }, [cards, cardsQuery.data])
 
-  function openCreateCard() {
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedGroupId, selectedDocumentId, deferredSearchQuery, deferredTagQuery])
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages))
+  }, [totalPages])
+
+  const openCreateCard = useCallback(() => {
     if (activeGroups.length === 0) {
       setActionError('请先创建一个卡片分组。')
       setGroupEditor({ mode: 'create', groupId: null, name: '', description: '', color: '' })
@@ -150,7 +174,7 @@ export function BasicCardsPage() {
       back: '',
       tags: '',
     })
-  }
+  }, [activeGroups, selectedDocumentId, selectedGroupId])
 
   function openEditCard(card: BasicCard) {
     setActionError(null)
@@ -167,10 +191,30 @@ export function BasicCardsPage() {
     })
   }
 
-  function openCreateGroup() {
+  const openCreateGroup = useCallback(() => {
     setActionError(null)
     setGroupEditor({ mode: 'create', groupId: null, name: '', description: '', color: '' })
-  }
+  }, [])
+
+  useEffect(() => {
+    setPageHeaderActions([
+      {
+        id: 'create-group',
+        label: '新建分组',
+        icon: FolderPlus,
+        variant: 'outline',
+        onClick: openCreateGroup,
+      },
+      {
+        id: 'create-card',
+        label: '新建卡片',
+        icon: Plus,
+        onClick: openCreateCard,
+      },
+    ])
+
+    return () => setPageHeaderActions([])
+  }, [openCreateCard, openCreateGroup, setPageHeaderActions])
 
   function openEditGroup(group: BasicCardGroup) {
     setActionError(null)
@@ -271,7 +315,7 @@ export function BasicCardsPage() {
     )
   }
 
-  const allVisibleSelected = cards.length > 0 && cards.every((card) => selectedCardIds.includes(card.id))
+  const allVisibleSelected = pagedCards.length > 0 && pagedCards.every((card) => selectedCardIds.includes(card.id))
 
   function openCardSource(card: BasicCard) {
     if (!card.source.documentId) return
@@ -307,30 +351,9 @@ export function BasicCardsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-5 py-5">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-5 py-5">
       <section className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-ink-soft">Card Workbench</p>
-            <h1 className="mt-1 text-2xl font-medium text-ink" data-testid="app-shell-page-title">
-              Basic 卡片
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-ink-muted">
-              管理手工沉淀的 Basic 卡片，按分组、文档和标签整理素材，为单卡复习保留稳定来源。
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={openCreateGroup}>
-              <FolderPlus className="h-4 w-4" />
-              新建分组
-            </Button>
-            <Button onClick={openCreateCard}>
-              <Plus className="h-4 w-4" />
-              新建卡片
-            </Button>
-          </div>
-        </div>
-
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard label="分组" value={String(activeGroups.length)} hint={`${enabledGroups.length} 个已启用`} />
           <StatCard label="当前结果" value={String(cards.length)} hint="受筛选条件影响的卡片数量" />
@@ -472,8 +495,17 @@ export function BasicCardsPage() {
               <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-4">
                 <Button
                   variant="outline"
-                  onClick={() => setSelectedCardIds(allVisibleSelected ? [] : cards.map((card) => card.id))}
-                  disabled={cards.length === 0}
+                  onClick={() =>
+                    setSelectedCardIds((current) => {
+                      const pageIds = pagedCards.map((card) => card.id)
+                      if (allVisibleSelected) {
+                        return current.filter((id) => !pageIds.includes(id))
+                      }
+                      return Array.from(new Set([...current, ...pageIds]))
+                    })
+                  }
+                  disabled={pagedCards.length === 0}
+                  aria-label={allVisibleSelected ? '取消选择本页' : '选择本页'}
                   data-testid="basic-cards-select-visible"
                 >
                   {allVisibleSelected ? '取消全选' : '选择当前结果'}
@@ -512,12 +544,13 @@ export function BasicCardsPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 xl:grid-cols-2">
-              {cards.map((card) => (
+            <div className="space-y-3">
+              <div className="grid gap-4 xl:grid-cols-2">
+              {pagedCards.map((card) => (
                 <Card key={card.id} data-testid={`basic-card-${card.id}`}>
                   <CardHeader className="border-b border-line-soft">
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="flex min-w-0 gap-3">
+                      <div className="flex min-w-0 flex-1 gap-3">
                         <input
                           type="checkbox"
                           aria-label={`选择卡片 ${card.title}`}
@@ -526,13 +559,22 @@ export function BasicCardsPage() {
                           className="mt-1 h-4 w-4 rounded border-line-soft"
                           data-testid={`basic-card-select-${card.id}`}
                         />
-                        <div className="min-w-0 space-y-2">
-                          <CardTitle className="text-base leading-6">{card.title}</CardTitle>
-                          <div className="flex flex-wrap gap-2">
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <CardTitle className="truncate text-base leading-6" title={card.title}>{card.title}</CardTitle>
+                          <div className="flex min-w-0 max-w-full flex-wrap gap-2 overflow-hidden">
                             <Badge variant="secondary">{card.groupName}</Badge>
                             {card.origin === 'ai' ? <Badge variant="outline">AI 生成</Badge> : null}
                             {card.source.documentTitle ? (
-                              <Badge variant="outline">
+                              <Badge
+                                variant="outline"
+                                className="inline-flex min-w-0 max-w-full overflow-hidden text-[0] after:hidden"
+                                data-title={`文档：${card.source.documentTitle}${card.source.page ? ` · p.${card.source.page}` : ''}`}
+                                title={`${card.source.documentTitle}${card.source.page ? ` · p.${card.source.page}` : ''}`}
+                              >
+                                <span className="min-w-0 truncate text-xs">
+                                  文档：{truncateDocumentLabel(card.source.documentTitle)}
+                                  {card.source.page ? ` · p.${card.source.page}` : ''}
+                                </span>
                                 文档：{card.source.documentTitle}
                                 {card.source.page ? ` · p.${card.source.page}` : ''}
                               </Badge>
@@ -583,6 +625,15 @@ export function BasicCardsPage() {
                   </CardContent>
                 </Card>
               ))}
+              </div>
+              <PaginationControls
+                currentPage={safeCurrentPage}
+                totalPages={totalPages}
+                visibleStart={visibleStart}
+                visibleEnd={visibleEnd}
+                totalItems={cards.length}
+                onPageChange={setCurrentPage}
+              />
             </div>
           )}
         </div>
@@ -623,6 +674,54 @@ export function BasicCardsPage() {
           if (current.type === 'group') void handleDeleteGroup(current.group)
         }}
       />
+      </div>
+    </div>
+  )
+}
+
+function PaginationControls({
+  currentPage,
+  totalPages,
+  visibleStart,
+  visibleEnd,
+  totalItems,
+  onPageChange,
+}: {
+  currentPage: number
+  totalPages: number
+  visibleStart: number
+  visibleEnd: number
+  totalItems: number
+  onPageChange: (page: number) => void
+}) {
+  if (totalItems <= CARDS_PAGE_SIZE) return null
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line-soft bg-paper-card px-3 py-3 text-xs text-ink-muted sm:flex-row sm:items-center sm:justify-between">
+      <span>
+        显示 {visibleStart}-{visibleEnd} / {totalItems}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          disabled={currentPage <= 1}
+        >
+          上一页
+        </Button>
+        <span className="min-w-16 text-center">
+          第 {currentPage} / {totalPages} 页
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          disabled={currentPage >= totalPages}
+        >
+          下一页
+        </Button>
+      </div>
     </div>
   )
 }

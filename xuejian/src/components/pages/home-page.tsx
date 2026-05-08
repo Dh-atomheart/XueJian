@@ -56,20 +56,6 @@ export interface HomePageProps {
   onOpenDocument: (id: string) => void
 }
 
-function PageHeader() {
-  return (
-    <div className="flex flex-col gap-2">
-      <p className="text-[11px] uppercase tracking-[0.22em] text-ink-soft">Study Dashboard</p>
-      <h1 className="font-ui text-2xl font-medium text-ink" data-testid="app-shell-page-title">
-        今日学习工作台
-      </h1>
-      <p className="max-w-3xl text-sm leading-6 text-ink-muted">
-        从待复习卡片、最近文档和掌握进度开始，快速判断今天下一步该做什么。
-      </p>
-    </div>
-  )
-}
-
 function MetricGrid({ metrics }: Pick<HomePageProps, 'metrics'>) {
   return (
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="home-metrics">
@@ -377,7 +363,6 @@ export function HomePage(props: HomePageProps) {
   return (
     <div className="h-full overflow-auto p-5" data-testid="home-dashboard">
       <div className="mx-auto flex max-w-7xl flex-col gap-4">
-        <PageHeader />
         <QuickActionsPanel quickActions={props.quickActions} />
         <AlertsPanel alerts={alerts} />
         <MetricGrid metrics={props.metrics} />

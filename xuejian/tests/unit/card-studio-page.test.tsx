@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CardStudioPage } from '@/features/cards/CardStudioPage'
 import { cardsGateway } from '@/services/gateway/cards'
 import { useAppUiStore } from '@/store'
-import type { Card, Document, WorkflowRun } from '@/types'
+import type { BackgroundJob, Card, Document, WorkflowRun } from '@/types'
 
 const {
   useDocumentsQueryMock,
@@ -55,6 +55,9 @@ vi.mock('@/services/gateway/cards', async () => {
     cardsGateway: {
       ...actual.cardsGateway,
       startGeneration: vi.fn(),
+      startAiCardGeneration: vi.fn(),
+      resumeAiCardGeneration: vi.fn(),
+      getBackgroundJob: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -101,6 +104,28 @@ function makeWorkflowRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     finishedAt: new Date('2026-04-21T00:01:00.000Z'),
     createdAt: new Date('2026-04-21T00:00:00.000Z'),
     updatedAt: new Date('2026-04-21T00:01:00.000Z'),
+    ...overrides,
+  }
+}
+
+function makeBackgroundJob(overrides: Partial<BackgroundJob> = {}): BackgroundJob {
+  return {
+    id: 'ai-job-1',
+    jobType: 'ai_card_generation',
+    status: 'queued',
+    targetType: 'document',
+    targetId: '22222222-2222-4222-8222-222222222222',
+    payloadJson: '{}',
+    resultJson: null,
+    errorMessage: null,
+    errorDetails: null,
+    progressCurrent: null,
+    progressTotal: null,
+    progressMessage: null,
+    createdAt: new Date('2026-04-21T00:00:00.000Z'),
+    startedAt: null,
+    finishedAt: null,
+    cancelRequestedAt: null,
     ...overrides,
   }
 }
@@ -200,6 +225,9 @@ describe('CardStudioPage', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     vi.mocked(cardsGateway.startGeneration).mockResolvedValue(makeWorkflowRun({ status: 'queued' }))
+    vi.mocked(cardsGateway.startAiCardGeneration).mockResolvedValue(makeBackgroundJob())
+    vi.mocked(cardsGateway.resumeAiCardGeneration).mockResolvedValue(makeBackgroundJob())
+    vi.mocked(cardsGateway.getBackgroundJob).mockResolvedValue(null)
     vi.mocked(cardsGateway.create).mockResolvedValue(makeCard({ id: '77777777-7777-4777-8777-777777777777' }))
     vi.mocked(cardsGateway.update).mockResolvedValue(makeCard({ front: 'Updated front' }))
     vi.mocked(cardsGateway.delete).mockResolvedValue(undefined)
@@ -239,6 +267,38 @@ describe('CardStudioPage', () => {
         18
       )
     })
+  })
+
+  it('shows dynamic AI card generation estimates by document and page range', () => {
+    useDocumentsQueryMock.mockReturnValue({ data: [makeDocument()], isLoading: false })
+    useBasicCardGroupsQueryMock.mockReturnValue({
+      data: [{ id: 'group-1', name: 'Default' }],
+      isLoading: false,
+    })
+    useApiConfigsQueryMock.mockReturnValue({
+      data: [
+        {
+          id: 'provider-1',
+          name: 'openai',
+          displayName: 'OpenAI',
+          isEnabled: true,
+          hasStoredCredential: true,
+        },
+      ],
+      isLoading: false,
+    })
+
+    renderCardStudioPage()
+
+    fireEvent.click(screen.getByTestId('card-studio-ai-generation-toggle'))
+    expect(screen.getByTestId('card-studio-ai-estimate')).toHaveTextContent('预计 12 页，约 12 张卡片')
+
+    fireEvent.change(screen.getByTestId('card-studio-ai-density'), { target: { value: 'high' } })
+    expect(screen.getByTestId('card-studio-ai-estimate')).toHaveTextContent('预计 12 页，约 20 张卡片')
+
+    fireEvent.change(screen.getByTestId('card-studio-ai-page-start'), { target: { value: '2' } })
+    fireEvent.change(screen.getByTestId('card-studio-ai-page-end'), { target: { value: '5' } })
+    expect(screen.getByTestId('card-studio-ai-estimate')).toHaveTextContent('预计 4 页，约 20 张卡片')
   })
 
   it('creates, edits, and deletes formal cards', async () => {
@@ -294,5 +354,30 @@ describe('CardStudioPage', () => {
     await waitFor(() => {
       expect(cardsGateway.delete).toHaveBeenCalledWith('88888888-8888-4888-8888-888888888888')
     })
+  })
+
+  it('paginates formal cards six per page', async () => {
+    useDocumentsQueryMock.mockReturnValue({ data: [makeDocument()], isLoading: false })
+    useCardsQueryMock.mockReturnValue({
+      data: Array.from({ length: 7 }, (_, index) =>
+        makeCard({
+          id: `88888888-8888-4888-8888-88888888888${index}`,
+          front: `Question ${index + 1}`,
+          back: `Answer ${index + 1}`,
+        })
+      ),
+      isLoading: false,
+    })
+
+    renderCardStudioPage()
+
+    expect(await screen.findByText('Question 1')).toBeInTheDocument()
+    expect(screen.getByText('Question 6')).toBeInTheDocument()
+    expect(screen.queryByText('Question 7')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /下一页/ }))
+
+    expect(await screen.findByText('Question 7')).toBeInTheDocument()
+    expect(screen.queryByText('Question 1')).not.toBeInTheDocument()
   })
 })

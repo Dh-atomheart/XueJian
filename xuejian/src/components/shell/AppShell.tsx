@@ -29,7 +29,7 @@ interface NavItemDefinition {
   id: NavItemId
   label: string
   eyebrow: string
-  description: string
+  title: string
   icon: LucideIcon
 }
 
@@ -37,54 +37,55 @@ const NAV_ITEMS: NavItemDefinition[] = [
   {
     id: 'home',
     label: '首页',
-    eyebrow: 'STUDY DASHBOARD',
-    description: '查看今日复习、学习热力图、最近文档和掌握进度。',
+    eyebrow: 'Study Dashboard',
+    title: '今日学习工作台',
     icon: Home,
   },
   {
     id: 'library',
     label: '文档',
-    eyebrow: 'DOCUMENT LIBRARY',
-    description: '导入 PDF，检查解析状态，并从文档生成可复习的卡片。',
+    eyebrow: 'Document Library',
+    title: '文档库',
     icon: FileText,
   },
   {
     id: 'cards',
     label: '卡片',
-    eyebrow: 'CARD WORKBENCH',
-    description: '管理 Basic 卡、分组、来源和标签。',
+    eyebrow: 'Card Workbench',
+    title: '卡片库',
     icon: Layers3,
   },
   {
     id: 'learning',
     label: '学习',
-    eyebrow: 'SPACED REVIEW',
-    description: '专注完成今日复习队列，减少干扰。',
+    eyebrow: 'Spaced Review',
+    title: '今日复习',
     icon: BookOpenCheck,
   },
   {
     id: 'knowledge',
     label: '知识',
-    eyebrow: 'KNOWLEDGE RAG',
-    description: '只基于已向量化文档进行学习型问答，并展示可追溯引用。',
+    eyebrow: 'RAG ASSISTANT',
+    title: '知识问答',
     icon: MessageSquare,
   },
   {
     id: 'settings',
     label: '设置',
     eyebrow: 'SETTINGS',
-    description: '配置 AI Provider、学习偏好和通用外观。',
+    title: '设置',
     icon: Settings,
   },
 ]
 
 const PAGE_META = Object.fromEntries(
-  NAV_ITEMS.map((item) => [item.id, { eyebrow: item.eyebrow, description: item.description }])
-) as Record<NavItemId, { eyebrow: string; description: string }>
+  NAV_ITEMS.map((item) => [item.id, { eyebrow: item.eyebrow, title: item.title }])
+) as Record<NavItemId, { eyebrow: string; title: string }>
 
 export function AppShell({ children, contextPanel, className }: AppShellProps) {
   const activeNavItem = useAppUiStore((state) => state.activeNavItem)
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const pageHeaderActions = useAppUiStore((state) => state.pageHeaderActions)
   const reader = useAppUiStore((state) => state.reader)
   const { data: apiConfigs = [], isLoading: isLoadingApiConfigs } = useApiConfigsQuery()
   const tauriRuntime = isTauriEnvironment()
@@ -97,7 +98,7 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
     if (isReader) {
       return {
         eyebrow: 'PDF READER',
-        description: '沉浸阅读文档，并在右侧查看当前页关联卡片。',
+        title: '文档阅读',
       }
     }
     return PAGE_META[activeNavItem] ?? PAGE_META.home
@@ -108,13 +109,13 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
   return (
     <div
       className={cn(
-        'app-shell app-shell-frame paper-texture flex h-screen overflow-hidden bg-paper-base text-ink',
+        'app-shell app-shell-frame paper-texture flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-paper-base text-ink',
         className
       )}
       data-testid="app-shell"
     >
       {!isReader ? (
-        <aside className="hidden h-screen w-[212px] shrink-0 border-r border-line-soft bg-paper-muted/82 md:flex">
+        <aside className="hidden h-full w-[212px] shrink-0 border-r border-line-soft bg-paper-muted/82 md:flex">
           <div className="flex h-full w-full flex-col px-3 py-4">
             <div className="px-2 py-2">
               <div className="flex items-center gap-3">
@@ -149,25 +150,54 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
         </aside>
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         {!isReader ? (
-          <header className="border-b border-line-soft bg-paper-base/88 px-4 py-3 backdrop-blur md:px-6">
-            <div className="mx-auto flex w-full max-w-[1480px] items-center justify-between gap-4">
+          <header className="shrink-0 border-b border-line-soft bg-paper-base/88 px-4 py-3 backdrop-blur md:px-6">
+            <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="text-[10px] uppercase tracking-[0.24em] text-ink-soft">
                   {pageMeta.eyebrow}
                 </p>
-                <p className="mt-1 truncate text-sm text-ink-muted">{pageMeta.description}</p>
-              </div>
-              {showApiHint ? (
-                <button
-                  type="button"
-                  onClick={() => setActiveNavItem('settings')}
-                  data-testid="api-setup-hint"
-                  className="inline-flex h-9 shrink-0 items-center rounded-lg border border-line-soft bg-paper-card px-3 text-sm text-ink transition hover:border-ink/20 hover:bg-paper-muted"
+                <h1
+                  className="mt-1 truncate font-ui text-lg font-medium leading-6 text-ink"
+                  data-testid="app-shell-page-title"
                 >
-                  配置 AI
-                </button>
+                  {pageMeta.title}
+                </h1>
+              </div>
+              {showApiHint || pageHeaderActions.length > 0 ? (
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {pageHeaderActions.map((action) => {
+                    const Icon = action.icon
+                    return (
+                      <button
+                        key={action.id}
+                        type="button"
+                        onClick={action.onClick}
+                        data-testid={`page-header-action-${action.id}`}
+                        className={cn(
+                          'inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm transition',
+                          action.variant === 'outline'
+                            ? 'border-line-soft bg-paper-card text-ink hover:border-ink/20 hover:bg-paper-muted'
+                            : 'border-ink/10 bg-ink text-paper-base hover:bg-ink/88'
+                        )}
+                      >
+                        {Icon ? <Icon className="h-4 w-4" /> : null}
+                        {action.label}
+                      </button>
+                    )
+                  })}
+                  {showApiHint ? (
+                    <button
+                      type="button"
+                      onClick={() => setActiveNavItem('settings')}
+                      data-testid="api-setup-hint"
+                      className="inline-flex h-9 shrink-0 items-center rounded-lg border border-line-soft bg-paper-card px-3 text-sm text-ink transition hover:border-ink/20 hover:bg-paper-muted"
+                    >
+                      配置 AI
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
 
@@ -197,21 +227,20 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
 
         <main
           className={cn(
-            'app-shell-main min-h-0 flex-1 overflow-x-hidden',
-            isReader ? 'overflow-hidden' : 'overflow-y-auto'
+            'app-shell-main min-h-0 flex-1 basis-0 overflow-hidden'
           )}
         >
           <div
             className={cn(
-              'mx-auto w-full max-w-[1480px]',
+              'mx-auto h-full min-h-0 w-full max-w-[1480px]',
               contextPanel
                 ? 'grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]'
                 : isReader
                   ? 'flex h-full min-h-0 flex-col'
-                  : ''
+                  : 'min-h-0'
             )}
           >
-            <div className={cn('min-w-0', isReader && 'min-h-0')}>{children}</div>
+            <div className={cn('h-full min-h-0 min-w-0')}>{children}</div>
             {contextPanel ? (
               <aside className="hidden min-h-0 overflow-hidden border-l border-line-soft bg-paper-card/80 xl:block">
                 {contextPanel}

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Clapperboard, Edit3, FileText, Plus, Search, Sparkles, Trash2 } from 'lucide-react'
 import { Badge, Button, Card as UiCard, CardContent, Input, WorkspaceEmptyState } from '@/components/ui'
 import { cn } from '@/lib/utils'
@@ -55,6 +56,8 @@ export interface CardStudioPageProps {
   onOpenLibrary: () => void
 }
 
+const CARDS_PAGE_SIZE = 6
+
 function toneClass(tone: 'neutral' | 'warning' | 'success' | 'danger') {
   if (tone === 'success') return 'bg-chart-1/15 text-chart-1'
   if (tone === 'warning') return 'bg-chart-5/12 text-chart-5'
@@ -91,6 +94,26 @@ function typeLabel(type: Card['cardType']) {
 }
 
 export function CardStudioPage(props: CardStudioPageProps) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const filteredCards = props.cards.filter((card) => {
+    const haystack = `${card.front} ${card.back} ${card.tags.join(' ')}`.toLowerCase()
+    return haystack.includes(props.searchQuery.trim().toLowerCase())
+  })
+  const totalPages = Math.max(1, Math.ceil(filteredCards.length / CARDS_PAGE_SIZE))
+  const safeCurrentPage = Math.min(currentPage, totalPages)
+  const pageStartIndex = (safeCurrentPage - 1) * CARDS_PAGE_SIZE
+  const pagedCards = filteredCards.slice(pageStartIndex, pageStartIndex + CARDS_PAGE_SIZE)
+  const visibleStart = filteredCards.length === 0 ? 0 : pageStartIndex + 1
+  const visibleEnd = Math.min(filteredCards.length, pageStartIndex + pagedCards.length)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [props.searchQuery, props.selectedDocumentId])
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages))
+  }, [totalPages])
+
   if (!props.hasReadyDocuments) {
     return (
       <div className="mx-auto w-full max-w-6xl" data-testid="card-studio-page">
@@ -111,11 +134,6 @@ export function CardStudioPage(props: CardStudioPageProps) {
       </div>
     )
   }
-
-  const filteredCards = props.cards.filter((card) => {
-    const haystack = `${card.front} ${card.back} ${card.tags.join(' ')}`.toLowerCase()
-    return haystack.includes(props.searchQuery.trim().toLowerCase())
-  })
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6" data-testid="card-studio-page">
@@ -267,16 +285,19 @@ export function CardStudioPage(props: CardStudioPageProps) {
               </CardContent>
             </UiCard>
           ) : (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="card-studio-card-list">
-              {filteredCards.map((card) => (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="card-studio-card-list">
+              {pagedCards.map((card) => (
                 <UiCard key={card.id} data-testid={`card-studio-card-${card.id}`} className="border-border/50 bg-card">
                   <CardContent className="space-y-4 p-5">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="secondary" className="rounded-md font-normal">{typeLabel(card.cardType)}</Badge>
                           <Badge variant="secondary" className="rounded-md font-normal">{stateLabel(card.state)}</Badge>
-                          <span className="text-xs text-muted-foreground">{card.sourceLabel}</span>
+                          <span className="min-w-0 max-w-[14rem] truncate text-xs text-muted-foreground" title={card.sourceLabel}>
+                            {card.sourceLabel}
+                          </span>
                         </div>
                         <h3 className="mt-3 line-clamp-2 text-sm font-medium leading-6 text-foreground">{card.front}</h3>
                       </div>
@@ -338,6 +359,15 @@ export function CardStudioPage(props: CardStudioPageProps) {
                   </CardContent>
                 </UiCard>
               ))}
+              </div>
+              <CardStudioPagination
+                currentPage={safeCurrentPage}
+                totalPages={totalPages}
+                visibleStart={visibleStart}
+                visibleEnd={visibleEnd}
+                totalItems={filteredCards.length}
+                onPageChange={setCurrentPage}
+              />
             </div>
           )}
 
@@ -360,6 +390,55 @@ export function CardStudioPage(props: CardStudioPageProps) {
             </UiCard>
           ) : null}
         </main>
+      </div>
+    </div>
+  )
+}
+
+function CardStudioPagination({
+  currentPage,
+  totalPages,
+  visibleStart,
+  visibleEnd,
+  totalItems,
+  onPageChange,
+}: {
+  currentPage: number
+  totalPages: number
+  visibleStart: number
+  visibleEnd: number
+  totalItems: number
+  onPageChange: (page: number) => void
+}) {
+  if (totalItems <= CARDS_PAGE_SIZE) return null
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border/50 bg-card px-3 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+      <span>
+        显示 {visibleStart}-{visibleEnd} / {totalItems}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 rounded-lg"
+          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          disabled={currentPage <= 1}
+        >
+          上一页
+        </Button>
+        <span className="min-w-16 text-center">
+          第 {currentPage} / {totalPages} 页
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 rounded-lg"
+          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          disabled={currentPage >= totalPages}
+        >
+          下一页
+        </Button>
       </div>
     </div>
   )

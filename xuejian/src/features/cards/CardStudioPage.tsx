@@ -23,8 +23,16 @@ import {
 import { cardsGateway, type CardCandidateFilters, type CreateCardInput, type UpdateCardInput } from '@/services/gateway/cards'
 import { useAppUiStore } from '@/store'
 import type { Card as CardEntity, CardCandidate, WorkflowRun } from '@/types'
+import { estimateAiCardGeneration } from '@/lib/aiCardGenerationEstimate'
 
 const LIVE_STATUSES = new Set<WorkflowRun['status']>(['queued', 'running'])
+const DOCUMENT_LABEL_MAX_CHARS = 20
+
+function truncateDocumentLabel(value: string, maxChars = DOCUMENT_LABEL_MAX_CHARS): string {
+  const trimmed = value.trim()
+  if (trimmed.length <= maxChars) return trimmed
+  return `${trimmed.slice(0, Math.max(0, maxChars - 3))}...`
+}
 
 type EditorState =
   | { mode: 'create' }
@@ -365,6 +373,24 @@ export function CardStudioPage() {
 
   const canFinalize =
     Boolean(activeRun) && acceptedCandidates.length > 0 && pendingCandidates.length === 0
+  const selectedDocument = readyDocuments.find((document) => document.id === selectedDocumentId)
+  const aiPageStartValue = aiPageStart.trim()
+  const aiPageEndValue = aiPageEnd.trim()
+  const aiRangeStart = Number.parseInt(aiPageStartValue, 10)
+  const aiRangeEnd = Number.parseInt(aiPageEndValue, 10)
+  const hasValidAiRange =
+    /^\d+$/.test(aiPageStartValue) &&
+    /^\d+$/.test(aiPageEndValue) &&
+    aiRangeStart > 0 &&
+    aiRangeEnd >= aiRangeStart
+  const aiEstimate = selectedDocument
+    ? estimateAiCardGeneration({
+        density: aiDensity,
+        pageCount: selectedDocument.pageCount,
+        pageStart: hasValidAiRange ? aiRangeStart : null,
+        pageEnd: hasValidAiRange ? aiRangeEnd : null,
+      })
+    : null
 
   return (
     <>
@@ -380,15 +406,22 @@ export function CardStudioPage() {
           selectedDocumentId={selectedDocumentId}
           searchQuery={searchQuery}
           cardLimitInput={cardLimitInput}
-          cards={cards.map((card) => ({
-            id: card.id,
-            front: card.front,
-            back: card.back,
-            tags: card.tags,
-            cardType: card.cardType,
-            state: card.state,
-            sourceLabel: card.sourcePage ? `P.${card.sourcePage}` : 'Manual',
-          }))}
+          cards={cards.map((card) => {
+            const sourceDocumentRaw = documents.find((document) => document.id === card.documentId)
+            const sourceDocument = sourceDocumentRaw
+              ? { ...sourceDocumentRaw, title: truncateDocumentLabel(sourceDocumentRaw.title) }
+              : undefined
+            const pageLabel = card.sourcePage ? `P.${card.sourcePage}` : null
+            return {
+              id: card.id,
+              front: card.front,
+              back: card.back,
+              tags: card.tags,
+              cardType: card.cardType,
+              state: card.state,
+              sourceLabel: [sourceDocument?.title, pageLabel].filter(Boolean).join(' · ') || 'Manual',
+            }
+          })}
           activeRunLabel={activeRun ? `Run ${activeRun.id.slice(0, 8)}` : 'No recent run'}
           activeRunStatusLabel={activeRun?.status ?? null}
           activeRunStatusTone={activeRun ? statusTone(activeRun.status) : 'neutral'}
@@ -494,6 +527,7 @@ export function CardStudioPage() {
                       value={aiDensity}
                       onChange={(event) => setAiDensity(event.target.value as typeof aiDensity)}
                       className="h-9 w-full rounded-lg border border-border/50 bg-background px-3 text-sm text-foreground"
+                      data-testid="card-studio-ai-density"
                     >
                       <option value="low">low</option>
                       <option value="medium">medium</option>
@@ -507,6 +541,7 @@ export function CardStudioPage() {
                       onChange={(event) => setAiPageStart(event.target.value)}
                       className="h-9 w-full rounded-lg border border-border/50 bg-background px-3 text-sm text-foreground"
                       inputMode="numeric"
+                      data-testid="card-studio-ai-page-start"
                     />
                   </label>
                   <label className="space-y-1 text-xs text-muted-foreground">
@@ -516,6 +551,7 @@ export function CardStudioPage() {
                       onChange={(event) => setAiPageEnd(event.target.value)}
                       className="h-9 w-full rounded-lg border border-border/50 bg-background px-3 text-sm text-foreground"
                       inputMode="numeric"
+                      data-testid="card-studio-ai-page-end"
                     />
                   </label>
                   <div className="flex items-end">
@@ -532,6 +568,14 @@ export function CardStudioPage() {
                       AI 生成卡片
                     </Button>
                   </div>
+                  {aiEstimate ? (
+                    <p
+                      className="rounded-md border border-border/50 bg-background/70 px-3 py-2 text-xs text-muted-foreground lg:col-span-6"
+                      data-testid="card-studio-ai-estimate"
+                    >
+                      预计 {aiEstimate.pageCount} 页，约 {aiEstimate.cardCount} 张卡片
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
 

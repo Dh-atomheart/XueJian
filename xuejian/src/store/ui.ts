@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react'
 import { create } from 'zustand'
 
 export type NavItemId =
@@ -19,6 +20,14 @@ export interface AppFeedbackEntry {
   title: string
   detail: string | null
   createdAt: Date
+}
+
+export interface PageHeaderAction {
+  id: string
+  label: string
+  icon?: ComponentType<{ className?: string }>
+  variant?: 'primary' | 'outline'
+  onClick: () => void
 }
 
 interface ReaderState {
@@ -51,6 +60,7 @@ interface AppUiState {
   feedbackLog: AppFeedbackEntry[]
   activeNotices: AppFeedbackEntry[]
   isFeedbackPanelOpen: boolean
+  pageHeaderActions: PageHeaderAction[]
   setActiveNavItem: (item: NavItemId) => void
   setSettingsSection: (section: SettingsSectionId) => void
   setPreferredCardStudioDocumentId: (documentId: string | null) => void
@@ -75,6 +85,7 @@ interface AppUiState {
   exitLinkingMode: () => void
   setFeedbackPanelOpen: (open: boolean) => void
   toggleFeedbackPanel: () => void
+  setPageHeaderActions: (actions: PageHeaderAction[]) => void
   reportFeedback: (entry: {
     level?: AppFeedbackLevel
     scope: string
@@ -135,10 +146,12 @@ export const useAppUiStore = create<AppUiState>((set) => ({
   feedbackLog: [],
   activeNotices: [],
   isFeedbackPanelOpen: false,
+  pageHeaderActions: [],
   setActiveNavItem: (activeNavItem) =>
     set((state) => ({
       activeNavItem,
       reader: state.reader.documentId ? initialReaderState : state.reader,
+      pageHeaderActions: state.activeNavItem === activeNavItem ? state.pageHeaderActions : [],
     })),
   setSettingsSection: (activeSettingsSection) => set({ activeSettingsSection }),
   setPreferredCardStudioDocumentId: (preferredCardStudioDocumentId) =>
@@ -155,6 +168,7 @@ export const useAppUiStore = create<AppUiState>((set) => ({
         sourceLabel: draft?.sourceLabel ?? null,
       },
       reader: initialReaderState,
+      pageHeaderActions: [],
     }),
   clearKnowledgeDraft: () => set({ knowledgeDraft: initialKnowledgeDraftState }),
   openReader: (documentId, totalPages, options) =>
@@ -168,8 +182,9 @@ export const useAppUiStore = create<AppUiState>((set) => ({
         selectedCardId: options?.selectedCardId ?? null,
       },
       isContextRailOpen: true,
+      pageHeaderActions: [],
     }),
-  closeReader: () => set({ activeNavItem: 'library', reader: initialReaderState }),
+  closeReader: () => set({ activeNavItem: 'library', reader: initialReaderState, pageHeaderActions: [] }),
   setReaderTotalPages: (totalPages) =>
     set((state) => ({
       reader: {
@@ -226,6 +241,7 @@ export const useAppUiStore = create<AppUiState>((set) => ({
     })),
   setFeedbackPanelOpen: (isFeedbackPanelOpen) => set({ isFeedbackPanelOpen }),
   toggleFeedbackPanel: () => set((state) => ({ isFeedbackPanelOpen: !state.isFeedbackPanelOpen })),
+  setPageHeaderActions: (pageHeaderActions) => set({ pageHeaderActions }),
   reportFeedback: ({ level, scope, title, detail, showToast = true }) => {
     const entry = createFeedbackEntry({ level, scope, title, detail })
     set((state) => ({

@@ -16,7 +16,7 @@ test('navigation includes V1.1 Knowledge and hides the remaining frozen entries'
   await expect(page.getByTestId('app-shell-page-title')).toHaveText('文档库')
 
   await page.getByTestId('sidebar-nav-cards').click()
-  await expect(page.getByRole('heading', { name: 'Basic 卡片' })).toBeVisible()
+  await expect(page.getByTestId('app-shell-page-title')).toHaveText('卡片库')
 
   await page.getByTestId('sidebar-nav-learning').click()
   await expect(page.getByTestId('review-page-intro')).toBeVisible()

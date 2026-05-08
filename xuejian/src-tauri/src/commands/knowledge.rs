@@ -87,6 +87,12 @@ pub struct SendKnowledgeQaMessageResultDto {
     pub run: WorkflowRun,
 }
 
+#[derive(Debug, Clone)]
+struct KnowledgeQaTurnPair {
+    user_message: KnowledgeQaMessage,
+    assistant_message: KnowledgeQaMessage,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct KnowledgeQaEmbeddingGateFailure {
     status: &'static str,
@@ -104,6 +110,57 @@ impl KnowledgeQaEmbeddingGateFailure {
 
 fn gate_to_command_error(error: KnowledgeQaEmbeddingGateFailure) -> CommandError {
     CommandError::InvalidInput(format!("{}: {}", error.status, error.message))
+}
+
+fn has_pending_knowledge_qa_message(
+    messages: &[KnowledgeQaMessage],
+    except_message_id: Option<&str>,
+) -> bool {
+    messages.iter().any(|message| {
+        message.role == "assistant"
+            && message.status == "pending"
+            && match except_message_id {
+                Some(id) => id != message.id,
+                None => true,
+            }
+    })
+}
+
+fn find_knowledge_qa_turn_pair(
+    messages: &[KnowledgeQaMessage],
+    message_id: &str,
+) -> Option<KnowledgeQaTurnPair> {
+    let index = messages
+        .iter()
+        .position(|candidate| candidate.id == message_id)?;
+    let message = &messages[index];
+
+    match message.role.as_str() {
+        "user" => {
+            let assistant_message = messages
+                .iter()
+                .skip(index + 1)
+                .find(|candidate| candidate.role == "assistant")?
+                .clone();
+            Some(KnowledgeQaTurnPair {
+                user_message: message.clone(),
+                assistant_message,
+            })
+        }
+        "assistant" => {
+            let user_message = messages
+                .iter()
+                .take(index)
+                .rev()
+                .find(|candidate| candidate.role == "user")?
+                .clone();
+            Some(KnowledgeQaTurnPair {
+                user_message,
+                assistant_message: message.clone(),
+            })
+        }
+        _ => None,
+    }
 }
 
 fn validate_knowledge_qa_embedding_scope(
@@ -304,6 +361,71 @@ pub fn create_knowledge_qa_conversation(
 }
 
 #[tauri::command]
+pub fn delete_knowledge_qa_conversation(
+    state: State<'_, AppState>,
+    conversation_id: String,
+) -> CommandResult<bool> {
+    let db = state.lock_db()?;
+    let qa_repo = KnowledgeQaRepository::new(&db);
+    let workflow_repo = WorkflowRepository::new(&db);
+    let messages = qa_repo.list_messages(&conversation_id)?;
+
+    cancel_pending_knowledge_qa_runs(&workflow_repo, &messages, "Deleted by user")?;
+    qa_repo
+        .delete_conversation(&conversation_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn delete_knowledge_qa_turn(
+    state: State<'_, AppState>,
+    message_id: String,
+) -> CommandResult<bool> {
+    let db = state.lock_db()?;
+    let qa_repo = KnowledgeQaRepository::new(&db);
+    let workflow_repo = WorkflowRepository::new(&db);
+    let message = qa_repo
+        .get_message(&message_id)?
+        .ok_or(CommandError::NotFound)?;
+    let messages = qa_repo.list_messages(&message.conversation_id)?;
+    let index = messages
+        .iter()
+        .position(|candidate| candidate.id == message.id)
+        .ok_or(CommandError::NotFound)?;
+
+    let mut delete_ids = vec![message.id.clone()];
+    match message.role.as_str() {
+        "user" => {
+            if let Some(next) = messages.get(index + 1) {
+                if next.role == "assistant" {
+                    delete_ids.push(next.id.clone());
+                }
+            }
+        }
+        "assistant" => {
+            if index > 0 {
+                if let Some(previous) = messages.get(index - 1) {
+                    if previous.role == "user" {
+                        delete_ids.push(previous.id.clone());
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    let deleted_messages = messages
+        .into_iter()
+        .filter(|candidate| delete_ids.iter().any(|id| id == &candidate.id))
+        .collect::<Vec<_>>();
+    cancel_pending_knowledge_qa_runs(&workflow_repo, &deleted_messages, "Deleted by user")?;
+
+    let affected = qa_repo.delete_messages(&delete_ids)?;
+    qa_repo.touch_conversation(&message.conversation_id)?;
+    Ok(affected > 0)
+}
+
+#[tauri::command]
 pub async fn send_knowledge_qa_message(
     app_handle: AppHandle,
     state: State<'_, AppState>,
@@ -317,6 +439,19 @@ pub async fn send_knowledge_qa_message(
     }
 
     let document_ids = data.document_ids.unwrap_or_default();
+    if let Some(conversation_id) = data.conversation_id.as_deref() {
+        let db = state.lock_db()?;
+        let qa_repo = KnowledgeQaRepository::new(&db);
+        let conversation = qa_repo
+            .get_conversation(conversation_id)?
+            .ok_or(CommandError::NotFound)?;
+        let existing_messages = qa_repo.list_messages(&conversation.id)?;
+        if has_pending_knowledge_qa_message(&existing_messages, None) {
+            return Err(CommandError::InvalidInput(
+                "Knowledge Q&A is already generating an answer for this conversation.".to_string(),
+            ));
+        }
+    }
     let effective_document_ids = validate_knowledge_qa_embedding_scope(&state, &document_ids)?;
     let (conversation, user_message, assistant_message, run) = {
         let db = state.lock_db()?;
@@ -329,6 +464,12 @@ pub async fn send_knowledge_qa_message(
                 .ok_or(CommandError::NotFound)?,
             None => qa_repo.create_conversation(&question, &effective_document_ids)?,
         };
+        let existing_messages = qa_repo.list_messages(&conversation.id)?;
+        if has_pending_knowledge_qa_message(&existing_messages, None) {
+            return Err(CommandError::InvalidInput(
+                "Knowledge Q&A is already generating an answer for this conversation.".to_string(),
+            ));
+        }
 
         let thread_id = format!("knowledge-qa:{}", conversation.id);
         let run = workflow_repo.create_run(CreateWorkflowRunRequest {
@@ -367,6 +508,110 @@ pub async fn send_knowledge_qa_message(
                 "documentIds": effective_document_ids.clone(),
                 "conversationId": conversation.id,
                 "assistantMessageId": assistant_message.id,
+            })),
+        })?;
+
+        (conversation, user_message, assistant_message, run)
+    };
+
+    spawn_knowledge_qa_worker(
+        app_handle,
+        run.id.clone(),
+        question,
+        Some(effective_document_ids),
+        Some(assistant_message.id.clone()),
+    );
+
+    Ok(SendKnowledgeQaMessageResultDto {
+        conversation,
+        user_message,
+        assistant_message,
+        run,
+    })
+}
+
+#[tauri::command]
+pub async fn regenerate_knowledge_qa_turn(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    message_id: String,
+) -> CommandResult<SendKnowledgeQaMessageResultDto> {
+    let (conversation, user_message, assistant_message, question, document_ids) = {
+        let db = state.lock_db()?;
+        let qa_repo = KnowledgeQaRepository::new(&db);
+        let message = qa_repo
+            .get_message(&message_id)?
+            .ok_or(CommandError::NotFound)?;
+        let conversation = qa_repo
+            .get_conversation(&message.conversation_id)?
+            .ok_or(CommandError::NotFound)?;
+        let messages = qa_repo.list_messages(&conversation.id)?;
+        let pair =
+            find_knowledge_qa_turn_pair(&messages, &message_id).ok_or(CommandError::NotFound)?;
+
+        if pair.assistant_message.status == "pending" {
+            return Err(CommandError::InvalidInput(
+                "Knowledge Q&A is already generating this answer.".to_string(),
+            ));
+        }
+        if has_pending_knowledge_qa_message(&messages, Some(&pair.assistant_message.id)) {
+            return Err(CommandError::InvalidInput(
+                "Knowledge Q&A is already generating an answer for this conversation.".to_string(),
+            ));
+        }
+
+        let question = pair.user_message.content.trim().to_string();
+        if question.is_empty() {
+            return Err(CommandError::InvalidInput(
+                "Original question must not be empty".to_string(),
+            ));
+        }
+        let document_ids = if pair.assistant_message.document_ids.is_empty() {
+            pair.user_message.document_ids.clone()
+        } else {
+            pair.assistant_message.document_ids.clone()
+        };
+
+        (
+            conversation,
+            pair.user_message,
+            pair.assistant_message,
+            question,
+            document_ids,
+        )
+    };
+
+    let effective_document_ids = validate_knowledge_qa_embedding_scope(&state, &document_ids)?;
+    let (conversation, user_message, assistant_message, run) = {
+        let db = state.lock_db()?;
+        let qa_repo = KnowledgeQaRepository::new(&db);
+        let workflow_repo = WorkflowRepository::new(&db);
+
+        let thread_id = format!("knowledge-qa:{}", conversation.id);
+        let run = workflow_repo.create_run(CreateWorkflowRunRequest {
+            workflow_type: "knowledge_qa".to_string(),
+            preset_id: None,
+            status: "queued".to_string(),
+            thread_id,
+            started_at: None,
+        })?;
+
+        let assistant_message = qa_repo
+            .reset_assistant_message_for_retry(&assistant_message.id, &run.id)?
+            .ok_or(CommandError::NotFound)?;
+        qa_repo.touch_conversation(&conversation.id)?;
+
+        workflow_repo.append_event(AppendWorkflowEventRequest {
+            run_id: run.id.clone(),
+            event_type: "queued".to_string(),
+            message: Some("Knowledge Q&A regenerate queued".to_string()),
+            progress: Some(0.0),
+            payload: Some(serde_json::json!({
+                "question": question,
+                "documentIds": effective_document_ids.clone(),
+                "conversationId": conversation.id,
+                "assistantMessageId": assistant_message.id,
+                "regenerate": true,
             })),
         })?;
 
@@ -433,6 +678,48 @@ pub fn cancel_knowledge_qa_message(
             Some("Cancelled by user"),
         )
         .map_err(Into::into)
+}
+
+fn cancel_pending_knowledge_qa_runs(
+    workflow_repo: &WorkflowRepository<'_>,
+    messages: &[KnowledgeQaMessage],
+    reason: &str,
+) -> CommandResult<()> {
+    let mut cancelled_run_ids = Vec::<String>::new();
+    for message in messages {
+        if message.status != "pending" {
+            continue;
+        }
+        let Some(run_id) = message.workflow_run_id.as_ref() else {
+            continue;
+        };
+        if cancelled_run_ids.iter().any(|existing| existing == run_id) {
+            continue;
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        workflow_repo.update_run(
+            run_id,
+            UpdateWorkflowRunRequest {
+                status: Some("cancelled".to_string()),
+                checkpoint_ref: None,
+                approval_payload: None,
+                cost_usd: None,
+                error_message: Some(reason.to_string()),
+                started_at: None,
+                finished_at: Some(now),
+            },
+        )?;
+        workflow_repo.append_event(AppendWorkflowEventRequest {
+            run_id: run_id.to_string(),
+            event_type: "cancelled".to_string(),
+            message: Some(format!("Knowledge Q&A {}", reason)),
+            progress: Some(1.0),
+            payload: Some(serde_json::json!({ "messageId": message.id })),
+        })?;
+        cancelled_run_ids.push(run_id.clone());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -915,5 +1202,149 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn retry_reset_clears_previous_assistant_result_in_place() {
+        let test_db = TestAppDatabase::new();
+        let qa_repo = KnowledgeQaRepository::new(test_db.db());
+        let workflow_repo = WorkflowRepository::new(test_db.db());
+        let document_ids = vec![Uuid::new_v4().to_string()];
+        let conversation = qa_repo
+            .create_conversation("Original question", &document_ids)
+            .expect("conversation should be created");
+        let user_message = qa_repo
+            .create_message(
+                &conversation.id,
+                "user",
+                "Original question",
+                "answered",
+                None,
+                &document_ids,
+            )
+            .expect("user message should be created");
+        let assistant_message = qa_repo
+            .create_message(
+                &conversation.id,
+                "assistant",
+                "Old answer",
+                "pending",
+                Some(
+                    &workflow_repo
+                        .create_run(CreateWorkflowRunRequest {
+                            workflow_type: "knowledge_qa".to_string(),
+                            preset_id: None,
+                            status: "queued".to_string(),
+                            thread_id: format!("knowledge-qa:{}", conversation.id),
+                            started_at: None,
+                        })
+                        .expect("workflow run should be created")
+                        .id,
+                ),
+                &document_ids,
+            )
+            .expect("assistant message should be created");
+        let payload = serde_json::json!({ "answer": { "answer": "Old answer" } });
+        qa_repo
+            .update_message_result(
+                &assistant_message.id,
+                "answered",
+                Some("Old answer"),
+                Some(&payload),
+                Some("old error"),
+            )
+            .expect("message result should be updated");
+
+        let new_run_id = workflow_repo
+            .create_run(CreateWorkflowRunRequest {
+                workflow_type: "knowledge_qa".to_string(),
+                preset_id: None,
+                status: "queued".to_string(),
+                thread_id: format!("knowledge-qa:{}", conversation.id),
+                started_at: None,
+            })
+            .expect("retry workflow run should be created")
+            .id;
+        let reset = qa_repo
+            .reset_assistant_message_for_retry(&assistant_message.id, &new_run_id)
+            .expect("message should reset")
+            .expect("message should exist");
+        let messages = qa_repo
+            .list_messages(&conversation.id)
+            .expect("messages should load");
+        let pair = find_knowledge_qa_turn_pair(&messages, &reset.id).expect("turn pair should resolve");
+
+        assert_eq!(reset.id, assistant_message.id);
+        assert_eq!(reset.status, "pending");
+        assert_eq!(reset.content, "");
+        assert_eq!(reset.workflow_run_id.as_deref(), Some(new_run_id.as_str()));
+        assert!(reset.answer_payload.is_none());
+        assert!(reset.error_message.is_none());
+        assert_eq!(pair.user_message.id, user_message.id);
+        assert_eq!(pair.assistant_message.id, assistant_message.id);
+    }
+
+    #[test]
+    fn pending_message_check_ignores_target_assistant() {
+        let test_db = TestAppDatabase::new();
+        let qa_repo = KnowledgeQaRepository::new(test_db.db());
+        let workflow_repo = WorkflowRepository::new(test_db.db());
+        let conversation = qa_repo
+            .create_conversation("Pending", &[])
+            .expect("conversation should be created");
+        let target = qa_repo
+            .create_message(
+                &conversation.id,
+                "assistant",
+                "",
+                "pending",
+                Some(
+                    &workflow_repo
+                        .create_run(CreateWorkflowRunRequest {
+                            workflow_type: "knowledge_qa".to_string(),
+                            preset_id: None,
+                            status: "queued".to_string(),
+                            thread_id: format!("knowledge-qa:{}", conversation.id),
+                            started_at: None,
+                        })
+                        .expect("target workflow run should be created")
+                        .id,
+                ),
+                &[],
+            )
+            .expect("target message should be created");
+        let messages = qa_repo
+            .list_messages(&conversation.id)
+            .expect("messages should load");
+
+        assert!(has_pending_knowledge_qa_message(&messages, None));
+        assert!(!has_pending_knowledge_qa_message(&messages, Some(&target.id)));
+
+        let other = qa_repo
+            .create_message(
+                &conversation.id,
+                "assistant",
+                "",
+                "pending",
+                Some(
+                    &workflow_repo
+                        .create_run(CreateWorkflowRunRequest {
+                            workflow_type: "knowledge_qa".to_string(),
+                            preset_id: None,
+                            status: "queued".to_string(),
+                            thread_id: format!("knowledge-qa:{}", conversation.id),
+                            started_at: None,
+                        })
+                        .expect("other workflow run should be created")
+                        .id,
+                ),
+                &[],
+            )
+            .expect("other message should be created");
+        let messages = qa_repo
+            .list_messages(&conversation.id)
+            .expect("messages should reload");
+        assert!(has_pending_knowledge_qa_message(&messages, Some(&target.id)));
+        assert!(has_pending_knowledge_qa_message(&messages, Some(&other.id)));
     }
 }

@@ -58,31 +58,24 @@ function PageHeader({
   progressPercent: number
   showProgress: boolean
 }) {
+  if (!showProgress) return null
+
   return (
-    <div className="mb-6 flex items-center justify-between gap-4">
-      <div>
-        <p className="text-[11px] uppercase tracking-[0.2em] text-ink-soft">Spaced Review</p>
-        <h1 className="mt-1 text-2xl font-medium text-ink" data-testid="app-shell-page-title">
-          今日复习
-        </h1>
-        <p className="mt-1 text-sm text-ink-muted">一次只看一张卡片，翻面后再给出反馈。</p>
-      </div>
-      {showProgress ? (
-        <div className="min-w-[190px] text-right">
-          <p className="text-xs text-ink-muted">队列进度</p>
-          <div className="mt-1 flex items-center gap-3">
-            <div className="h-2 w-32 overflow-hidden rounded-full bg-paper-muted">
-              <div
-                className="h-full rounded-full bg-highlight-green transition-all duration-300"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            <span className="text-sm font-medium tabular-nums text-ink">
-              {Math.min(currentIndex + 1, totalCards)} / {totalCards}
-            </span>
+    <div className="mb-6 flex justify-end">
+      <div className="min-w-[190px] text-right">
+        <p className="text-xs text-ink-muted">队列进度</p>
+        <div className="mt-1 flex items-center gap-3">
+          <div className="h-2 w-32 overflow-hidden rounded-full bg-paper-muted">
+            <div
+              className="h-full rounded-full bg-highlight-green transition-all duration-300"
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
+          <span className="text-sm font-medium tabular-nums text-ink">
+            {Math.min(currentIndex + 1, totalCards)} / {totalCards}
+          </span>
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }

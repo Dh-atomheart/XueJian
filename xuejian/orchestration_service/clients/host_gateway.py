@@ -310,6 +310,65 @@ class HostGatewayClient:
             },
         )
 
+    def get_query_embedding_cache(
+        self,
+        cache_key: str,
+        expected_dimensions: int,
+        max_age_seconds: int,
+    ) -> dict:
+        return self._post(
+            "/tool-gateway/query-embedding-cache/get",
+            {
+                "cacheKey": cache_key,
+                "expectedDimensions": expected_dimensions,
+                "maxAgeSeconds": max_age_seconds,
+            },
+        )
+
+    def put_query_embedding_cache(
+        self,
+        *,
+        cache_key: str,
+        profile_id: str,
+        provider: str,
+        model: str,
+        dimensions: int,
+        task_type: str,
+        question_hash: str,
+        vector: list[float],
+        max_age_seconds: int,
+        max_entries: int,
+    ) -> dict:
+        return self._post(
+            "/tool-gateway/query-embedding-cache/put",
+            {
+                "cacheKey": cache_key,
+                "profileId": profile_id,
+                "provider": provider,
+                "model": model,
+                "dimensions": dimensions,
+                "taskType": task_type,
+                "questionHash": question_hash,
+                "vector": vector,
+                "maxAgeSeconds": max_age_seconds,
+                "maxEntries": max_entries,
+            },
+        )
+
+    def prune_query_embedding_cache(
+        self,
+        *,
+        max_age_seconds: int,
+        max_entries: int,
+    ) -> dict:
+        return self._post(
+            "/tool-gateway/query-embedding-cache/prune",
+            {
+                "maxAgeSeconds": max_age_seconds,
+                "maxEntries": max_entries,
+            },
+        )
+
     def search_hybrid(
         self,
         query: str,

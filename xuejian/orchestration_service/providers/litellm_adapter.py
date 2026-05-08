@@ -91,6 +91,9 @@ def litellm_embedding(
     config: dict,
     api_key: str,
     texts: list[str],
+    *,
+    timeout_seconds: int | float | None = None,
+    num_retries: int | None = None,
 ) -> list[list[float]]:
     """Call litellm.embedding() and return embedding vectors in order."""
     from ..providers.runtime import normalize_provider, resolve_model_runtime
@@ -104,6 +107,7 @@ def litellm_embedding(
             model_name=model_name,
             texts=texts,
             task_type=str(config.get("taskType") or "").strip() or None,
+            timeout_seconds=timeout_seconds,
         )
 
     if provider == "custom_openai" and base_url:
@@ -113,6 +117,8 @@ def litellm_embedding(
             model_name=model_name,
             texts=texts,
             dimensions=config.get("dimensions"),
+            timeout_seconds=timeout_seconds,
+            num_retries=num_retries,
         )
 
     try:
@@ -128,8 +134,8 @@ def litellm_embedding(
         "model": model_str,
         "input": texts,
         "api_key": api_key,
-        "timeout": EMBEDDING_TIMEOUT_SECONDS,
-        "num_retries": 1,
+        "timeout": timeout_seconds or EMBEDDING_TIMEOUT_SECONDS,
+        "num_retries": 1 if num_retries is None else num_retries,
     }
 
     if provider == "google":
@@ -151,6 +157,8 @@ def _openai_compatible_embedding(
     model_name: str,
     texts: list[str],
     dimensions: Any,
+    timeout_seconds: int | float | None,
+    num_retries: int | None,
 ) -> list[list[float]]:
     try:
         from openai import OpenAI
@@ -173,8 +181,8 @@ def _openai_compatible_embedding(
     client = OpenAI(
         api_key=api_key,
         base_url=base_url,
-        timeout=float(EMBEDDING_TIMEOUT_SECONDS),
-        max_retries=1,
+        timeout=float(timeout_seconds or EMBEDDING_TIMEOUT_SECONDS),
+        max_retries=1 if num_retries is None else num_retries,
     )
     response = client.embeddings.create(**kwargs)
     return [list(item.embedding) for item in response.data]
@@ -186,6 +194,7 @@ def _google_native_embedding(
     model_name: str,
     texts: list[str],
     task_type: str | None,
+    timeout_seconds: int | float | None,
 ) -> list[list[float]]:
     try:
         from google import genai
@@ -198,7 +207,8 @@ def _google_native_embedding(
     try:
         from google.genai import client as genai_client
 
-        http_options = genai_client.HttpOptions(timeout=EMBEDDING_TIMEOUT_SECONDS * 1000)
+        timeout_ms = int((timeout_seconds or EMBEDDING_TIMEOUT_SECONDS) * 1000)
+        http_options = genai_client.HttpOptions(timeout=timeout_ms)
         client = genai.Client(api_key=api_key, http_options=http_options)
     except Exception:
         client = genai.Client(api_key=api_key)

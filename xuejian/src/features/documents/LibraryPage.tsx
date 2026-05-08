@@ -14,6 +14,7 @@ import {
   useDeleteDocumentMutation,
   useLibraryDocumentsQuery,
   useResumeAiCardGenerationMutation,
+  useStartDocumentEmbeddingJobMutation,
   useStartAiCardGenerationMutation,
 } from '@/queries'
 import { useDocumentImport } from '@/features/documents/useDocumentImport'
@@ -21,7 +22,7 @@ import { isTauriEnvironment } from '@/services/gateway'
 import { cardsGateway } from '@/services/gateway/cards'
 import { documentGateway } from '@/services/gateway/documents'
 import { useAppUiStore } from '@/store'
-import type { DocumentLibraryItem } from '@/types'
+import type { BackgroundJob, DocumentLibraryItem } from '@/types'
 
 export function LibraryPage() {
   const queryClient = useQueryClient()
@@ -36,6 +37,10 @@ export function LibraryPage() {
     { jobType: 'document_embedding', targetType: 'document' },
     { refetchInterval: liveJobAwareRefetchInterval }
   )
+  const parseJobsQuery = useBackgroundJobsQuery(
+    { jobType: 'document_parse', targetType: 'document' },
+    { refetchInterval: liveJobAwareRefetchInterval }
+  )
   const openReader = useAppUiStore((state) => state.openReader)
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const setSettingsSection = useAppUiStore((state) => state.setSettingsSection)
@@ -47,6 +52,7 @@ export function LibraryPage() {
   const previousAiJobStatusesRef = useRef<Map<string, string>>(new Map())
   const startAiGenerationMutation = useStartAiCardGenerationMutation()
   const resumeAiGenerationMutation = useResumeAiCardGenerationMutation()
+  const startEmbeddingMutation = useStartDocumentEmbeddingJobMutation()
   const deleteDocumentMutation = useDeleteDocumentMutation()
   const cancelBackgroundJobMutation = useCancelBackgroundJobMutation()
 
@@ -66,7 +72,11 @@ export function LibraryPage() {
     [cardGroups]
   )
   useEffect(() => {
-    const jobs = [...(aiJobsQuery.data ?? []), ...(embeddingJobsQuery.data ?? [])]
+    const jobs = [
+      ...(aiJobsQuery.data ?? []),
+      ...(embeddingJobsQuery.data ?? []),
+      ...(parseJobsQuery.data ?? []),
+    ]
     const previous = previousAiJobStatusesRef.current
     const transitionedToTerminal = jobs.some((job) => {
       const priorStatus = previous.get(job.id)
@@ -82,7 +92,7 @@ export function LibraryPage() {
       queryClient.invalidateQueries({ queryKey: documentsQueryKeys.all }),
       queryClient.invalidateQueries({ queryKey: knowledgeQueryKeys.all }),
     ])
-  }, [queryClient, aiJobsQuery.data, embeddingJobsQuery.data])
+  }, [queryClient, aiJobsQuery.data, embeddingJobsQuery.data, parseJobsQuery.data])
 
   const retryParseMutation = useMutation({
     mutationFn: async (documentId: string) => {
@@ -132,6 +142,10 @@ export function LibraryPage() {
     <LibraryPageView
       documents={viewDocuments}
       isLoading={isLoading}
+      processingJobs={[
+        ...(parseJobsQuery.data ?? []).map(mapBackgroundJobToProcessingJob),
+        ...(embeddingJobsQuery.data ?? []).map(mapBackgroundJobToProcessingJob),
+      ]}
       aiGeneration={{
         groups: activeCardGroups,
         providers: usableProviderConfigs,
@@ -198,6 +212,17 @@ export function LibraryPage() {
         error: importState.error,
       }}
       onUploadAction={(action) => {
+        if (action.id === 'retry-embedding' && action.documentId) {
+          startEmbeddingMutation.mutate(action.documentId, {
+            onError: (cause) => {
+              reportAppError('é‚å›¨ã€‚éšæˆ¦å™º', cause, {
+                title: 'é‡æ–°ç”Ÿæˆå‘é‡å¤±è´¥',
+                showToast: true,
+              })
+            },
+          })
+          return
+        }
         if (action.target === 'settings') {
           setActiveNavItem('settings')
           return
@@ -221,6 +246,16 @@ export function LibraryPage() {
         setPreferredBasicCardsDocumentId(documentId)
         setActiveNavItem('cards')
       }}
+      onRunEmbedding={(documentId) => {
+        startEmbeddingMutation.mutate(documentId, {
+          onError: (cause) => {
+            reportAppError('é‚å›¨ã€‚éšæˆ¦å™º', cause, {
+              title: 'é‡æ–°ç”Ÿæˆå‘é‡å¤±è´¥',
+              showToast: true,
+            })
+          },
+        })
+      }}
       onDeleteDocument={(documentId) => {
         deleteDocumentMutation.mutate(documentId, {
           onError: (cause) => {
@@ -232,6 +267,7 @@ export function LibraryPage() {
         })
       }}
       onRetryParse={(documentId) => retryParseMutation.mutate(documentId)}
+      isStartingEmbedding={startEmbeddingMutation.isPending}
       isDeletingDocument={deleteDocumentMutation.isPending}
     />
   )
@@ -266,6 +302,23 @@ function mapDocumentToView(document: DocumentLibraryItem) {
     description: '文档已纳入学习库，可继续阅读或生成 Basic 卡片。',
     tags: [document.fileType.toUpperCase(), document.status],
   }
+}
+
+function mapBackgroundJobToProcessingJob(job: BackgroundJob) {
+  return {
+    id: job.id,
+    jobType: job.jobType === 'document_parse' ? 'document_parse' : 'document_embedding',
+    status: job.status,
+    targetId: job.targetId,
+    payloadJson: job.payloadJson,
+    resultJson: job.resultJson,
+    errorMessage: job.errorMessage,
+    progressCurrent: job.progressCurrent,
+    progressTotal: job.progressTotal,
+    progressMessage: job.progressMessage,
+    createdAt: job.createdAt,
+    cancelRequestedAt: job.cancelRequestedAt,
+  } as const
 }
 
 function formatDate(date: Date) {

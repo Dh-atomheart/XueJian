@@ -212,18 +212,6 @@ function buildInitialDraft(template: ProviderTemplate) {
   }
 }
 
-function PageHeader() {
-  return (
-    <div className="mb-6">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">SETTINGS</p>
-      <h1 className="mt-1 text-2xl font-medium text-foreground" data-testid="app-shell-page-title">
-        设置
-      </h1>
-      <p className="mt-1 text-sm text-muted-foreground">配置 AI 连接、学习节奏和通用偏好。</p>
-    </div>
-  )
-}
-
 function SettingsNav({ activeTab, onTabChange }: { activeTab: SettingsPageProps['activeTab']; onTabChange: SettingsPageProps['onTabChange'] }) {
   const items = [
     { id: 'ai', icon: SettingsIcon, label: 'AI' },
@@ -915,7 +903,6 @@ function GeneralSettings(props: SettingsPageProps) {
 export function SettingsPage(props: SettingsPageProps) {
   return (
     <div className="h-full overflow-y-auto p-6">
-      <PageHeader />
       <div className="flex gap-8">
         <SettingsNav activeTab={props.activeTab} onTabChange={props.onTabChange} />
         <div className="min-w-0 flex-1">

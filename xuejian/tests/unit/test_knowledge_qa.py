@@ -1,5 +1,7 @@
 import pytest
+from types import SimpleNamespace
 
+from orchestration_service.providers import embedding_runtime
 from orchestration_service.workflows import knowledge_qa as workflow
 
 
@@ -90,6 +92,43 @@ class FakeHost:
         return self.config
 
 
+class EmbeddingCacheHost:
+    def __init__(self, *, cached=None):
+        self.cached = cached
+        self.cache_reads = 0
+        self.cache_writes = []
+
+    def get_workflow_assignment(self, workflow_type):
+        return {
+            "modelProfile": {
+                "id": "profile-1",
+                "apiConfigId": "config-1",
+                "modelId": "text-embedding-test",
+            },
+            "apiConfig": {"id": "config-1"},
+        }
+
+    def get_api_config(self, config_id):
+        return {
+            "id": config_id,
+            "provider": "custom_openai",
+            "model": "text-embedding-test",
+            "baseUrl": "http://embedding.local",
+            "isEnabled": True,
+        }
+
+    def get_api_key(self, config_id):
+        return "key"
+
+    def get_query_embedding_cache(self, cache_key, expected_dimensions, max_age_seconds):
+        self.cache_reads += 1
+        return self.cached or {"hit": False}
+
+    def put_query_embedding_cache(self, **payload):
+        self.cache_writes.append(payload)
+        return {"stored": True}
+
+
 class ReadinessHost(FakeHost):
     def __init__(self, *, readiness_status, chunks=None):
         super().__init__(profile={"id": "profile-1"}, chunks=chunks)
@@ -130,7 +169,17 @@ def test_run_blocks_when_selected_documents_have_stale_embeddings():
 
 
 def test_run_continues_when_readiness_is_ready(monkeypatch):
-    monkeypatch.setattr(workflow, "embed_texts", lambda *args, **kwargs: [[0.1, 0.2]])
+    monkeypatch.setattr(
+        workflow,
+        "embed_query_with_resilience",
+        lambda *args, **kwargs: SimpleNamespace(
+            vector=[0.1, 0.2],
+            cache_hit=False,
+            attempts=1,
+            latency_ms=12.0,
+            status="ready",
+        ),
+    )
     host = ReadinessHost(readiness_status="ready", chunks=[])
 
     result = workflow.run_knowledge_qa_workflow("run-1", "question", ["doc-1"], host)
@@ -140,11 +189,57 @@ def test_run_continues_when_readiness_is_ready(monkeypatch):
     assert result["answer"]["retrievalStatus"] != "embedding_stale"
 
 
+def test_query_embedding_uses_persistent_cache(monkeypatch):
+    def fail_provider(*args, **kwargs):
+        raise AssertionError("provider should not be called on cache hit")
+
+    monkeypatch.setattr(embedding_runtime, "litellm_embedding", fail_provider)
+    host = EmbeddingCacheHost(cached={"hit": True, "vector": [0.1, 0.2, 0.3]})
+
+    result = embedding_runtime.embed_query_with_resilience(
+        host,
+        {"id": "profile-1", "revision": 1, "provider": "custom_openai", "model": "text-embedding-test", "dimensions": 3},
+        "What is retrieval practice?",
+    )
+
+    assert result.cache_hit is True
+    assert result.attempts == 0
+    assert result.vector == [0.1, 0.2, 0.3]
+    assert host.cache_reads == 1
+    assert host.cache_writes == []
+
+
+def test_query_embedding_retries_once_after_timeout(monkeypatch):
+    calls = []
+
+    def flaky_provider(*args, **kwargs):
+        calls.append(kwargs.get("timeout_seconds"))
+        if len(calls) == 1:
+            raise TimeoutError("embedding timeout")
+        return [[0.3, 0.2, 0.1]]
+
+    monkeypatch.setattr(embedding_runtime, "litellm_embedding", flaky_provider)
+    monkeypatch.setattr(embedding_runtime.time, "sleep", lambda *_args, **_kwargs: None)
+    host = EmbeddingCacheHost()
+
+    result = embedding_runtime.embed_query_with_resilience(
+        host,
+        {"id": "profile-1", "revision": 1, "provider": "custom_openai", "model": "text-embedding-test", "dimensions": 3},
+        "What is retrieval practice?",
+    )
+
+    assert result.cache_hit is False
+    assert result.attempts == 2
+    assert result.vector == [0.3, 0.2, 0.1]
+    assert calls == [15, 25]
+    assert host.cache_writes
+
+
 def test_run_returns_embedding_failed_when_query_embedding_fails(monkeypatch):
     def fail_embed(*args, **kwargs):
         raise RuntimeError("provider failed")
 
-    monkeypatch.setattr(workflow, "embed_texts", fail_embed)
+    monkeypatch.setattr(workflow, "embed_query_with_resilience", fail_embed)
     host = FakeHost(profile={"id": "profile-1"})
 
     result = workflow.run_knowledge_qa_workflow("run-1", "问题", ["doc-1"], host)
@@ -156,7 +251,7 @@ def test_run_uses_lexical_excerpt_fallback_when_query_embedding_config_fails(mon
     def fail_embed(*args, **kwargs):
         raise RuntimeError("No enabled API config with key found for provider 'custom_openai'")
 
-    monkeypatch.setattr(workflow, "embed_texts", fail_embed)
+    monkeypatch.setattr(workflow, "embed_query_with_resilience", fail_embed)
     host = FakeHost(
         profile={"id": "profile-1"},
         chunks=[
@@ -179,7 +274,17 @@ def test_run_uses_lexical_excerpt_fallback_when_query_embedding_config_fails(mon
 
 
 def test_run_returns_no_hits_when_hybrid_has_no_vector_hits(monkeypatch):
-    monkeypatch.setattr(workflow, "embed_texts", lambda *args, **kwargs: [[0.1, 0.2]])
+    monkeypatch.setattr(
+        workflow,
+        "embed_query_with_resilience",
+        lambda *args, **kwargs: SimpleNamespace(
+            vector=[0.1, 0.2],
+            cache_hit=False,
+            attempts=1,
+            latency_ms=12.0,
+            status="ready",
+        ),
+    )
     host = FakeHost(
         profile={"id": "profile-1"},
         chunks=[{"id": "lexical", "content": "关键词命中但没有向量信号"}],
@@ -191,8 +296,65 @@ def test_run_returns_no_hits_when_hybrid_has_no_vector_hits(monkeypatch):
     assert result["answer"]["retrievalMode"] == "hybrid"
 
 
+def test_run_uses_lexical_hits_for_structured_synthesis_when_vector_flags_are_absent(monkeypatch):
+    monkeypatch.setattr(
+        workflow,
+        "embed_query_with_resilience",
+        lambda *args, **kwargs: SimpleNamespace(
+            vector=[0.1, 0.2],
+            cache_hit=False,
+            attempts=1,
+            latency_ms=12.0,
+            status="ready",
+        ),
+    )
+
+    def answer_with_table(config, api_key, question, passages_text):
+        assert "If the question asks you to create a table, steps, or a structured synthesis" in workflow.KNOWLEDGE_QA_USER_TEMPLATE
+        assert "职业成长" in question
+        assert "持续复盘" in passages_text
+        return {
+            "answer": "| 步骤 | 做法 |\n| --- | --- |\n| 1 | 明确目标 |\n| 2 | 持续复盘 |\n| 3 | 建立反馈 |",
+            "answerMode": "grounded",
+            "citations": [{"chunkId": "chunk-career", "snippet": "持续复盘"}],
+        }
+
+    monkeypatch.setattr(workflow, "_try_langchain_qa", answer_with_table)
+    host = FakeHost(
+        profile={"id": "profile-1"},
+        config=({"id": "config-1", "provider": "custom_openai", "model": "qa-model"}, "key"),
+        chunks=[
+            {
+                "id": "chunk-career",
+                "documentId": "doc-1",
+                "pageStart": 8,
+                "content": "职业成长需要明确阶段目标、持续复盘工作经验，并通过导师或同伴反馈校准下一步行动。",
+                "score": 0.82,
+            }
+        ],
+    )
+
+    result = workflow.run_knowledge_qa_workflow("run-1", "列个表格告诉我职业成长：三个关键步骤", ["doc-1"], host)
+
+    assert result["answer"]["answerMode"] == "grounded"
+    assert result["answer"]["retrievalMode"] == "fts5"
+    assert result["answer"]["retrievalStatus"] == "ready"
+    assert result["answer"]["citations"][0]["chunkId"] == "chunk-career"
+    assert "| 步骤 | 做法 |" in result["answer"]["answer"]
+
+
 def test_run_returns_excerpt_fallback_when_model_times_out(monkeypatch):
-    monkeypatch.setattr(workflow, "embed_texts", lambda *args, **kwargs: [[0.1, 0.2]])
+    monkeypatch.setattr(
+        workflow,
+        "embed_query_with_resilience",
+        lambda *args, **kwargs: SimpleNamespace(
+            vector=[0.1, 0.2],
+            cache_hit=False,
+            attempts=1,
+            latency_ms=12.0,
+            status="ready",
+        ),
+    )
 
     def fail_model(*args, **kwargs):
         raise TimeoutError("model timeout")

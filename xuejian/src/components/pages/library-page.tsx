@@ -33,6 +33,7 @@ import {
   SkeletonDocRow,
   BackgroundJobPanel,
 } from '@/shared/ui'
+import { estimateAiCardGeneration } from '@/lib/aiCardGenerationEstimate'
 import { cn } from '@/lib/utils'
 
 export interface LibraryPageDocument {
@@ -74,6 +75,10 @@ export interface LibraryPageAiJob {
   cancelRequestedAt?: Date | null
 }
 
+export interface LibraryPageProcessingJob extends LibraryPageAiJob {
+  jobType: 'document_parse' | 'document_embedding'
+}
+
 export interface LibraryPageAiGenerationRequest {
   documentId: string
   groupId: string
@@ -86,6 +91,7 @@ export interface LibraryPageAiGenerationRequest {
 export interface LibraryPageProps {
   documents: LibraryPageDocument[]
   isLoading?: boolean
+  processingJobs?: LibraryPageProcessingJob[]
   aiGeneration?: {
     groups: LibraryPageCardGroup[]
     providers: LibraryPageProviderConfig[]
@@ -122,8 +128,10 @@ export interface LibraryPageProps {
   }) => void
   onOpenReader: (documentId: string) => void
   onOpenCards: (documentId: string) => void
+  onRunEmbedding?: (documentId: string) => void
   onDeleteDocument?: (documentId: string) => void
   onRetryParse?: (documentId: string) => void
+  isStartingEmbedding?: boolean
   isDeletingDocument?: boolean
 }
 
@@ -141,6 +149,8 @@ const CARD_GENERATION_STATUSES = new Set<LibraryPageDocument['status']>([
 ])
 
 const LIVE_AI_JOB_STATUSES = new Set<LibraryPageAiJob['status']>(['queued', 'running'])
+const EMBEDDING_RETRY_LABEL = '\u91cd\u65b0\u751f\u6210\u5411\u91cf'
+const EMBEDDING_RUNNING_LABEL = '\u5411\u91cf\u751f\u6210\u4e2d'
 
 function canReadDocument(document: LibraryPageDocument) {
   return READABLE_STATUSES.has(document.status)
@@ -164,7 +174,7 @@ function jobPayloadDocumentId(payloadJson: string) {
 }
 
 function jobMatchesDocument(job: LibraryPageAiJob, documentId: string) {
-  return jobPayloadDocumentId(job.payloadJson) === documentId
+  return job.targetId === documentId || jobPayloadDocumentId(job.payloadJson) === documentId
 }
 
 function pickCurrentAiJob(jobs: LibraryPageAiJob[], documentId: string) {
@@ -174,18 +184,21 @@ function pickCurrentAiJob(jobs: LibraryPageAiJob[], documentId: string) {
   return matching.find((job) => LIVE_AI_JOB_STATUSES.has(job.status)) ?? matching[0] ?? null
 }
 
-function PageHeader() {
-  return (
-    <div className="mb-5">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-ink-soft">Document Library</p>
-      <h1 className="mt-1 text-2xl font-medium text-ink" data-testid="app-shell-page-title">
-        文档库
-      </h1>
-      <p className="mt-1 text-sm text-ink-muted">
-        导入学习材料，查看解析状态，并从文档生成 Basic 卡片。
-      </p>
-    </div>
-  )
+function pickCurrentProcessingJob(jobs: LibraryPageProcessingJob[], documentId: string) {
+  const matching = jobs
+    .filter((job) => jobMatchesDocument(job, documentId))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+
+  return matching.find((job) => LIVE_AI_JOB_STATUSES.has(job.status)) ?? matching[0] ?? null
+}
+
+function processingJobProgress(job: LibraryPageProcessingJob | null) {
+  if (!job) return 0
+  if (job.status === 'succeeded') return 100
+  const total = job.progressTotal ?? 0
+  const current = job.progressCurrent ?? 0
+  if (total <= 0) return 0
+  return Math.min(100, Math.max(0, (current / total) * 100))
 }
 
 function UploadDropzone({
@@ -301,6 +314,7 @@ function DocumentListItem({
 
 function DocumentList({
   documents,
+  processingJobs = [],
   isLoading,
   searchQuery,
   selectedId,
@@ -308,23 +322,43 @@ function DocumentList({
   onUpload,
 }: {
   documents: LibraryPageDocument[]
+  processingJobs?: LibraryPageProcessingJob[]
   isLoading: boolean
   searchQuery: string
   selectedId: string | null
   onSelect: (id: string) => void
   onUpload: () => void
 }) {
-  const processingDoc = useMemo(
-    () => documents.find((doc) => doc.status === 'embedding' || doc.status === 'uploading'),
-    [documents]
-  )
+  const processingState = useMemo(() => {
+    const liveJob = processingJobs.find((job) => LIVE_AI_JOB_STATUSES.has(job.status))
+    if (liveJob) {
+      const document = documents.find((doc) => jobMatchesDocument(liveJob, doc.id))
+      if (document) {
+        return {
+          document,
+          job: liveJob,
+          progress: processingJobProgress(liveJob),
+        }
+      }
+    }
+
+    const document = documents.find((doc) => doc.status === 'embedding' || doc.status === 'uploading')
+    const job = document ? pickCurrentProcessingJob(processingJobs, document.id) : null
+    return document
+      ? {
+          document,
+          job,
+          progress: processingJobProgress(job),
+        }
+      : null
+  }, [documents, processingJobs])
 
   return (
     <Card>
       <CardContent className="p-4">
-        {processingDoc ? (
+        {processingState ? (
           <div className="mb-3">
-            <ParsingBanner filename={processingDoc.title} progress={38} />
+            <ParsingBanner filename={processingState.document.title} progress={processingState.progress} />
           </div>
         ) : null}
 
@@ -376,6 +410,15 @@ function AiGenerationPanel({
   const hasProvider = config.providers.length > 0
   const isLiveJob = Boolean(job && LIVE_AI_JOB_STATUSES.has(job.status))
   const canGenerate = canGenerateCards(document)
+  const estimateRange = parsePageRange(scope, pageStart, pageEnd, document.pageCount)
+  const generationEstimate = estimateRange.ok
+    ? estimateAiCardGeneration({
+        density,
+        pageCount: document.pageCount,
+        pageStart: estimateRange.pageStart,
+        pageEnd: estimateRange.pageEnd,
+      })
+    : null
 
   useEffect(() => {
     if (!groupId && config.groups[0]) setGroupId(config.groups[0].id)
@@ -503,6 +546,15 @@ function AiGenerationPanel({
         ) : null}
       </div>
 
+      {generationEstimate ? (
+        <p
+          className="mt-3 rounded-md border border-line-soft bg-paper-card px-3 py-2 text-xs text-ink-muted"
+          data-testid="library-ai-generation-estimate"
+        >
+          预计 {generationEstimate.pageCount} 页，约 {generationEstimate.cardCount} 张卡片
+        </p>
+      ) : null}
+
       {!hasProvider ? (
         <Notice>
           <span>当前没有可用 Provider。</span>
@@ -565,16 +617,20 @@ function DocumentDetailPanel({
   aiGeneration,
   onOpenReader,
   onOpenCards,
+  onRunEmbedding,
   onDeleteDocument,
   onRetryParse,
+  isStartingEmbedding,
   isDeletingDocument,
 }: {
   document: LibraryPageDocument | null
   aiGeneration?: LibraryPageProps['aiGeneration']
   onOpenReader: (documentId: string) => void
   onOpenCards: (documentId: string) => void
+  onRunEmbedding?: (documentId: string) => void
   onDeleteDocument?: (documentId: string) => void
   onRetryParse?: (documentId: string) => void
+  isStartingEmbedding?: boolean
   isDeletingDocument?: boolean
 }) {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -596,6 +652,11 @@ function DocumentDetailPanel({
   const canGenerate = canGenerateCards(document)
   const parseFailed = document.status === 'error'
   const embeddingFailed = document.status === 'embedding_failed'
+  const canRunEmbedding =
+    Boolean(onRunEmbedding) &&
+    (document.status === 'parsed' ||
+      document.status === 'embedding_failed' ||
+      document.status === 'embedding_stale')
   const cardActionVisible = !parseFailed
   const aiJob = aiGeneration ? pickCurrentAiJob(aiGeneration.jobs, document.id) : null
   const aiRunning = Boolean(aiJob && LIVE_AI_JOB_STATUSES.has(aiJob.status))
@@ -672,6 +733,19 @@ function DocumentDetailPanel({
               <p className="text-sm font-medium text-ink">{statusNotice.title}</p>
             </div>
             <p className="text-xs leading-relaxed text-ink-muted">{statusNotice.detail}</p>
+            {canRunEmbedding ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 h-8"
+                data-testid="library-run-embedding"
+                onClick={() => onRunEmbedding?.(document.id)}
+                disabled={isStartingEmbedding}
+              >
+                <RefreshCcw className={cn('h-3.5 w-3.5', isStartingEmbedding && 'animate-spin')} />
+                {isStartingEmbedding ? EMBEDDING_RUNNING_LABEL : EMBEDDING_RETRY_LABEL}
+              </Button>
+            ) : null}
           </div>
         ) : document.description ? (
           <div className="mt-5">
@@ -792,7 +866,6 @@ export function LibraryPage(props: LibraryPageProps) {
 
   return (
     <div className="h-full overflow-y-auto p-5">
-      <PageHeader />
       <div className="mb-4 flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" />
@@ -850,6 +923,7 @@ export function LibraryPage(props: LibraryPageProps) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <DocumentList
           documents={filtered}
+          processingJobs={props.processingJobs}
           isLoading={Boolean(props.isLoading)}
           searchQuery={searchQuery}
           selectedId={selectedId}
@@ -861,8 +935,10 @@ export function LibraryPage(props: LibraryPageProps) {
           aiGeneration={props.aiGeneration}
           onOpenReader={props.onOpenReader}
           onOpenCards={props.onOpenCards}
+          onRunEmbedding={props.onRunEmbedding}
           onDeleteDocument={props.onDeleteDocument}
           onRetryParse={props.onRetryParse}
+          isStartingEmbedding={props.isStartingEmbedding}
           isDeletingDocument={props.isDeletingDocument}
         />
       </div>

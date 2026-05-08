@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AppShell } from '@/components/shell/AppShell'
 import { BasicCardsPage } from '@/features/cards/BasicCardsPage'
 import { resetMockGatewayState } from '@/services/gateway/mockData'
 import { useAppUiStore } from '@/store'
@@ -15,7 +16,9 @@ function renderBasicCardsPage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <BasicCardsPage />
+      <AppShell>
+        <BasicCardsPage />
+      </AppShell>
     </QueryClientProvider>
   )
 }
@@ -30,6 +33,7 @@ function resetUiState() {
     feedbackLog: [],
     activeNotices: [],
     isFeedbackPanelOpen: false,
+    pageHeaderActions: [],
     knowledgeDraft: {
       question: null,
       selectedDocumentIds: [],
@@ -71,7 +75,7 @@ describe('BasicCardsPage', () => {
       expect(screen.getAllByText('手工摘录').length).toBeGreaterThan(0)
     })
 
-    fireEvent.click(screen.getAllByRole('button', { name: '新建卡片' })[0])
+    fireEvent.click(screen.getByTestId('page-header-action-create-card'))
     const groupSelect = screen.getByLabelText('卡片分组') as HTMLSelectElement
     const groupOption = Array.from(groupSelect.options).find((option) => option.text.includes('手工摘录'))
     fireEvent.change(groupSelect, { target: { value: groupOption?.value } })
