@@ -131,5 +131,3 @@ XueJian 采用本地优先架构。业务数据以本机 SQLite 为权威来源�
 ## 许可证
 
 本项目按 GPL v3 发布，详见 [LICENSE](./LICENSE)。
-
-发布前请注意：当前 `xuejian/src-tauri/Cargo.toml` 的许可证元数据仍写为 `MIT`，需要与根目录 `LICENSE` 的 GPL v3 保持一致。
