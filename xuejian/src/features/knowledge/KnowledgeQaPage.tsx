@@ -11,6 +11,7 @@ import {
   useRegenerateKnowledgeQaTurnMutation,
   useSendKnowledgeQaMessageMutation,
 } from '@/queries/knowledge'
+import { useWorkflowEventsQuery } from '@/queries/orchestration'
 import {
   apiConfigQueryKeys,
   documentsQueryKeys,
@@ -22,7 +23,16 @@ import { useAppUiStore } from '@/store'
 import { isTauriEnvironment } from '@/services/gateway'
 import { embeddingProfileGateway } from '@/services/gateway/models'
 import { orchestrationGateway } from '@/services/gateway/orchestration'
-import type { KnowledgeQaMessage, WorkflowEvent } from '@/types'
+import type {
+  AgentToolInvocation,
+  KnowledgeQaMessage,
+  RagProgressEventPayload,
+  RagProgressStep,
+  RagProgressStepKey,
+  RagProgressStepStatus,
+  RagTrace,
+  WorkflowEvent,
+} from '@/types'
 
 type RetrievalStatus =
   | 'ready'
@@ -45,6 +55,10 @@ type TurnState = {
   answer: string | null
   answerMode?: AnswerMode
   retrievalStatus?: RetrievalStatus
+  ragTrace?: RagTrace | null
+  agentTrace?: AgentToolInvocation[] | null
+  sessionMemoryUsed?: boolean
+  sessionMemorySummary?: string | null
   citations: Array<{
     id: string
     documentId: string
@@ -66,8 +80,13 @@ type QaDocument = {
 }
 
 const KNOWLEDGE_POLL_INTERVAL_MS = 1_800
+const RAG_PROGRESS_POLL_INTERVAL_MS = 1_200
 
-function isKnowledgeQaDocument(document: { id: string; title: string; status: string }): document is QaDocument {
+function isKnowledgeQaDocument(document: {
+  id: string
+  title: string
+  status: string
+}): document is QaDocument {
   return (
     document.status === 'ready' ||
     document.status === 'embedding_stale' ||
@@ -126,9 +145,15 @@ export function KnowledgeQaPage() {
       })),
     [documents]
   )
-  const qaDocumentIdSet = useMemo(() => new Set(qaDocuments.map((document) => document.id)), [qaDocuments])
+  const qaDocumentIdSet = useMemo(
+    () => new Set(qaDocuments.map((document) => document.id)),
+    [qaDocuments]
+  )
   const readyDocumentIdSet = useMemo(
-    () => new Set(qaDocuments.filter((document) => document.status === 'ready').map((document) => document.id)),
+    () =>
+      new Set(
+        qaDocuments.filter((document) => document.status === 'ready').map((document) => document.id)
+      ),
     [qaDocuments]
   )
   const scopedDocumentIds = useMemo(
@@ -143,7 +168,8 @@ export function KnowledgeQaPage() {
       }),
     [qaDocuments, scopedDocumentIds]
   )
-  const selectedUnavailableDocument = selectedDocuments.find((document) => document.status !== 'ready') ?? null
+  const selectedUnavailableDocument =
+    selectedDocuments.find((document) => document.status !== 'ready') ?? null
   const effectiveReadyDocumentIds = useMemo(
     () => scopedDocumentIds.filter((documentId) => readyDocumentIdSet.has(documentId)),
     [readyDocumentIdSet, scopedDocumentIds]
@@ -172,7 +198,9 @@ export function KnowledgeQaPage() {
       !orchestrationHealth.protocolCompatible)
 
   useEffect(() => {
-    setSelectedDocIds((previous) => previous.filter((documentId) => qaDocumentIdSet.has(documentId)))
+    setSelectedDocIds((previous) =>
+      previous.filter((documentId) => qaDocumentIdSet.has(documentId))
+    )
   }, [qaDocumentIdSet])
 
   useEffect(() => {
@@ -406,6 +434,19 @@ export function KnowledgeQaPage() {
     () => buildTurnsFromMessages(activeConversationDetail?.messages ?? [], documentTitleLookup),
     [activeConversationDetail?.messages, documentTitleLookup]
   )
+  const pendingTurnWithRun = useMemo(
+    () => persistedTurns.find((turn) => turn.status === 'pending' && turn.workflowRunId),
+    [persistedTurns]
+  )
+  const { data: pendingWorkflowEvents = [] } = useWorkflowEventsQuery(
+    pendingTurnWithRun?.workflowRunId ?? null,
+    32,
+    { refetchInterval: pendingTurnWithRun ? RAG_PROGRESS_POLL_INTERVAL_MS : false }
+  )
+  const pendingRagProgressSteps = useMemo(
+    () => buildRagProgressStepsFromEvents(pendingWorkflowEvents),
+    [pendingWorkflowEvents]
+  )
 
   const handleRetry = useCallback(
     async (turnId: string) => {
@@ -522,6 +563,11 @@ export function KnowledgeQaPage() {
         answer: turn.answer,
         answerMode: turn.answerMode ?? null,
         retrievalStatus: turn.retrievalStatus ?? null,
+        ragTrace: turn.ragTrace ?? null,
+        ragProgressSteps:
+          turn.status === 'pending' && turn.workflowRunId === pendingTurnWithRun?.workflowRunId
+            ? pendingRagProgressSteps
+            : [],
         status: turn.status,
         errorMessage: turn.errorMessage ?? null,
         citations: turn.citations.map((citation) => ({
@@ -540,8 +586,15 @@ export function KnowledgeQaPage() {
         snippet: citation.snippet,
       }))}
       searchResults={[]}
-      isSubmitting={sendQaMutation.isPending || regenerateQaMutation.isPending || isRestartingService || hasPendingTurn}
-      isRegenerateDisabled={regenerateQaMutation.isPending || sendQaMutation.isPending || hasPendingTurn}
+      isSubmitting={
+        sendQaMutation.isPending ||
+        regenerateQaMutation.isPending ||
+        isRestartingService ||
+        hasPendingTurn
+      }
+      isRegenerateDisabled={
+        regenerateQaMutation.isPending || sendQaMutation.isPending || hasPendingTurn
+      }
       hasConfiguration
       submitDisabledReason={submitDisabledReason}
       serviceWarningTitle={retrievalWarning.title}
@@ -587,10 +640,12 @@ export function buildTurnsFromMessages(
       continue
     }
 
-    const assistant = messages
-      .slice(index + 1)
-      .find((candidate) => candidate.role === 'assistant') ?? null
-    const result = extractKnowledgeQaAnswerPayload(assistant?.answerPayload ?? null, documentTitleCache)
+    const assistant =
+      messages.slice(index + 1).find((candidate) => candidate.role === 'assistant') ?? null
+    const result = extractKnowledgeQaAnswerPayload(
+      assistant?.answerPayload ?? null,
+      documentTitleCache
+    )
 
     turns.push({
       id: assistant?.id ?? message.id,
@@ -598,6 +653,10 @@ export function buildTurnsFromMessages(
       answer: assistant?.content || result.answer,
       answerMode: result.answerMode,
       retrievalStatus: result.retrievalStatus,
+      ragTrace: result.ragTrace,
+      agentTrace: result.agentTrace,
+      sessionMemoryUsed: result.sessionMemoryUsed,
+      sessionMemorySummary: result.sessionMemorySummary,
       citations: result.citations,
       status: assistant?.status ?? 'error',
       errorMessage: assistant?.errorMessage ?? null,
@@ -629,11 +688,150 @@ export function extractKnowledgeQaResult(
   )
   const payload = completedEvent?.payload
   const answerPayload =
-    payload && typeof payload === 'object' && payload['answer'] && typeof payload['answer'] === 'object'
+    payload &&
+    typeof payload === 'object' &&
+    payload['answer'] &&
+    typeof payload['answer'] === 'object'
       ? (payload['answer'] as Record<string, unknown>)
       : null
 
   return normalizeKnowledgeQaAnswer(answerPayload, documentTitleCache)
+}
+
+const RAG_PROGRESS_STEP_KEYS: RagProgressStepKey[] = [
+  'query_embedding',
+  'rewrite',
+  'retrieve',
+  'rerank',
+  'gate',
+  'second_retrieval',
+  'pack',
+  'generate',
+  'audit',
+]
+
+const RAG_PROGRESS_STATUSES: RagProgressStepStatus[] = [
+  'pending',
+  'running',
+  'completed',
+  'skipped',
+  'failed',
+]
+
+export function buildRagProgressStepsFromEvents(events: WorkflowEvent[]): RagProgressStep[] {
+  return events
+    .flatMap((event, eventIndex) =>
+      normalizeRagProgressEvent(event).map((step) => ({ ...step, eventIndex }))
+    )
+    .sort((left, right) => {
+      const timeDiff = left.createdAt.getTime() - right.createdAt.getTime()
+      if (timeDiff !== 0) {
+        return timeDiff
+      }
+      return right.eventIndex - left.eventIndex
+    })
+    .map(({ eventIndex: _eventIndex, ...step }) => step)
+}
+
+function normalizeRagProgressEvent(event: WorkflowEvent): RagProgressStep[] {
+  if (event.eventType === 'queued') {
+    return [
+      {
+        id: `${event.runId}-queued-${event.createdAt.getTime()}`,
+        stepKey: 'query_embedding',
+        status: 'pending',
+        title: '准备检索',
+        detail: event.message ?? '知识问答已排队',
+        progress: event.progress ?? 0,
+        metrics: {},
+        createdAt: event.createdAt,
+      },
+    ]
+  }
+
+  if (event.eventType === 'started') {
+    return [
+      {
+        id: `${event.runId}-started-${event.createdAt.getTime()}`,
+        stepKey: 'query_embedding',
+        status: 'running',
+        title: '理解问题',
+        detail: event.message ?? '正在启动检索流程',
+        progress: event.progress ?? 0.1,
+        metrics: {},
+        createdAt: event.createdAt,
+      },
+    ]
+  }
+
+  if (event.eventType !== 'progress') {
+    return []
+  }
+
+  const payload = parseRagProgressPayload(event.payload)
+  if (!payload) {
+    return []
+  }
+
+  return [
+    {
+      id: `${event.runId}-${payload.stepKey}-${event.createdAt.getTime()}`,
+      stepKey: payload.stepKey,
+      status: payload.status,
+      title: payload.title ?? null,
+      detail: payload.detail ?? event.message,
+      progress: payload.progress ?? event.progress,
+      metrics: payload.metrics ?? {},
+      createdAt: event.createdAt,
+    },
+  ]
+}
+
+function parseRagProgressPayload(
+  payload: Record<string, unknown> | null
+): RagProgressEventPayload | null {
+  if (!payload) {
+    return null
+  }
+
+  const stepKey = payload['stepKey']
+  const status = payload['status']
+  if (
+    typeof stepKey !== 'string' ||
+    !RAG_PROGRESS_STEP_KEYS.includes(stepKey as RagProgressStepKey) ||
+    typeof status !== 'string' ||
+    !RAG_PROGRESS_STATUSES.includes(status as RagProgressStepStatus)
+  ) {
+    return null
+  }
+
+  return {
+    stepKey: stepKey as RagProgressStepKey,
+    status: status as RagProgressStepStatus,
+    title: typeof payload['title'] === 'string' ? payload['title'] : null,
+    detail: typeof payload['detail'] === 'string' ? payload['detail'] : null,
+    progress: asNullableNumber(payload['progress']),
+    metrics: normalizeRagProgressMetrics(payload['metrics']),
+  }
+}
+
+function normalizeRagProgressMetrics(value: unknown) {
+  if (!isRecord(value)) {
+    return {}
+  }
+
+  const metrics: Record<string, string | number | boolean | null> = {}
+  for (const [key, metricValue] of Object.entries(value)) {
+    if (
+      typeof metricValue === 'string' ||
+      typeof metricValue === 'number' ||
+      typeof metricValue === 'boolean' ||
+      metricValue === null
+    ) {
+      metrics[key] = metricValue
+    }
+  }
+  return metrics
 }
 
 function normalizeKnowledgeQaAnswer(
@@ -676,7 +874,239 @@ function normalizeKnowledgeQaAnswer(
       )
     : []
 
-  return { answer, answerMode, retrievalStatus, citations }
+  const ragTrace = normalizeRagTrace(answerPayload?.['ragTrace'])
+  const agentTrace = normalizeAgentTrace(answerPayload?.['agentTrace'])
+  const sessionMemoryUsed = Boolean(answerPayload?.['sessionMemoryUsed'])
+  const sessionMemorySummary =
+    typeof answerPayload?.['sessionMemorySummary'] === 'string'
+      ? answerPayload['sessionMemorySummary']
+      : null
+
+  return {
+    answer,
+    answerMode,
+    retrievalStatus,
+    citations,
+    ragTrace,
+    agentTrace,
+    sessionMemoryUsed,
+    sessionMemorySummary,
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value != null
+}
+
+function asString(value: unknown, fallback = '') {
+  return typeof value === 'string' ? value : fallback
+}
+
+function asNullableString(value: unknown) {
+  return typeof value === 'string' ? value : null
+}
+
+function asNumber(value: unknown, fallback = 0) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function asNullableNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function normalizeRetrievalSummary(rawSummary: unknown): RagTrace['retrievalSummary'] {
+  if (!isRecord(rawSummary)) {
+    return {
+      chunkCount: 0,
+      retrievedDocumentCount: 0,
+      lexicalStatus: 'not_used',
+      retrievalMode: 'hybrid',
+    }
+  }
+
+  return {
+    chunkCount: asNumber(rawSummary['chunkCount']),
+    retrievedDocumentCount: asNumber(rawSummary['retrievedDocumentCount']),
+    lexicalStatus: asString(rawSummary['lexicalStatus'], 'not_used'),
+    retrievalMode: asString(rawSummary['retrievalMode'], 'hybrid'),
+  }
+}
+
+function normalizeRewriteSummary(rawSummary: unknown): RagTrace['rewriteSummary'] {
+  if (!isRecord(rawSummary)) {
+    return undefined
+  }
+
+  return {
+    status: asString(rawSummary['status'], 'not_run'),
+    triggerReason: asNullableString(rawSummary['triggerReason']),
+    recentMessageCount: asNumber(rawSummary['recentMessageCount']),
+    originalQueryPreview: asString(rawSummary['originalQueryPreview']),
+    rewrittenQueryPreview: asString(rawSummary['rewrittenQueryPreview']),
+  }
+}
+
+function normalizeMergeSummary(rawSummary: unknown): RagTrace['mergeSummary'] {
+  if (!isRecord(rawSummary)) {
+    return {
+      status: 'not_run',
+      childChunksExpanded: 0,
+      parentContextsAdded: 0,
+      sectionContextsAdded: 0,
+      charsAdded: 0,
+    }
+  }
+
+  return {
+    status: asString(rawSummary['status'], 'not_run'),
+    childChunksExpanded: asNumber(rawSummary['childChunksExpanded']),
+    parentContextsAdded: asNumber(rawSummary['parentContextsAdded']),
+    sectionContextsAdded: asNumber(rawSummary['sectionContextsAdded']),
+    charsAdded: asNumber(rawSummary['charsAdded']),
+  }
+}
+
+function normalizePackingSummary(rawSummary: unknown): RagTrace['packingSummary'] {
+  if (!isRecord(rawSummary)) {
+    return {
+      passageCount: 0,
+      totalChars: 0,
+      budgetChars: 0,
+    }
+  }
+
+  return {
+    passageCount: asNumber(rawSummary['passageCount']),
+    totalChars: asNumber(rawSummary['totalChars']),
+    budgetChars: asNumber(rawSummary['budgetChars']),
+  }
+}
+
+function normalizeRerankSummary(rawSummary: unknown): RagTrace['rerankSummary'] {
+  if (!isRecord(rawSummary)) {
+    return undefined
+  }
+
+  return {
+    status: asString(rawSummary['status'], 'not_run'),
+    provider: asString(rawSummary['provider'], 'not_configured'),
+    topScore: asNullableNumber(rawSummary['topScore']),
+    averageScore: asNullableNumber(rawSummary['averageScore']),
+    chunkCount: asNumber(rawSummary['chunkCount']),
+  }
+}
+
+function normalizeRelevanceGateSummary(rawSummary: unknown): RagTrace['relevanceGateSummary'] {
+  if (!isRecord(rawSummary)) {
+    return undefined
+  }
+
+  return {
+    decision: asString(rawSummary['decision'], 'not_run'),
+    topScore: asNullableNumber(rawSummary['topScore']),
+    threshold: asNumber(rawSummary['threshold']),
+    chunkCount: asNumber(rawSummary['chunkCount']),
+    reason: asString(rawSummary['reason']),
+  }
+}
+
+function normalizeSecondRetrievalSummary(rawSummary: unknown): RagTrace['secondRetrievalSummary'] {
+  if (!isRecord(rawSummary)) {
+    return undefined
+  }
+
+  return {
+    status: asString(rawSummary['status'], 'not_run'),
+    used: Boolean(rawSummary['used']),
+    queryPreview: asString(rawSummary['queryPreview']),
+    additionalChunkCount: asNumber(rawSummary['additionalChunkCount']),
+    reason: asNullableString(rawSummary['reason']),
+  }
+}
+
+function normalizeAuditSummary(rawSummary: unknown): RagTrace['auditSummary'] {
+  if (!isRecord(rawSummary)) {
+    return {
+      totalCitations: 0,
+      validCitations: 0,
+      rejectedCitations: 0,
+      auditStatus: 'not_run',
+    }
+  }
+
+  return {
+    totalCitations: asNumber(rawSummary['totalCitations']),
+    validCitations: asNumber(rawSummary['validCitations']),
+    rejectedCitations: asNumber(rawSummary['rejectedCitations']),
+    auditStatus: asString(rawSummary['auditStatus'], 'not_run'),
+  }
+}
+
+function normalizeSummaryRecord(rawSummary: unknown): Record<string, unknown> {
+  if (!isRecord(rawSummary)) {
+    return {}
+  }
+  return rawSummary
+}
+
+function normalizeAgentTrace(rawTrace: unknown): AgentToolInvocation[] | null {
+  if (!Array.isArray(rawTrace)) {
+    return null
+  }
+
+  return rawTrace.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry['toolKey'] !== 'string') {
+      return []
+    }
+
+    return [
+      {
+        toolKey: entry['toolKey'],
+        durationMs: asNumber(entry['durationMs']),
+        inputSummary: normalizeSummaryRecord(entry['inputSummary']),
+        outputSummary: normalizeSummaryRecord(entry['outputSummary']),
+        errorCategory: asNullableString(entry['errorCategory']),
+      },
+    ]
+  })
+}
+
+function normalizeRagTrace(rawTrace: unknown): RagTrace | null {
+  if (!isRecord(rawTrace)) {
+    return null
+  }
+
+  return {
+    embeddingReadiness:
+      typeof rawTrace['embeddingReadiness'] === 'string'
+        ? rawTrace['embeddingReadiness']
+        : 'unknown',
+    retrievalMode: rawTrace['retrievalMode'] === 'fts5' ? 'fts5' : 'hybrid',
+    queryRewriteUsed: Boolean(rawTrace['queryRewriteUsed']),
+    secondRetrievalUsed: Boolean(rawTrace['secondRetrievalUsed']),
+    retrievedDocumentCount:
+      typeof rawTrace['retrievedDocumentCount'] === 'number'
+        ? rawTrace['retrievedDocumentCount']
+        : 0,
+    parentMergeStatus:
+      typeof rawTrace['parentMergeStatus'] === 'string' ? rawTrace['parentMergeStatus'] : null,
+    rerankStatus: typeof rawTrace['rerankStatus'] === 'string' ? rawTrace['rerankStatus'] : null,
+    relevanceGateDecision:
+      typeof rawTrace['relevanceGateDecision'] === 'string'
+        ? rawTrace['relevanceGateDecision']
+        : null,
+    citationAuditStatus:
+      typeof rawTrace['citationAuditStatus'] === 'string' ? rawTrace['citationAuditStatus'] : null,
+    failureReason: typeof rawTrace['failureReason'] === 'string' ? rawTrace['failureReason'] : null,
+    retrievalSummary: normalizeRetrievalSummary(rawTrace['retrievalSummary']),
+    rewriteSummary: normalizeRewriteSummary(rawTrace['rewriteSummary']),
+    mergeSummary: normalizeMergeSummary(rawTrace['mergeSummary']),
+    packingSummary: normalizePackingSummary(rawTrace['packingSummary']),
+    rerankSummary: normalizeRerankSummary(rawTrace['rerankSummary']),
+    relevanceGateSummary: normalizeRelevanceGateSummary(rawTrace['relevanceGateSummary']),
+    secondRetrievalSummary: normalizeSecondRetrievalSummary(rawTrace['secondRetrievalSummary']),
+    auditSummary: normalizeAuditSummary(rawTrace['auditSummary']),
+  }
 }
 
 function normalizeKnowledgeCitation(
@@ -710,8 +1140,7 @@ function normalizeKnowledgeCitation(
       documentTitle: documentTitleCache.get(documentId) ?? '文档',
       page: typeof citation['page'] === 'number' ? citation['page'] : null,
       snippet: snippetCandidate,
-      relevance:
-        typeof citation['relevanceScore'] === 'number' ? citation['relevanceScore'] : null,
+      relevance: typeof citation['relevanceScore'] === 'number' ? citation['relevanceScore'] : null,
     },
   ]
 }

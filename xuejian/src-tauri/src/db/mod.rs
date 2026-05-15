@@ -5,6 +5,7 @@ use std::sync::Once;
 use tauri::{AppHandle, Manager};
 
 pub mod animation_repo;
+pub mod artifact_repo;
 pub mod card_repo;
 pub mod document_repo;
 pub mod knowledge_qa_repo;
@@ -19,6 +20,7 @@ pub mod vector_repo;
 pub mod workflow_repo;
 
 pub use animation_repo::*;
+pub use artifact_repo::*;
 pub use card_repo::*;
 pub use document_repo::*;
 pub use knowledge_qa_repo::*;

@@ -228,6 +228,8 @@ struct PodcastWorkflowResponse {
     current_stage: Option<i64>,
     completed_segments: Option<i64>,
     total_segments: Option<i64>,
+    error_code: Option<String>,
+    error_message: Option<String>,
 }
 
 #[tauri::command]
@@ -620,6 +622,7 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
         }
     };
 
+    let result_error_message = result.error_message.clone().or(fallback_message.clone());
     let script_json = result.script_json.clone().unwrap_or_else(|| {
         build_fallback_podcast_result(&episode.title, &context_text)
             .script_json
@@ -650,7 +653,7 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
                 audio_path: Some(result.audio_path.clone()),
                 duration_ms: Some(duration_ms),
                 status: Some(episode_status.clone()),
-                error_message: Some(fallback_message.clone()),
+                error_message: Some(result_error_message.clone()),
                 current_stage: Some(current_stage),
                 completed_segments: Some(result.completed_segments.unwrap_or(0)),
                 total_segments: Some(result.total_segments.unwrap_or(0)),
@@ -688,7 +691,7 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
                     checkpoint_ref,
                     approval_payload: None,
                     cost_usd: None,
-                    error_message: fallback_message.clone(),
+                    error_message: result_error_message.clone(),
                     started_at: None,
                     finished_at: if run_status == "completed" || run_status == "failed" {
                         Some(chrono::Utc::now().to_rfc3339())
@@ -701,12 +704,18 @@ async fn execute_podcast_worker(app_handle: &AppHandle, episode_id: &str) -> Com
             workflow_repo.append_event(AppendWorkflowEventRequest {
                 run_id: run_id.clone(),
                 event_type: event_type.to_string(),
-                message: Some(format!("Podcast {}", episode_status)),
+                message: result_error_message
+                    .clone()
+                    .or_else(|| Some(format!("Podcast {}", episode_status))),
                 progress,
-                payload: fallback_message.as_ref().map(|message| {
+                payload: result_error_message.as_ref().map(|message| {
                     serde_json::json!({
-                        "fallbackUsed": true,
-                        "fallbackReason": message,
+                        "fallbackUsed": fallback_message.is_some(),
+                        "fallbackReason": fallback_message.clone(),
+                        "errorCode": result.error_code.clone(),
+                        "errorCategory": result.error_code.clone(),
+                        "blockingReasons": result.error_code.clone().map(|code| vec![code]).unwrap_or_default(),
+                        "message": message,
                     })
                 }),
             })?;
@@ -779,6 +788,10 @@ async fn try_orchestration_podcast(
         .json::<PodcastWorkflowResponse>()
         .await
         .map_err(|error| error.to_string())?;
+
+    if result.status.as_deref() == Some("failed") {
+        return Ok(result);
+    }
 
     if result.script_json.is_none() {
         return Err("Missing scriptJson in response".to_string());
@@ -888,6 +901,8 @@ fn build_fallback_podcast_result(title: &str, context: &str) -> PodcastWorkflowR
         current_stage: Some(4),
         completed_segments: Some(2),
         total_segments: Some(2),
+        error_code: None,
+        error_message: None,
     }
 }
 

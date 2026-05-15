@@ -119,7 +119,7 @@ export function HomePage() {
         },
         {
           label: '管理卡片',
-          description: '查看 Basic 卡、分组和来源',
+          description: '查看卡片、分组和来源',
           icon: homePageIcons.cards,
           onClick: () => setActiveNavItem('cards'),
         },

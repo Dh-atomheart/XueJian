@@ -86,7 +86,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
           setPdfBytes(null)
           setBinaryError(
             reportAppError('阅读器', error, {
-              title: '读取文档二进制内容失败',
+              title: '读取文档内容失败',
               showToast: true,
             })
           )
@@ -153,7 +153,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
 
         setPageRenderError(
           reportAppError('PDF 阅读器', error, {
-            title: `第 ${reader.currentPage} 页尺寸读取失败`,
+            title: `第 ${reader.currentPage} 页渲染失败`,
             showToast: false,
           })
         )

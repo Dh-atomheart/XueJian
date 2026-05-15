@@ -24,10 +24,10 @@ describe('app shell layout CSS', () => {
     const shellPath = path.resolve(__dirname, '../../src/components/shell/AppShell.tsx')
     const source = readFileSync(shellPath, 'utf8')
 
-    expect(source).toContain('app-shell-frame paper-texture flex h-screen overflow-hidden')
-    expect(source).toContain('hidden h-screen w-[212px] shrink-0')
-    expect(source).toContain('app-shell-main min-h-0 flex-1 overflow-x-hidden')
-    expect(source).toContain("isReader ? 'overflow-hidden' : 'overflow-y-auto'")
+    expect(source).toContain('app-shell app-shell-frame paper-texture flex h-dvh')
+    expect(source).toContain('hidden h-full w-[212px] shrink-0')
+    expect(source).toContain('app-shell-main min-h-0 flex-1 basis-0 overflow-hidden')
+    expect(source).toContain('<AgentPanel />')
   })
 
   it('removes page-level vertical scrolling from home-sized workspaces', () => {

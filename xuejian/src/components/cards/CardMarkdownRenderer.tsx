@@ -12,12 +12,47 @@ export interface CardMarkdownRendererProps {
   variant?: 'card' | 'knowledge'
 }
 
+function normalizeMathDelimitersOutsideCodeBlocks(content: string): string {
+  return content
+    .split(/(```[\s\S]*?```)/g)
+    .map((segment) => {
+      if (segment.startsWith('```')) {
+        return segment
+      }
+
+      return removeUnpairedDisplayMathDelimiters(segment)
+        .replace(/\\\[([\s\S]*?)\\\]/g, (_match, math: string) => `$$\n${math.trim()}\n$$`)
+        .replace(/\\\(([\s\S]*?)\\\)/g, (_match, math: string) => `$${math.trim()}$`)
+    })
+    .join('')
+}
+
+function removeUnpairedDisplayMathDelimiters(content: string): string {
+  const delimiterPattern = /(^|[^\\])\$\$/g
+  const matches = [...content.matchAll(delimiterPattern)]
+
+  if (matches.length % 2 === 0) {
+    return content
+  }
+
+  const lastMatch = matches[matches.length - 1]
+  const matchIndex = lastMatch.index ?? -1
+  if (matchIndex < 0) {
+    return content
+  }
+
+  const delimiterIndex = matchIndex + lastMatch[1].length
+  return `${content.slice(0, delimiterIndex)}${content.slice(delimiterIndex + 2)}`
+}
+
 export function CardMarkdownRenderer({
   content,
   className,
   compact = false,
   variant = 'card',
 }: CardMarkdownRendererProps) {
+  const normalizedContent = normalizeMathDelimitersOutsideCodeBlocks(content)
+
   return (
     <div
       className={cn(
@@ -31,6 +66,7 @@ export function CardMarkdownRenderer({
         compact && 'text-sm line-clamp-4',
         'prose-table:my-0 prose-th:border prose-th:border-line-soft prose-th:bg-paper-muted prose-th:px-2 prose-th:py-1 prose-th:text-left',
         'prose-td:border prose-td:border-line-soft prose-td:px-2 prose-td:py-1',
+        '[&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1',
         !compact && variant === 'card' && 'text-base',
         variant === 'knowledge' && 'text-sm leading-6',
         className
@@ -38,7 +74,7 @@ export function CardMarkdownRenderer({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex]}
+        rehypePlugins={[[rehypeKatex, { errorColor: 'currentColor', throwOnError: false }]]}
         components={{
           table: ({ children, ...props }) => (
             <div className="my-3 w-full overflow-x-auto rounded-lg border border-line-soft">
@@ -49,7 +85,7 @@ export function CardMarkdownRenderer({
           ),
         }}
       >
-        {content}
+        {normalizedContent}
       </ReactMarkdown>
     </div>
   )

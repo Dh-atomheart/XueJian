@@ -139,6 +139,72 @@
 - 测试应失败。
 - 后续实现可通过更严格 prompt、二次校验或人工评测集改进。
 
+## 4.5 检索质量升级
+
+### 用例：Parent/Child Auto-merging
+
+准备：
+
+- `doc-a` 中存在 parent/section，下面包含多个 child chunks。
+- 目标问题的关键词只命中其中一个 child chunk，但完整回答需要同一 parent/section 的相邻上下文。
+
+步骤：
+
+1. 选择 `doc-a`。
+2. 提问需要局部上下文才能回答的问题。
+
+期望：
+
+- 检索命中 child chunk。
+- answer context 包含对应 parent/section 的受控扩展内容。
+- citations 仍指向本轮命中的 child chunk。
+- 不引用 parent context 中无法追溯到 child chunk 的内容。
+
+### 用例：Rerank 排序改善
+
+准备：
+
+- 构造多个候选 chunks，其中一个 lexical/vector 分数较高但不能直接回答问题，另一个分数稍低但答案更直接。
+
+步骤：
+
+1. 启用 rerank provider 或测试用 rerank stub。
+2. 提交目标问题。
+
+期望：
+
+- rerank 后更能回答问题的 evidence 排在前面。
+- trace 或 diagnostics 记录 rerank 已启用和 rerank score 摘要。
+- 低相关但高 RRF 的 chunk 不应单独支撑 grounded answer。
+
+### 用例：低相关度二次检索
+
+步骤：
+
+1. 提交一个首轮检索能命中相似词但证据不足的问题。
+2. 让 relevance gate 判定首轮证据不足。
+
+期望：
+
+- 系统可以触发 rewritten query、step-back query 或 HyDE-style query 的二次检索。
+- 二次检索仍经过 embedding gate、hybrid retrieval、parent merge、rerank、packing 和 citation audit。
+- 二次仍无足够证据时返回 `answerMode: "no_relevant_content"`。
+- 不使用 memory 或模型常识补事实。
+
+### 用例：RAG trace UI 与隐私边界
+
+步骤：
+
+1. 触发一次正常 grounded 回答。
+2. 触发一次低相关度二次检索。
+3. 检查 UI、workflow events 和 diagnostics。
+
+期望：
+
+- UI 显示阶段摘要，例如检索、扩展上下文、重排证据、引用校验。
+- diagnostics 可查看 chunk refs、检索模式、命中文档数、merge/rerank/gate/audit 摘要。
+- trace 不包含完整 prompt、API key、chain-of-thought 或未裁剪的长文档正文。
+
 ## 5. 多轮上下文
 
 ### 用例：轻量指代继承
@@ -246,4 +312,3 @@ Rust unit: embedding gate/search_hybrid/message status
 Frontend unit: KnowledgeQaPage states/citations/errors
 Smoke: one real parsed+embedded document asks one grounded question
 ```
-

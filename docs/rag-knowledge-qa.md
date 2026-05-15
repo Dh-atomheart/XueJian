@@ -2,6 +2,8 @@
 
 ## 1. 定位
 
+全局路线以 [RAG -> Agent -> Multi-Agent 升级总路线图](./rag-agent-upgrade-roadmap.md) 为准。本文定义学习型 RAG 的基础检索链路、回答契约和引用校验规则，是 Phase 1（RAG Data Foundation）至 Phase 3（RAG Quality 2.0）的基线前提文档，也是 Phase 4–5（Single Agent QA / Memory & Card Tools）工具化的前置依据。
+
 RAG 知识问答是 XueJian 的学习型问答能力。它不是通用聊天助手，也不是开放域搜索；它只基于用户已经导入、解析并完成向量化的文档回答问题。
 
 第一版目标：
@@ -286,4 +288,3 @@ RAG MVP 通过标准：
 - provider 超时、取消、非法 JSON 都能给出可理解状态。
 
 详细用例见 [RAG 验收测试](./rag-acceptance-tests.md)。
-

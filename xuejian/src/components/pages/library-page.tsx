@@ -46,7 +46,14 @@ export interface LibraryPageDocument {
   lastUsedAtLabel?: string
   basicCardCount?: number
   failureReason?: string | null
-  status: 'uploading' | 'parsed' | 'embedding' | 'ready' | 'embedding_failed' | 'embedding_stale' | 'error'
+  status:
+    | 'uploading'
+    | 'parsed'
+    | 'embedding'
+    | 'ready'
+    | 'embedding_failed'
+    | 'embedding_stale'
+    | 'error'
   description?: string
   tags?: string[]
 }
@@ -237,7 +244,7 @@ function UploadDropzone({
           <Upload className="h-5 w-5 text-ink-soft" />
         </div>
         <p className="text-sm font-medium text-ink">导入学习文档</p>
-        <p className="text-xs text-ink-muted">支持 PDF、Markdown、TXT、DOCX 等格式。</p>
+        <p className="text-xs text-ink-muted">支持 PDF 格式。</p>
         <Button variant="outline" size="sm" onClick={onUpload} disabled={isUploading}>
           <Upload className="h-3.5 w-3.5" />
           {isUploading ? '正在导入...' : '选择文件'}
@@ -257,20 +264,56 @@ function UploadDropzone({
 
 function DocumentStatusBadge({ status }: { status: LibraryPageDocument['status'] }) {
   const config = {
-    ready: { label: '可阅读', className: 'bg-highlight-green/18 text-ink border-highlight-green/30', icon: CheckCircle },
-    parsed: { label: '已解析', className: 'bg-highlight-green/18 text-ink border-highlight-green/30', icon: CheckCircle },
-    embedding: { label: '处理中', className: 'bg-highlight-yellow/20 text-ink border-highlight-yellow/40', icon: RefreshCcw },
-    uploading: { label: '导入中', className: 'bg-highlight-yellow/20 text-ink border-highlight-yellow/40', icon: RefreshCcw },
-    embedding_stale: { label: '可阅读', className: 'bg-highlight-green/18 text-ink border-highlight-green/30', icon: CheckCircle },
-    embedding_failed: { label: '可阅读', className: 'bg-highlight-green/18 text-ink border-highlight-green/30', icon: CheckCircle },
-    error: { label: '解析失败', className: 'bg-destructive/10 text-destructive border-destructive/20', icon: AlertCircle },
+    ready: {
+      label: '可阅读',
+      className: 'bg-highlight-green/18 text-ink border-highlight-green/30',
+      icon: CheckCircle,
+    },
+    parsed: {
+      label: '已解析',
+      className: 'bg-highlight-green/18 text-ink border-highlight-green/30',
+      icon: CheckCircle,
+    },
+    embedding: {
+      label: '处理中',
+      className: 'bg-highlight-yellow/20 text-ink border-highlight-yellow/40',
+      icon: RefreshCcw,
+    },
+    uploading: {
+      label: '导入中',
+      className: 'bg-highlight-yellow/20 text-ink border-highlight-yellow/40',
+      icon: RefreshCcw,
+    },
+    embedding_stale: {
+      label: '可阅读',
+      className: 'bg-highlight-green/18 text-ink border-highlight-green/30',
+      icon: CheckCircle,
+    },
+    embedding_failed: {
+      label: '可阅读',
+      className: 'bg-highlight-green/18 text-ink border-highlight-green/30',
+      icon: CheckCircle,
+    },
+    error: {
+      label: '解析失败',
+      className: 'bg-destructive/10 text-destructive border-destructive/20',
+      icon: AlertCircle,
+    },
   } as const
 
   const entry = config[status] ?? config.error
   const Icon = entry.icon
   return (
-    <Badge variant="outline" className={cn('gap-1 rounded-md border text-xs font-normal', entry.className)}>
-      <Icon className={cn('h-3 w-3', (status === 'embedding' || status === 'uploading') && 'animate-spin')} />
+    <Badge
+      variant="outline"
+      className={cn('gap-1 rounded-md border text-xs font-normal', entry.className)}
+    >
+      <Icon
+        className={cn(
+          'h-3 w-3',
+          (status === 'embedding' || status === 'uploading') && 'animate-spin'
+        )}
+      />
       {entry.label}
     </Badge>
   )
@@ -342,7 +385,9 @@ function DocumentList({
       }
     }
 
-    const document = documents.find((doc) => doc.status === 'embedding' || doc.status === 'uploading')
+    const document = documents.find(
+      (doc) => doc.status === 'embedding' || doc.status === 'uploading'
+    )
     const job = document ? pickCurrentProcessingJob(processingJobs, document.id) : null
     return document
       ? {
@@ -358,7 +403,10 @@ function DocumentList({
       <CardContent className="p-4">
         {processingState ? (
           <div className="mb-3">
-            <ParsingBanner filename={processingState.document.title} progress={processingState.progress} />
+            <ParsingBanner
+              filename={processingState.document.title}
+              progress={processingState.progress}
+            />
           </div>
         ) : null}
 
@@ -460,7 +508,10 @@ function AiGenerationPanel({
   }
 
   return (
-    <div className="mt-5 rounded-lg border border-line-soft bg-paper-base/75 p-4" data-testid="library-ai-generation-panel">
+    <div
+      className="mt-5 rounded-lg border border-line-soft bg-paper-base/75 p-4"
+      data-testid="library-ai-generation-panel"
+    >
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-sm font-medium text-ink">AI 生成 Basic 卡片</p>
@@ -537,10 +588,20 @@ function AiGenerationPanel({
         {scope === 'range' ? (
           <>
             <Field label="起始页">
-              <Input value={pageStart} onChange={(event) => setPageStart(event.target.value)} inputMode="numeric" data-testid="library-ai-page-start" />
+              <Input
+                value={pageStart}
+                onChange={(event) => setPageStart(event.target.value)}
+                inputMode="numeric"
+                data-testid="library-ai-page-start"
+              />
             </Field>
             <Field label="结束页">
-              <Input value={pageEnd} onChange={(event) => setPageEnd(event.target.value)} inputMode="numeric" data-testid="library-ai-page-end" />
+              <Input
+                value={pageEnd}
+                onChange={(event) => setPageEnd(event.target.value)}
+                inputMode="numeric"
+                data-testid="library-ai-page-end"
+              />
             </Field>
           </>
         ) : null}
@@ -584,7 +645,9 @@ function AiGenerationPanel({
           className="mt-3"
           onCancel={isLiveJob ? config.onCancel : undefined}
           onRetry={job.status === 'failed' ? config.onResume : undefined}
-          onOpenResult={job.status === 'succeeded' ? () => config.onOpenCards(document.id) : undefined}
+          onOpenResult={
+            job.status === 'succeeded' ? () => config.onOpenCards(document.id) : undefined
+          }
           isCancelling={config.isCancelling}
           isRetrying={config.isResuming}
           cancelButtonTestId="library-cancel-ai-generation"
@@ -723,7 +786,8 @@ function DocumentDetailPanel({
         </div>
 
         <p className="mt-3 text-xs text-ink-muted">
-          {document.pageCount ?? '--'} 页 · {document.basicCardCount ?? 0} 张 Basic 卡 · 最近使用 {document.lastUsedAtLabel ?? document.uploadedAtLabel}
+          {document.pageCount ?? '--'} 页 · {document.basicCardCount ?? 0} 张 Basic 卡 · 最近使用{' '}
+          {document.lastUsedAtLabel ?? document.uploadedAtLabel}
         </p>
 
         {statusNotice ? (
@@ -819,7 +883,8 @@ function DocumentDetailPanel({
           <DialogHeader>
             <DialogTitle>删除文档</DialogTitle>
             <DialogDescription>
-              将从文档库移除“{document.title}”。已有 Basic 卡片不会在这里自动删除，但会失去继续从该文档打开来源的稳定入口。
+              将从文档库移除“{document.title}”。已有 Basic
+              卡片不会在这里自动删除，但会失去继续从该文档打开来源的稳定入口。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -856,7 +921,9 @@ export function LibraryPage(props: LibraryPageProps) {
   const filtered = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     if (!query) return props.documents
-    return props.documents.filter((doc) => `${doc.title} ${doc.fileType}`.toLowerCase().includes(query))
+    return props.documents.filter((doc) =>
+      `${doc.title} ${doc.fileType}`.toLowerCase().includes(query)
+    )
   }, [props.documents, searchQuery])
 
   const selectedDocument =
@@ -892,11 +959,16 @@ export function LibraryPage(props: LibraryPageProps) {
             onUpload={props.onUpload}
             isUploading={Boolean(props.uploadState?.isRunning)}
           />
-          {props.uploadState?.message ? <p className="mt-2 text-xs text-ink-muted">{props.uploadState.message}</p> : null}
+          {props.uploadState?.message ? (
+            <p className="mt-2 text-xs text-ink-muted">{props.uploadState.message}</p>
+          ) : null}
           {props.uploadState?.warnings?.length ? (
             <div className="mt-3 space-y-2" data-testid="library-upload-warnings">
               {props.uploadState.warnings.map((warning) => (
-                <div key={warning} className="rounded-lg border border-highlight-yellow/35 bg-highlight-yellow/12 px-3 py-2 text-xs leading-5 text-ink-muted">
+                <div
+                  key={warning}
+                  className="rounded-lg border border-highlight-yellow/35 bg-highlight-yellow/12 px-3 py-2 text-xs leading-5 text-ink-muted"
+                >
                   {warning}
                 </div>
               ))}
@@ -951,13 +1023,16 @@ function parsePageRange(
   startValue: string,
   endValue: string,
   pageCount: number | null
-):
-  | { ok: true; pageStart: number | null; pageEnd: number | null }
-  | { ok: false; message: string } {
+): { ok: true; pageStart: number | null; pageEnd: number | null } | { ok: false; message: string } {
   if (scope === 'all') return { ok: true, pageStart: null, pageEnd: null }
   const pageStart = Number.parseInt(startValue, 10)
   const pageEnd = Number.parseInt(endValue, 10)
-  if (!Number.isInteger(pageStart) || !Number.isInteger(pageEnd) || pageStart <= 0 || pageEnd <= 0) {
+  if (
+    !Number.isInteger(pageStart) ||
+    !Number.isInteger(pageEnd) ||
+    pageStart <= 0 ||
+    pageEnd <= 0
+  ) {
     return { ok: false, message: '请输入有效的起止页码。' }
   }
   if (pageStart > pageEnd) return { ok: false, message: '起始页不能大于结束页。' }

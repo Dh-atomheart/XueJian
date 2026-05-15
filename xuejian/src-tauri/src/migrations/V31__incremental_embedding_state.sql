@@ -1,0 +1,5 @@
+ALTER TABLE document_chunk_embedding_state ADD COLUMN content_hash TEXT;
+ALTER TABLE document_chunk_embedding_state ADD COLUMN chunking_profile_revision INTEGER;
+ALTER TABLE document_chunk_embedding_state ADD COLUMN embedding_profile_revision INTEGER;
+ALTER TABLE document_chunk_embedding_state ADD COLUMN embedding_dimensions INTEGER;
+ALTER TABLE document_chunk_embedding_state ADD COLUMN embedded_at DATETIME;

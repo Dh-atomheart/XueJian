@@ -1,4 +1,5 @@
 pub mod ai_cards;
+pub mod agent;
 pub mod animation;
 pub mod background_jobs;
 pub mod basic_cards;

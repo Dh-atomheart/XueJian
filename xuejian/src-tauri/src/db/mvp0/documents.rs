@@ -1,7 +1,14 @@
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use std::collections::HashSet;
+
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, Transaction};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::db::document_repo::{
+    CreateDocumentAnchorRequest, CreateDocumentChunkRequest, CreateDocumentSectionRequest,
+    DocumentChunk, DocumentSection,
+};
 use crate::db::Result;
 
 use super::now_utc;
@@ -16,6 +23,8 @@ pub struct Mvp0Document {
     pub file_hash: String,
     pub file_size: i64,
     pub page_count: Option<i32>,
+    pub chunking_profile: Option<serde_json::Value>,
+    pub chunking_profile_revision: i32,
     pub parse_status: String,
     pub created_at: String,
     pub updated_at: String,
@@ -78,6 +87,19 @@ pub struct CreateMvp0SourceAnchorRequest {
     pub bbox_json: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReplaceMvp0DocumentAnalysisRequest {
+    pub page_count: i32,
+    #[serde(default)]
+    pub chunking_profile: Option<serde_json::Value>,
+    #[serde(default)]
+    pub anchors: Vec<CreateDocumentAnchorRequest>,
+    #[serde(default)]
+    pub sections: Vec<CreateDocumentSectionRequest>,
+    #[serde(default)]
+    pub chunks: Vec<CreateDocumentChunkRequest>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Mvp0DocumentChunkSearchResult {
@@ -90,10 +112,62 @@ pub struct Mvp0DocumentChunkSearchResult {
     pub page_end: Option<i32>,
     pub content: String,
     pub snippet: String,
+    pub lexical_score: Option<f64>,
 }
 
 pub struct Mvp0DocumentRepository<'a> {
     conn: &'a Connection,
+}
+
+#[derive(Debug, Clone)]
+struct AnalysisAnchorRecord {
+    id: String,
+    document_id: String,
+    page: i32,
+    paragraph: Option<i32>,
+    quote: String,
+    rects_json: String,
+    bbox_json: Option<String>,
+    hash: String,
+    hierarchy_path_json: Option<String>,
+    quote_hash: Option<String>,
+    created_at: String,
+}
+
+#[derive(Debug, Clone)]
+struct AnalysisSectionRecord {
+    id: String,
+    document_id: String,
+    section_index: i32,
+    heading: Option<String>,
+    hierarchy_path_json: Option<String>,
+    page_start: Option<i32>,
+    page_end: Option<i32>,
+    anchor_start_id: Option<String>,
+    anchor_end_id: Option<String>,
+    content: String,
+    token_count: Option<i32>,
+    metadata_json: Option<String>,
+    created_at: String,
+}
+
+#[derive(Debug, Clone)]
+struct AnalysisChunkRecord {
+    id: String,
+    document_id: String,
+    section_id: Option<String>,
+    anchor_id: Option<String>,
+    page_start: i32,
+    page_end: i32,
+    chunk_index: i32,
+    chunk_kind: String,
+    text: String,
+    token_count: i32,
+    metadata_json: Option<String>,
+    char_count: i32,
+    parser: String,
+    content_hash: String,
+    created_at: String,
 }
 
 impl<'a> Mvp0DocumentRepository<'a> {
@@ -110,6 +184,8 @@ impl<'a> Mvp0DocumentRepository<'a> {
             file_hash: req.file_hash,
             file_size: req.file_size,
             page_count: req.page_count,
+            chunking_profile: None,
+            chunking_profile_revision: 0,
             parse_status: req.parse_status.unwrap_or_else(|| "pending".to_string()),
             created_at: now_utc(),
             updated_at: now_utc(),
@@ -142,6 +218,7 @@ impl<'a> Mvp0DocumentRepository<'a> {
         self.conn
             .query_row(
                 "SELECT id, title, original_filename, file_path, file_hash, file_size, page_count,
+                        chunking_profile, chunking_profile_revision,
                         parse_status, created_at, updated_at, deleted_at
                  FROM documents
                  WHERE id = ?1 AND deleted_at IS NULL",
@@ -156,6 +233,7 @@ impl<'a> Mvp0DocumentRepository<'a> {
         self.conn
             .query_row(
                 "SELECT id, title, original_filename, file_path, file_hash, file_size, page_count,
+                        chunking_profile, chunking_profile_revision,
                         parse_status, created_at, updated_at, deleted_at
                  FROM documents
                  WHERE file_hash = ?1 AND deleted_at IS NULL",
@@ -169,12 +247,14 @@ impl<'a> Mvp0DocumentRepository<'a> {
     pub fn list_documents(&self, include_deleted: bool) -> Result<Vec<Mvp0Document>> {
         let sql = if include_deleted {
             "SELECT id, title, original_filename, file_path, file_hash, file_size, page_count,
-                    parse_status, created_at, updated_at, deleted_at
+                chunking_profile, chunking_profile_revision,
+                parse_status, created_at, updated_at, deleted_at
              FROM documents
              ORDER BY created_at DESC"
         } else {
             "SELECT id, title, original_filename, file_path, file_hash, file_size, page_count,
-                    parse_status, created_at, updated_at, deleted_at
+                chunking_profile, chunking_profile_revision,
+                parse_status, created_at, updated_at, deleted_at
              FROM documents
              WHERE deleted_at IS NULL
              ORDER BY created_at DESC"
@@ -201,84 +281,138 @@ impl<'a> Mvp0DocumentRepository<'a> {
     pub fn replace_analysis(
         &self,
         document_id: &str,
-        page_count: i32,
-        chunks: &[CreateMvp0DocumentChunkRequest],
-        anchors: &[CreateMvp0SourceAnchorRequest],
+        req: ReplaceMvp0DocumentAnalysisRequest,
     ) -> Result<()> {
         let updated_at = now_utc();
         let tx = self.conn.unchecked_transaction()?;
 
-        tx.execute(
-            "UPDATE documents
-             SET page_count = ?2,
-                 parse_status = 'parsed',
-                 updated_at = ?3
-             WHERE id = ?1 AND deleted_at IS NULL",
-            params![document_id, page_count, updated_at],
+        let existing_chunk_ids = load_ids(
+            &tx,
+            "SELECT id FROM document_chunks WHERE document_id = ?1",
+            document_id,
+        )?;
+        let existing_section_ids = load_ids(
+            &tx,
+            "SELECT id FROM document_sections WHERE document_id = ?1",
+            document_id,
+        )?;
+        let existing_anchor_ids = load_ids(
+            &tx,
+            "SELECT id FROM document_anchors WHERE document_id = ?1",
+            document_id,
+        )?;
+        let existing_source_anchor_ids = load_ids(
+            &tx,
+            "SELECT id FROM source_anchors WHERE document_id = ?1",
+            document_id,
         )?;
 
-        tx.execute(
-            "DELETE FROM source_anchors WHERE document_id = ?1",
-            params![document_id],
-        )?;
-        tx.execute(
-            "DELETE FROM document_chunks WHERE document_id = ?1",
-            params![document_id],
-        )?;
+        let (current_chunking_profile, current_chunking_profile_revision) = tx
+            .query_row(
+                "SELECT chunking_profile, chunking_profile_revision
+                 FROM documents
+                 WHERE id = ?1 AND deleted_at IS NULL",
+                [document_id],
+                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i32>(1)?)),
+            )
+            .optional()?
+            .unwrap_or((None, 0));
 
-        for request in chunks {
-            let chunk = Mvp0DocumentChunk {
-                id: Uuid::new_v4().to_string(),
-                document_id: request.document_id.clone(),
-                page_start: request.page_start,
-                page_end: request.page_end,
-                chunk_index: request.chunk_index,
-                char_count: request.text.chars().count() as i32,
-                text: request.text.clone(),
-                parser: request.parser.clone(),
-                created_at: now_utc(),
-            };
+        let chunking_profile = req
+            .chunking_profile
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        let chunking_profile_revision = if current_chunking_profile == chunking_profile {
+            current_chunking_profile_revision
+        } else {
+            current_chunking_profile_revision + 1
+        };
 
+        let anchors = req
+            .anchors
+            .into_iter()
+            .map(|anchor| normalize_analysis_anchor(document_id, anchor))
+            .collect::<Result<Vec<_>>>()?;
+        let sections = req
+            .sections
+            .into_iter()
+            .map(|section| normalize_analysis_section(document_id, section))
+            .collect::<Result<Vec<_>>>()?;
+        let chunks = req
+            .chunks
+            .into_iter()
+            .map(|chunk| normalize_analysis_chunk(document_id, chunk))
+            .collect::<Result<Vec<_>>>()?;
+
+        let next_chunk_ids = chunks.iter().map(|chunk| chunk.id.clone()).collect::<HashSet<_>>();
+        let next_section_ids = sections
+            .iter()
+            .map(|section| section.id.clone())
+            .collect::<HashSet<_>>();
+        let next_anchor_ids = anchors
+            .iter()
+            .map(|anchor| anchor.id.clone())
+            .collect::<HashSet<_>>();
+
+        for stale_chunk_id in existing_chunk_ids.difference(&next_chunk_ids) {
             tx.execute(
-                "INSERT INTO document_chunks (
-                    id, document_id, page_start, page_end, chunk_index,
-                    content, token_count, metadata, text, char_count, parser, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11)",
-                params![
-                    &chunk.id,
-                    &chunk.document_id,
-                    chunk.page_start,
-                    chunk.page_end,
-                    chunk.chunk_index,
-                    &chunk.text,
-                    chunk.char_count,
-                    &chunk.text,
-                    chunk.char_count,
-                    &chunk.parser,
-                    &chunk.created_at,
-                ],
+                "UPDATE source_anchors SET chunk_id = NULL WHERE chunk_id = ?1",
+                [stale_chunk_id.as_str()],
+            )?;
+            tx.execute("DELETE FROM document_chunks WHERE id = ?1", [stale_chunk_id.as_str()])?;
+        }
+
+        for stale_section_id in existing_section_ids.difference(&next_section_ids) {
+            tx.execute(
+                "DELETE FROM document_sections WHERE id = ?1",
+                [stale_section_id.as_str()],
             )?;
         }
 
-        for request in anchors {
-            let anchor = Mvp0SourceAnchor {
-                id: Uuid::new_v4().to_string(),
-                document_id: request.document_id.clone(),
-                chunk_id: request.chunk_id.clone(),
-                page: request.page,
-                quote: request.quote.clone(),
-                bbox_json: request.bbox_json.clone(),
-                created_at: now_utc(),
-            };
+        for anchor in &anchors {
+            tx.execute(
+                "INSERT INTO document_anchors (
+                    id, document_id, page, paragraph, text_quote, rects, hash,
+                    hierarchy_path, quote_hash, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 ON CONFLICT(id) DO UPDATE SET
+                    document_id = excluded.document_id,
+                    page = excluded.page,
+                    paragraph = excluded.paragraph,
+                    text_quote = excluded.text_quote,
+                    rects = excluded.rects,
+                    hash = excluded.hash,
+                    hierarchy_path = excluded.hierarchy_path,
+                    quote_hash = excluded.quote_hash",
+                params![
+                    &anchor.id,
+                    &anchor.document_id,
+                    anchor.page,
+                    anchor.paragraph,
+                    &anchor.quote,
+                    &anchor.rects_json,
+                    &anchor.hash,
+                    &anchor.hierarchy_path_json,
+                    &anchor.quote_hash,
+                    &anchor.created_at,
+                ],
+            )?;
 
             tx.execute(
                 "INSERT INTO source_anchors (
                     id, document_id, chunk_id, page, quote, bbox_json, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(id) DO UPDATE SET
+                    document_id = excluded.document_id,
+                    page = excluded.page,
+                    quote = excluded.quote,
+                    bbox_json = excluded.bbox_json,
+                    created_at = excluded.created_at,
+                    chunk_id = NULL",
                 params![
                     &anchor.id,
                     &anchor.document_id,
-                    &anchor.chunk_id,
                     anchor.page,
                     &anchor.quote,
                     &anchor.bbox_json,
@@ -286,6 +420,135 @@ impl<'a> Mvp0DocumentRepository<'a> {
                 ],
             )?;
         }
+
+        for section in &sections {
+            tx.execute(
+                "INSERT INTO document_sections (
+                    id, document_id, section_index, heading, hierarchy_path, page_start, page_end,
+                    anchor_start_id, anchor_end_id, content, token_count, metadata, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                 ON CONFLICT(id) DO UPDATE SET
+                    document_id = excluded.document_id,
+                    section_index = excluded.section_index,
+                    heading = excluded.heading,
+                    hierarchy_path = excluded.hierarchy_path,
+                    page_start = excluded.page_start,
+                    page_end = excluded.page_end,
+                    anchor_start_id = excluded.anchor_start_id,
+                    anchor_end_id = excluded.anchor_end_id,
+                    content = excluded.content,
+                    token_count = excluded.token_count,
+                    metadata = excluded.metadata",
+                params![
+                    &section.id,
+                    &section.document_id,
+                    section.section_index,
+                    &section.heading,
+                    &section.hierarchy_path_json,
+                    section.page_start,
+                    section.page_end,
+                    &section.anchor_start_id,
+                    &section.anchor_end_id,
+                    &section.content,
+                    section.token_count,
+                    &section.metadata_json,
+                    &section.created_at,
+                ],
+            )?;
+        }
+
+        for chunk in &chunks {
+            tx.execute(
+                "INSERT INTO document_chunks (
+                    id, document_id, section_id, anchor_id, page_start, page_end, chunk_index,
+                    chunk_kind, content, token_count, metadata, text, char_count, parser,
+                    content_hash, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                 ON CONFLICT(id) DO UPDATE SET
+                    document_id = excluded.document_id,
+                    section_id = excluded.section_id,
+                    anchor_id = excluded.anchor_id,
+                    page_start = excluded.page_start,
+                    page_end = excluded.page_end,
+                    chunk_index = excluded.chunk_index,
+                    chunk_kind = excluded.chunk_kind,
+                    content = excluded.content,
+                    token_count = excluded.token_count,
+                    metadata = excluded.metadata,
+                    text = excluded.text,
+                    char_count = excluded.char_count,
+                    parser = excluded.parser,
+                    content_hash = excluded.content_hash",
+                params![
+                    &chunk.id,
+                    &chunk.document_id,
+                    &chunk.section_id,
+                    &chunk.anchor_id,
+                    chunk.page_start,
+                    chunk.page_end,
+                    chunk.chunk_index,
+                    &chunk.chunk_kind,
+                    &chunk.text,
+                    chunk.token_count,
+                    &chunk.metadata_json,
+                    &chunk.text,
+                    chunk.char_count,
+                    &chunk.parser,
+                    &chunk.content_hash,
+                    &chunk.created_at,
+                ],
+            )?;
+        }
+
+        tx.execute(
+            "UPDATE source_anchors
+             SET chunk_id = NULL
+             WHERE document_id = ?1",
+            [document_id],
+        )?;
+        tx.execute(
+            "UPDATE source_anchors
+             SET chunk_id = (
+                 SELECT dc.id
+                 FROM document_chunks dc
+                 WHERE dc.document_id = source_anchors.document_id
+                   AND dc.anchor_id = source_anchors.id
+                 ORDER BY dc.chunk_index ASC
+                 LIMIT 1
+             )
+             WHERE document_id = ?1",
+            [document_id],
+        )?;
+
+        for stale_anchor_id in existing_source_anchor_ids.difference(&next_anchor_ids) {
+            tx.execute(
+                "DELETE FROM source_anchors WHERE id = ?1",
+                [stale_anchor_id.as_str()],
+            )?;
+        }
+        for stale_anchor_id in existing_anchor_ids.difference(&next_anchor_ids) {
+            tx.execute(
+                "DELETE FROM document_anchors WHERE id = ?1",
+                [stale_anchor_id.as_str()],
+            )?;
+        }
+
+        tx.execute(
+            "UPDATE documents
+             SET page_count = ?2,
+                 parse_status = 'parsed',
+                 chunking_profile = ?3,
+                 chunking_profile_revision = ?4,
+                 updated_at = ?5
+             WHERE id = ?1 AND deleted_at IS NULL",
+            params![
+                document_id,
+                req.page_count,
+                &chunking_profile,
+                chunking_profile_revision,
+                &updated_at,
+            ],
+        )?;
 
         tx.commit()?;
         Ok(())
@@ -351,6 +614,34 @@ impl<'a> Mvp0DocumentRepository<'a> {
             .map_err(Into::into)
     }
 
+    pub fn list_structured_chunks(&self, document_id: &str) -> Result<Vec<DocumentChunk>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, document_id, section_id, anchor_id, page_start, page_end, chunk_index,
+                    chunk_kind, content, token_count, metadata, created_at
+             FROM document_chunks
+             WHERE document_id = ?1
+             ORDER BY chunk_index ASC",
+        )?;
+        let rows = stmt.query_map([document_id], map_structured_chunk)?;
+
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn list_sections(&self, document_id: &str) -> Result<Vec<DocumentSection>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, document_id, section_index, heading, hierarchy_path, page_start, page_end,
+                    anchor_start_id, anchor_end_id, content, token_count, metadata, created_at
+             FROM document_sections
+             WHERE document_id = ?1
+             ORDER BY section_index ASC",
+        )?;
+        let rows = stmt.query_map([document_id], map_section)?;
+
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn search_chunks(
         &self,
         query: &str,
@@ -365,11 +656,11 @@ impl<'a> Mvp0DocumentRepository<'a> {
         let mut chunks = Vec::new();
         if let Some(document_ids) = document_ids.filter(|ids| !ids.is_empty()) {
             for document_id in document_ids {
-                chunks.extend(self.list_chunks(document_id)?);
+                chunks.extend(self.list_structured_chunks(document_id)?);
             }
         } else {
             for document in self.list_documents(false)? {
-                chunks.extend(self.list_chunks(&document.id)?);
+                chunks.extend(self.list_structured_chunks(&document.id)?);
             }
         }
 
@@ -377,7 +668,7 @@ impl<'a> Mvp0DocumentRepository<'a> {
         let mut scored = chunks
             .into_iter()
             .filter_map(|chunk| {
-                let content_lower = chunk.text.to_lowercase();
+                let content_lower = chunk.content.to_lowercase();
                 let matched_terms = keywords
                     .iter()
                     .filter(|term| content_lower.contains(term.as_str()))
@@ -404,18 +695,89 @@ impl<'a> Mvp0DocumentRepository<'a> {
         Ok(scored
             .into_iter()
             .take(limit.max(0) as usize)
-            .map(|(_, chunk)| Mvp0DocumentChunkSearchResult {
+            .map(|(score, chunk)| Mvp0DocumentChunkSearchResult {
                 id: chunk.id,
                 document_id: chunk.document_id,
-                section_id: None,
-                anchor_id: None,
+                section_id: chunk.section_id,
+                anchor_id: chunk.anchor_id,
                 chunk_index: chunk.chunk_index,
-                page_start: Some(chunk.page_start),
-                page_end: Some(chunk.page_end),
-                snippet: build_search_snippet(&chunk.text, &keywords),
-                content: chunk.text,
+                page_start: chunk.page_start,
+                page_end: chunk.page_end,
+                snippet: build_search_snippet(&chunk.content, &keywords),
+                content: chunk.content,
+                lexical_score: Some(score as f64),
             })
             .collect())
+    }
+
+    pub fn search_chunks_fts5(
+        &self,
+        query: &str,
+        document_ids: Option<&[String]>,
+        limit: i64,
+    ) -> Result<Vec<Mvp0DocumentChunkSearchResult>> {
+        let mut last_error = None;
+
+        for fts_query in build_fts_queries(query) {
+            match self.search_chunks_fts_query(&fts_query, document_ids, limit.max(1)) {
+                Ok(results) if !results.is_empty() => return Ok(results),
+                Ok(_) => {}
+                Err(error) => last_error = Some(error),
+            }
+        }
+
+        if let Some(error) = last_error {
+            return Err(error);
+        }
+
+        Ok(Vec::new())
+    }
+
+    fn search_chunks_fts_query(
+        &self,
+        query: &str,
+        document_ids: Option<&[String]>,
+        limit: i64,
+    ) -> Result<Vec<Mvp0DocumentChunkSearchResult>> {
+        let (scope_clause, mut scope_params) = document_scope_clause(document_ids, 2);
+        let limit_index = scope_params.len() + 2;
+        let sql = format!(
+            "SELECT c.id, c.document_id, c.section_id, c.anchor_id, c.chunk_index,
+                    c.page_start, c.page_end, c.content,
+                    snippet(document_chunks_fts, 0, '[', ']', '...', 12) AS snippet,
+                    bm25(document_chunks_fts) AS bm25_score
+             FROM document_chunks_fts
+             JOIN document_chunks c ON c.rowid = document_chunks_fts.rowid
+             WHERE document_chunks_fts MATCH ?1
+               {scope_clause}
+             ORDER BY bm25(document_chunks_fts)
+             LIMIT ?{limit_index}"
+        );
+
+        let mut params = Vec::with_capacity(scope_params.len() + 2);
+        params.push(rusqlite::types::Value::from(query.to_string()));
+        params.append(&mut scope_params);
+        params.push(rusqlite::types::Value::from(limit.max(1)));
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(params), |row| {
+            let bm25_score: f64 = row.get(9)?;
+            Ok(Mvp0DocumentChunkSearchResult {
+                id: row.get(0)?,
+                document_id: row.get(1)?,
+                section_id: row.get(2)?,
+                anchor_id: row.get(3)?,
+                chunk_index: row.get(4)?,
+                page_start: row.get(5)?,
+                page_end: row.get(6)?,
+                content: row.get(7)?,
+                snippet: row.get(8)?,
+                lexical_score: Some(-bm25_score),
+            })
+        })?;
+
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn create_source_anchor(
@@ -523,6 +885,67 @@ fn extract_search_terms(query: &str) -> Vec<String> {
     terms
 }
 
+fn document_scope_clause(
+    document_ids: Option<&[String]>,
+    start_index: usize,
+) -> (String, Vec<rusqlite::types::Value>) {
+    let Some(document_ids) = document_ids else {
+        return (String::new(), Vec::new());
+    };
+
+    if document_ids.is_empty() {
+        return (String::new(), Vec::new());
+    }
+
+    let placeholders = document_ids
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("?{}", start_index + index))
+        .collect::<Vec<_>>();
+    let params = document_ids
+        .iter()
+        .cloned()
+        .map(rusqlite::types::Value::from)
+        .collect();
+
+    (
+        format!("AND c.document_id IN ({})", placeholders.join(", ")),
+        params,
+    )
+}
+
+fn build_fts_queries(query: &str) -> Vec<String> {
+    let keywords = extract_search_terms(query);
+    let mut queries = Vec::new();
+
+    if !keywords.is_empty() {
+        queries.push(
+            keywords
+                .iter()
+                .map(|keyword| quote_fts_term(keyword))
+                .collect::<Vec<_>>()
+                .join(" OR "),
+        );
+        if keywords.len() > 1 {
+            queries.push(
+                keywords
+                    .iter()
+                    .map(|keyword| quote_fts_term(keyword))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+        }
+    }
+
+    queries.retain(|item| !item.trim().is_empty());
+    queries.dedup();
+    queries
+}
+
+fn quote_fts_term(term: &str) -> String {
+    format!("\"{}\"", term.replace('"', "\"\""))
+}
+
 fn push_unique_term(terms: &mut Vec<String>, term: String) {
     if term.len() >= 2 && !terms.iter().any(|existing| existing == &term) {
         terms.push(term);
@@ -563,10 +986,12 @@ fn map_document(row: &Row<'_>) -> rusqlite::Result<Mvp0Document> {
         file_hash: row.get(4)?,
         file_size: row.get(5)?,
         page_count: row.get(6)?,
-        parse_status: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
-        deleted_at: row.get(10)?,
+        chunking_profile: parse_json_column(row, 7)?,
+        chunking_profile_revision: row.get(8)?,
+        parse_status: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        deleted_at: row.get(12)?,
     })
 }
 
@@ -584,6 +1009,41 @@ fn map_chunk(row: &Row<'_>) -> rusqlite::Result<Mvp0DocumentChunk> {
     })
 }
 
+fn map_structured_chunk(row: &Row<'_>) -> rusqlite::Result<DocumentChunk> {
+    Ok(DocumentChunk {
+        id: row.get(0)?,
+        document_id: row.get(1)?,
+        section_id: row.get(2)?,
+        anchor_id: row.get(3)?,
+        page_start: row.get(4)?,
+        page_end: row.get(5)?,
+        chunk_index: row.get(6)?,
+        chunk_kind: row.get(7)?,
+        content: row.get(8)?,
+        token_count: row.get(9)?,
+        metadata: parse_json_column(row, 10)?,
+        created_at: row.get(11)?,
+    })
+}
+
+fn map_section(row: &Row<'_>) -> rusqlite::Result<DocumentSection> {
+    Ok(DocumentSection {
+        id: row.get(0)?,
+        document_id: row.get(1)?,
+        section_index: row.get(2)?,
+        heading: row.get(3)?,
+        hierarchy_path: parse_vec_string_column(row, 4)?,
+        page_start: row.get(5)?,
+        page_end: row.get(6)?,
+        anchor_start_id: row.get(7)?,
+        anchor_end_id: row.get(8)?,
+        content: row.get(9)?,
+        token_count: row.get(10)?,
+        metadata: parse_json_column(row, 11)?,
+        created_at: row.get(12)?,
+    })
+}
+
 fn map_source_anchor(row: &Row<'_>) -> rusqlite::Result<Mvp0SourceAnchor> {
     Ok(Mvp0SourceAnchor {
         id: row.get(0)?,
@@ -594,6 +1054,146 @@ fn map_source_anchor(row: &Row<'_>) -> rusqlite::Result<Mvp0SourceAnchor> {
         bbox_json: row.get(5)?,
         created_at: row.get(6)?,
     })
+}
+
+fn parse_json_column(
+    row: &Row<'_>,
+    index: usize,
+) -> rusqlite::Result<Option<serde_json::Value>> {
+    row.get::<_, Option<String>>(index)?
+        .map(|value| serde_json::from_str::<serde_json::Value>(&value))
+        .transpose()
+        .map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })
+}
+
+fn parse_vec_string_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Vec<String>> {
+    row.get::<_, Option<String>>(index)?
+        .map(|value| serde_json::from_str::<Vec<String>>(&value))
+        .transpose()
+        .map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })
+        .map(|value| value.unwrap_or_default())
+}
+
+fn load_ids(tx: &Transaction<'_>, sql: &str, document_id: &str) -> Result<HashSet<String>> {
+    let mut stmt = tx.prepare(sql)?;
+    let rows = stmt.query_map([document_id], |row| row.get::<_, String>(0))?;
+
+    rows.collect::<std::result::Result<HashSet<_>, _>>()
+        .map_err(Into::into)
+}
+
+fn normalize_analysis_anchor(
+    document_id: &str,
+    anchor: CreateDocumentAnchorRequest,
+) -> Result<AnalysisAnchorRecord> {
+    let id = anchor.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let rects_json = serde_json::to_string(&anchor.rects)?;
+    let hierarchy_path_json = anchor
+        .hierarchy_path
+        .as_deref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    let hash = if anchor.hash.trim().is_empty() {
+        compute_content_hash(&anchor.text_quote)
+    } else {
+        anchor.hash
+    };
+    let bbox_json = if anchor.rects.is_empty() {
+        None
+    } else {
+        Some(rects_json.clone())
+    };
+
+    Ok(AnalysisAnchorRecord {
+        id,
+        document_id: document_id.to_string(),
+        page: anchor.page,
+        paragraph: anchor.paragraph,
+        quote: anchor.text_quote,
+        rects_json,
+        bbox_json,
+        hash,
+        hierarchy_path_json,
+        quote_hash: anchor.quote_hash,
+        created_at: now_utc(),
+    })
+}
+
+fn normalize_analysis_section(
+    document_id: &str,
+    section: CreateDocumentSectionRequest,
+) -> Result<AnalysisSectionRecord> {
+    Ok(AnalysisSectionRecord {
+        id: section.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+        document_id: document_id.to_string(),
+        section_index: section.section_index,
+        heading: section.heading,
+        hierarchy_path_json: section
+            .hierarchy_path
+            .as_deref()
+            .map(serde_json::to_string)
+            .transpose()?,
+        page_start: section.page_start,
+        page_end: section.page_end,
+        anchor_start_id: section.anchor_start_id,
+        anchor_end_id: section.anchor_end_id,
+        content: section.content,
+        token_count: section.token_count,
+        metadata_json: section.metadata.as_ref().map(serde_json::to_string).transpose()?,
+        created_at: now_utc(),
+    })
+}
+
+fn normalize_analysis_chunk(
+    document_id: &str,
+    chunk: CreateDocumentChunkRequest,
+) -> Result<AnalysisChunkRecord> {
+    let text = chunk.content;
+    let char_count = text.chars().count() as i32;
+    let chunk_kind = chunk.chunk_kind.unwrap_or_else(|| "semantic".to_string());
+    let parser = if chunk_kind.contains("::") {
+        chunk_kind.clone()
+    } else {
+        format!("pymupdf::{chunk_kind}")
+    };
+    let page_start = chunk.page_start.or(chunk.page_end).unwrap_or(1);
+    let page_end = chunk.page_end.or(chunk.page_start).unwrap_or(page_start);
+
+    Ok(AnalysisChunkRecord {
+        id: chunk.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+        document_id: document_id.to_string(),
+        section_id: chunk.section_id,
+        anchor_id: chunk.anchor_id,
+        page_start,
+        page_end,
+        chunk_index: chunk.chunk_index,
+        chunk_kind,
+        token_count: chunk.token_count.unwrap_or(char_count),
+        metadata_json: chunk.metadata.as_ref().map(serde_json::to_string).transpose()?,
+        char_count,
+        parser,
+        content_hash: compute_content_hash(&text),
+        text,
+        created_at: now_utc(),
+    })
+}
+
+fn compute_content_hash(text: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]
@@ -649,52 +1249,114 @@ mod tests {
 
         repo.replace_analysis(
             &document.id,
-            4,
-            &[CreateMvp0DocumentChunkRequest {
-                document_id: document.id.clone(),
-                page_start: 1,
-                page_end: 2,
-                chunk_index: 0,
-                text: "chunk one".to_string(),
-                parser: "pymupdf".to_string(),
-            }],
-            &[CreateMvp0SourceAnchorRequest {
-                document_id: document.id.clone(),
-                chunk_id: None,
-                page: 1,
-                quote: "quote one".to_string(),
-                bbox_json: Some("[]".to_string()),
-            }],
+            ReplaceMvp0DocumentAnalysisRequest {
+                page_count: 4,
+                chunking_profile: Some(serde_json::json!({
+                    "strategy": "docling_parent_child_v1",
+                    "maxParentChars": 6000,
+                    "maxChildChars": 900,
+                    "overlapUnits": 1,
+                })),
+                anchors: vec![CreateDocumentAnchorRequest {
+                    id: Some("anchor-one".to_string()),
+                    page: 1,
+                    paragraph: None,
+                    text_quote: "quote one".to_string(),
+                    rects: Vec::new(),
+                    hash: "hash-one".to_string(),
+                    hierarchy_path: Some(vec!["Section A".to_string()]),
+                    quote_hash: Some("quote-hash-one".to_string()),
+                }],
+                sections: vec![CreateDocumentSectionRequest {
+                    id: Some("section-one".to_string()),
+                    section_index: 0,
+                    heading: Some("Section A".to_string()),
+                    hierarchy_path: Some(vec!["Section A".to_string()]),
+                    page_start: Some(1),
+                    page_end: Some(2),
+                    anchor_start_id: Some("anchor-one".to_string()),
+                    anchor_end_id: Some("anchor-one".to_string()),
+                    content: "section one".to_string(),
+                    token_count: Some(2),
+                    metadata: Some(serde_json::json!({"sectionKind": "heading_section"})),
+                }],
+                chunks: vec![CreateDocumentChunkRequest {
+                    id: Some("chunk-one".to_string()),
+                    section_id: Some("section-one".to_string()),
+                    anchor_id: Some("anchor-one".to_string()),
+                    page_start: Some(1),
+                    page_end: Some(2),
+                    chunk_index: 0,
+                    chunk_kind: Some("child".to_string()),
+                    content: "chunk one".to_string(),
+                    token_count: Some(2),
+                    metadata: Some(serde_json::json!({"childIndex": 0})),
+                }],
+            },
         )
         .expect("first analysis write should succeed");
 
         repo.replace_analysis(
             &document.id,
-            6,
-            &[CreateMvp0DocumentChunkRequest {
-                document_id: document.id.clone(),
-                page_start: 3,
-                page_end: 4,
-                chunk_index: 0,
-                text: "chunk two".to_string(),
-                parser: "pymupdf".to_string(),
-            }],
-            &[CreateMvp0SourceAnchorRequest {
-                document_id: document.id.clone(),
-                chunk_id: None,
-                page: 3,
-                quote: "quote two".to_string(),
-                bbox_json: None,
-            }],
+            ReplaceMvp0DocumentAnalysisRequest {
+                page_count: 6,
+                chunking_profile: Some(serde_json::json!({
+                    "strategy": "docling_parent_child_v1",
+                    "maxParentChars": 6000,
+                    "maxChildChars": 900,
+                    "overlapUnits": 1,
+                })),
+                anchors: vec![CreateDocumentAnchorRequest {
+                    id: Some("anchor-two".to_string()),
+                    page: 3,
+                    paragraph: None,
+                    text_quote: "quote two".to_string(),
+                    rects: Vec::new(),
+                    hash: "hash-two".to_string(),
+                    hierarchy_path: Some(vec!["Section B".to_string()]),
+                    quote_hash: Some("quote-hash-two".to_string()),
+                }],
+                sections: vec![CreateDocumentSectionRequest {
+                    id: Some("section-two".to_string()),
+                    section_index: 0,
+                    heading: Some("Section B".to_string()),
+                    hierarchy_path: Some(vec!["Section B".to_string()]),
+                    page_start: Some(3),
+                    page_end: Some(4),
+                    anchor_start_id: Some("anchor-two".to_string()),
+                    anchor_end_id: Some("anchor-two".to_string()),
+                    content: "section two".to_string(),
+                    token_count: Some(2),
+                    metadata: Some(serde_json::json!({"sectionKind": "heading_section"})),
+                }],
+                chunks: vec![CreateDocumentChunkRequest {
+                    id: Some("chunk-two".to_string()),
+                    section_id: Some("section-two".to_string()),
+                    anchor_id: Some("anchor-two".to_string()),
+                    page_start: Some(3),
+                    page_end: Some(4),
+                    chunk_index: 0,
+                    chunk_kind: Some("child".to_string()),
+                    content: "chunk two".to_string(),
+                    token_count: Some(2),
+                    metadata: Some(serde_json::json!({"childIndex": 0})),
+                }],
+            },
         )
         .expect("second analysis write should replace prior data");
 
         let chunks = repo
             .list_chunks(&document.id)
             .expect("chunks should load after replace");
+        let structured_chunks = repo
+            .list_structured_chunks(&document.id)
+            .expect("structured chunks should load after replace");
         let anchors = repo
             .list_source_anchors(&document.id)
             .expect("anchors should load after replace");
+        let sections = repo
+            .list_sections(&document.id)
+            .expect("sections should load after replace");
         let stored_document = repo
             .find_document_by_id(&document.id)
             .expect("document should load")
@@ -714,11 +1376,92 @@ mod tests {
             .expect("legacy and runtime chunk columns should load");
         assert_eq!(legacy_chunk_columns.0, "chunk two");
         assert_eq!(legacy_chunk_columns.1, "chunk two");
-        assert_eq!(legacy_chunk_columns.2, legacy_chunk_columns.3);
+        assert_eq!(legacy_chunk_columns.2, 2);
+        assert_eq!(legacy_chunk_columns.3, "chunk two".chars().count() as i32);
+        assert_eq!(structured_chunks.len(), 1);
+        assert_eq!(structured_chunks[0].section_id.as_deref(), Some("section-two"));
+        assert_eq!(structured_chunks[0].anchor_id.as_deref(), Some("anchor-two"));
+        assert_eq!(structured_chunks[0].chunk_kind, "child");
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].id, "section-two");
+        assert_eq!(sections[0].anchor_start_id.as_deref(), Some("anchor-two"));
         assert_eq!(anchors.len(), 1);
         assert_eq!(anchors[0].quote, "quote two");
+        assert_eq!(anchors[0].id, "anchor-two");
         assert_eq!(stored_document.page_count, Some(6));
         assert_eq!(stored_document.parse_status, "parsed");
+    }
+
+    #[test]
+    fn search_chunks_fts5_returns_structured_matches() {
+        let test_db = TestDatabase::new();
+        let repo = Mvp0DocumentRepository::new(test_db.connection());
+
+        let document = repo
+            .create_document(CreateMvp0DocumentRequest {
+                title: "机器学习导论".to_string(),
+                original_filename: "ml.pdf".to_string(),
+                file_path: "E:/docs/ml.pdf".to_string(),
+                file_hash: "hash-search-fts".to_string(),
+                file_size: 2048,
+                page_count: None,
+                parse_status: Some("pending".to_string()),
+            })
+            .expect("document should be created");
+
+        repo.replace_analysis(
+            &document.id,
+            ReplaceMvp0DocumentAnalysisRequest {
+                page_count: 1,
+                chunking_profile: None,
+                anchors: vec![CreateDocumentAnchorRequest {
+                    id: Some("anchor-search".to_string()),
+                    page: 1,
+                    paragraph: None,
+                    text_quote: "机器学习用于分类与回归。".to_string(),
+                    rects: Vec::new(),
+                    hash: "anchor-search-hash".to_string(),
+                    hierarchy_path: None,
+                    quote_hash: None,
+                }],
+                sections: vec![CreateDocumentSectionRequest {
+                    id: Some("section-search".to_string()),
+                    section_index: 0,
+                    heading: Some("概览".to_string()),
+                    hierarchy_path: None,
+                    page_start: Some(1),
+                    page_end: Some(1),
+                    anchor_start_id: Some("anchor-search".to_string()),
+                    anchor_end_id: Some("anchor-search".to_string()),
+                    content: "机器学习概览".to_string(),
+                    token_count: Some(4),
+                    metadata: None,
+                }],
+                chunks: vec![CreateDocumentChunkRequest {
+                    id: Some("chunk-search".to_string()),
+                    section_id: Some("section-search".to_string()),
+                    anchor_id: Some("anchor-search".to_string()),
+                    page_start: Some(1),
+                    page_end: Some(1),
+                    chunk_index: 0,
+                    chunk_kind: Some("child".to_string()),
+                    content: "机器学习用于分类与回归。".to_string(),
+                    token_count: Some(10),
+                    metadata: Some(serde_json::json!({"topic": "ml"})),
+                }],
+            },
+        )
+        .expect("analysis should be replaced");
+
+        let results = repo
+            .search_chunks_fts5("机器学习", Some(&[document.id.clone()]), 5)
+            .expect("fts search should succeed");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "chunk-search");
+        assert_eq!(results[0].section_id.as_deref(), Some("section-search"));
+        assert_eq!(results[0].anchor_id.as_deref(), Some("anchor-search"));
+        assert!(results[0].lexical_score.unwrap_or_default() > 0.0);
     }
 
     #[test]

@@ -682,6 +682,8 @@ const MOCK_WORKFLOW_TYPES: WorkflowType[] = [
   'card_generation',
   'document_embedding',
   'knowledge_qa',
+  'agent_task',
+  'agent_card_generation',
 ]
 
 function normalizeMockApiProvider(provider: ApiConfig['provider']): ApiConfig['provider'] {
@@ -947,6 +949,29 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
   const candidateStatus = getCandidateStatus(args?.status) ?? getCandidateStatus(filters?.status)
   const pointsData = getRecord(args?.data)
   const reviewLogId = getString(pointsData?.reviewLogId)
+  const artifactId =
+    getString(args?.artifactId) ?? 'knowledge-qa://runs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/evidence/1'
+  const mockWorkflowArtifact = {
+    artifactId,
+    runId: workflowRunId ?? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    artifactType: 'evidence',
+    schemaVersion: 1,
+    summary: 'Mock evidence artifact summary.',
+    sourceRefs: [MOCK_DOCUMENT_ID],
+    qualityEnvelope: {
+      auditStatus: 'passed',
+      confidence: 0.86,
+      riskLevel: 'low',
+      reviewRequired: false,
+      blockingReasons: [],
+    },
+    errorCategory: null,
+    createdBy: 'langgraph_rag',
+    lifecycleStatus: 'created',
+    payload: { excerpt: 'Mock artifact payload excerpt.' },
+    createdAt: new Date(MOCK_NOW).toISOString(),
+    updatedAt: new Date(MOCK_NOW).toISOString(),
+  }
 
   if (cmd === 'get_dashboard_summary') {
     return buildDashboardSummary(getNumber(args?.days) ?? 63, getNumber(args?.limit) ?? 6) as T
@@ -2865,6 +2890,11 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
         'start_card_generation_workflow',
         'resume_card_generation_workflow',
         'finalize_card_generation_workflow',
+        'start_agent_task_workflow',
+        'start_agent_card_generation_workflow',
+        'get_workflow_artifact',
+        'list_workflow_artifacts',
+        'update_workflow_artifact_lifecycle',
         'upload_card_media',
         'list_card_media',
         'delete_card_media',
@@ -2891,6 +2921,13 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
     list_workflow_runs: limitItems(mockWorkflowRuns.map(serializeWorkflowRun), limit),
     list_workflow_events: limitItems(mockWorkflowEvents.map(serializeWorkflowEvent), limit),
     get_workflow_checkpoint: null,
+    get_workflow_artifact: mockWorkflowArtifact,
+    list_workflow_artifacts: [mockWorkflowArtifact],
+    update_workflow_artifact_lifecycle: {
+      ...mockWorkflowArtifact,
+      lifecycleStatus: getString(args?.lifecycleStatus) ?? 'consumed',
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
     get_settings: mockAppSettings,
     list_documents: limitItems([serializeDocument(mockDocument)], limit),
     get_document:
@@ -2913,6 +2950,36 @@ export function getMockGatewayResponse<T>(cmd: string, args?: Record<string, unk
       status: 'queued',
       threadId: 'card-generation:mock',
       checkpointRef: 'queued',
+      approvalPayload: null,
+      costUsd: null,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    start_agent_task_workflow: {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      workflowType: 'agent_task',
+      presetId: null,
+      status: 'queued',
+      threadId: 'agent-task:mock',
+      checkpointRef: null,
+      approvalPayload: null,
+      costUsd: null,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: new Date(MOCK_NOW).toISOString(),
+      updatedAt: new Date(MOCK_NOW).toISOString(),
+    },
+    start_agent_card_generation_workflow: {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      workflowType: 'agent_card_generation',
+      presetId: null,
+      status: 'queued',
+      threadId: 'agent-card-generation:mock',
+      checkpointRef: null,
       approvalPayload: null,
       costUsd: null,
       errorMessage: null,
@@ -3681,7 +3748,11 @@ function getDate(value: unknown) {
 }
 
 function getWorkflowType(value: unknown): WorkflowRun['workflowType'] | undefined {
-  return value === 'card_generation' || value === 'document_embedding' || value === 'knowledge_qa'
+  return value === 'card_generation' ||
+    value === 'document_embedding' ||
+    value === 'knowledge_qa' ||
+    value === 'agent_task' ||
+    value === 'agent_card_generation'
     ? value
     : undefined
 }

@@ -4,8 +4,8 @@ use tauri::State;
 use crate::{
     commands::{AppState, CommandError, CommandResult},
     db::{
-        CreateWorkflowRunRequest, UpdateWorkflowRunRequest, WorkflowCheckpoint, WorkflowEvent,
-        WorkflowRepository, WorkflowRun,
+        ArtifactRepository, CreateWorkflowRunRequest, UpdateWorkflowRunRequest, WorkflowArtifact,
+        WorkflowArtifactFilters, WorkflowCheckpoint, WorkflowEvent, WorkflowRepository, WorkflowRun,
     },
     gateway::{self, GatewayManifest},
     tasks::ServiceHealthStatus,
@@ -148,6 +148,55 @@ pub fn get_workflow_checkpoint(
 }
 
 // ── APKG Export (via orchestration service) ───────────────
+
+#[tauri::command]
+pub fn get_workflow_artifact(
+    state: State<'_, AppState>,
+    artifact_id: String,
+) -> CommandResult<Option<WorkflowArtifact>> {
+    let db = state.lock_db()?;
+    let repo = ArtifactRepository::new(&db);
+    repo.get(&artifact_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn list_workflow_artifacts(
+    state: State<'_, AppState>,
+    run_id: Option<String>,
+    artifact_type: Option<String>,
+    lifecycle_status: Option<String>,
+    limit: Option<i64>,
+) -> CommandResult<Vec<WorkflowArtifact>> {
+    let db = state.lock_db()?;
+    let repo = ArtifactRepository::new(&db);
+    repo.list(WorkflowArtifactFilters {
+        run_id,
+        artifact_type,
+        lifecycle_status,
+        limit,
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn update_workflow_artifact_lifecycle(
+    state: State<'_, AppState>,
+    artifact_id: String,
+    lifecycle_status: String,
+) -> CommandResult<Option<WorkflowArtifact>> {
+    if !matches!(
+        lifecycle_status.as_str(),
+        "consumed" | "superseded" | "rolled_back" | "expired"
+    ) {
+        return Err(CommandError::InvalidInput(
+            "Invalid artifact lifecycle status".to_string(),
+        ));
+    }
+    let db = state.lock_db()?;
+    let repo = ArtifactRepository::new(&db);
+    repo.mark_lifecycle(&artifact_id, &lifecycle_status)
+        .map_err(Into::into)
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

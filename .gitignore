@@ -71,14 +71,13 @@ out/
 # ----------------------------------------
 # AI assistant
 # ----------------------------------------
-# .codex/
 .claude/
 !.claude/skills/
 !.claude/skills/**/
 .codex/
 !.codex/skills/
 !.codex/skills/**/
-# .windsurf/
+.windsurf/
 examples/
 .playwright-mcp/
 .agents/
@@ -166,6 +165,7 @@ coverage/
 test-results/
 playwright-report/
 playwright/.cache/
+.playwright-mcp/
 
 # ----------------------------------------
 # Rust / Cargo
@@ -192,6 +192,11 @@ src-tauri/Cargo.lock
 
 # Tauri build outputs
 src-tauri/bundle/
+
+# ----------------------------------------
+# Documents
+# ----------------------------------------
+# Generated documents and exports
 
 # ----------------------------------------
 # Electron (if any legacy)

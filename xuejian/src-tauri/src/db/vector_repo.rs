@@ -30,6 +30,25 @@ pub struct CreateEmbeddingProfileRequest {
 pub struct ChunkEmbeddingRecord {
     pub chunk_id: String,
     pub vector: Vec<f32>,
+    #[serde(default)]
+    pub content_hash: Option<String>,
+    #[serde(default)]
+    pub chunking_profile_revision: Option<i32>,
+    #[serde(default)]
+    pub embedding_profile_revision: Option<i32>,
+    #[serde(default)]
+    pub embedding_dimensions: Option<i32>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkEmbeddingState {
+    pub chunk_id: String,
+    pub content_hash: Option<String>,
+    pub chunking_profile_revision: Option<i32>,
+    pub embedding_profile_revision: Option<i32>,
+    pub embedding_dimensions: Option<i32>,
+    pub embedded_at: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -263,6 +282,18 @@ impl<'a> VectorRepository<'a> {
 
         let dimensions = embeddings[0].vector.len() as i32;
         self.ensure_chunk_embedding_table(dimensions)?;
+        let profile = self.get_embedding_profile(profile_id)?;
+        let fallback_profile_revision = profile.as_ref().map(|item| item.revision).unwrap_or(0);
+        let fallback_dimensions = profile
+            .as_ref()
+            .map(|item| {
+                if item.dimensions > 0 {
+                    item.dimensions
+                } else {
+                    dimensions
+                }
+            })
+            .unwrap_or(dimensions);
 
         let transaction = self.db.connection().unchecked_transaction()?;
         let now = chrono::Utc::now().to_rfc3339();
@@ -273,15 +304,35 @@ impl<'a> VectorRepository<'a> {
                 continue;
             }
 
-            let chunk_rowid: i64 = match transaction.query_row(
-                "SELECT rowid FROM document_chunks WHERE id = ?1",
+            let (chunk_rowid, fallback_content_hash, fallback_chunking_profile_revision): (
+                i64,
+                Option<String>,
+                i32,
+            ) = match transaction.query_row(
+                "SELECT c.rowid, c.content_hash, d.chunking_profile_revision
+                 FROM document_chunks c
+                 JOIN documents d ON d.id = c.document_id
+                 WHERE c.id = ?1",
                 params![&record.chunk_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             ) {
-                Ok(rowid) => rowid,
+                Ok(row) => row,
                 Err(rusqlite::Error::QueryReturnedNoRows) => continue,
                 Err(error) => return Err(error.into()),
             };
+            let content_hash = record
+                .content_hash
+                .clone()
+                .or(fallback_content_hash);
+            let chunking_profile_revision = record
+                .chunking_profile_revision
+                .unwrap_or(fallback_chunking_profile_revision);
+            let embedding_profile_revision = record
+                .embedding_profile_revision
+                .unwrap_or(fallback_profile_revision);
+            let embedding_dimensions = record
+                .embedding_dimensions
+                .unwrap_or(fallback_dimensions);
 
             let vector_json = serde_json::to_string(&record.vector)?;
             transaction.execute(
@@ -296,13 +347,36 @@ impl<'a> VectorRepository<'a> {
                 params![chunk_rowid, vector_json],
             )?;
             transaction.execute(
-                "INSERT INTO document_chunk_embedding_state (chunk_id, profile_id, chunk_rowid, created_at)
-                 VALUES (?1, ?2, ?3, ?4)
+                "INSERT INTO document_chunk_embedding_state (
+                    chunk_id,
+                    profile_id,
+                    chunk_rowid,
+                    content_hash,
+                    chunking_profile_revision,
+                    embedding_profile_revision,
+                    embedding_dimensions,
+                    created_at,
+                    embedded_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
                  ON CONFLICT(chunk_id) DO UPDATE
                  SET profile_id = excluded.profile_id,
                      chunk_rowid = excluded.chunk_rowid,
-                     created_at = excluded.created_at",
-                params![&record.chunk_id, profile_id, chunk_rowid, &now],
+                     content_hash = excluded.content_hash,
+                     chunking_profile_revision = excluded.chunking_profile_revision,
+                     embedding_profile_revision = excluded.embedding_profile_revision,
+                     embedding_dimensions = excluded.embedding_dimensions,
+                     created_at = excluded.created_at,
+                     embedded_at = excluded.embedded_at",
+                params![
+                    &record.chunk_id,
+                    profile_id,
+                    chunk_rowid,
+                    &content_hash,
+                    chunking_profile_revision,
+                    embedding_profile_revision,
+                    embedding_dimensions,
+                    &now,
+                ],
             )?;
             stored_count += 1;
         }
@@ -318,11 +392,78 @@ impl<'a> VectorRepository<'a> {
                 "SELECT COUNT(*)
                  FROM document_chunk_embedding_state state
                  JOIN document_chunks chunks ON chunks.id = state.chunk_id
-                 WHERE chunks.document_id = ?1 AND state.profile_id = ?2",
+                 JOIN documents documents ON documents.id = chunks.document_id
+                 JOIN embedding_profiles profiles ON profiles.id = state.profile_id
+                 WHERE chunks.document_id = ?1
+                   AND state.profile_id = ?2
+                   AND state.embedding_profile_revision = profiles.revision
+                   AND state.chunking_profile_revision = documents.chunking_profile_revision
+                   AND (profiles.dimensions <= 0 OR state.embedding_dimensions = profiles.dimensions)",
                 params![document_id, profile_id],
                 |row| row.get(0),
             )
             .map_err(Into::into)
+    }
+
+    pub fn list_chunk_embedding_states(
+        &self,
+        document_id: &str,
+        profile_id: &str,
+    ) -> Result<Vec<ChunkEmbeddingState>> {
+        let mut stmt = self.db.connection().prepare(
+            "SELECT state.chunk_id,
+                    state.content_hash,
+                    state.chunking_profile_revision,
+                    state.embedding_profile_revision,
+                    state.embedding_dimensions,
+                    state.embedded_at
+             FROM document_chunk_embedding_state state
+             JOIN document_chunks chunks ON chunks.id = state.chunk_id
+             WHERE chunks.document_id = ?1 AND state.profile_id = ?2
+             ORDER BY chunks.chunk_index ASC",
+        )?;
+        let rows = stmt.query_map(params![document_id, profile_id], |row| {
+            Ok(ChunkEmbeddingState {
+                chunk_id: row.get(0)?,
+                content_hash: row.get(1)?,
+                chunking_profile_revision: row.get(2)?,
+                embedding_profile_revision: row.get(3)?,
+                embedding_dimensions: row.get(4)?,
+                embedded_at: row.get(5)?,
+            })
+        })?;
+
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn lock_embedding_profile_dimensions(
+        &self,
+        profile_id: &str,
+        dimensions: i32,
+    ) -> Result<Option<EmbeddingProfile>> {
+        if dimensions <= 0 {
+            return self.get_embedding_profile(profile_id);
+        }
+
+        let Some(profile) = self.get_embedding_profile(profile_id)? else {
+            return Ok(None);
+        };
+
+        if profile.dimensions > 0 {
+            return Ok(Some(profile));
+        }
+
+        let next_revision = profile.revision.saturating_add(1);
+        self.db.connection().execute(
+            "UPDATE embedding_profiles
+             SET dimensions = ?1,
+                 revision = ?2
+             WHERE id = ?3 AND dimensions = 0",
+            params![dimensions, next_revision, profile_id],
+        )?;
+
+        self.get_embedding_profile(profile_id)
     }
 
     pub fn search_chunk_embeddings(
@@ -489,6 +630,10 @@ mod tests {
             .expect("apply v14 migration");
         conn.execute_batch(include_str!("../migrations/V15__highlight_metadata.sql"))
             .expect("apply v15 migration");
+        conn.execute_batch(include_str!("../migrations/V30__rag_data_foundation.sql"))
+            .expect("apply v30 migration");
+        conn.execute_batch(include_str!("../migrations/V31__incremental_embedding_state.sql"))
+            .expect("apply v31 migration");
 
         Database { conn }
     }
@@ -577,15 +722,36 @@ mod tests {
                     ChunkEmbeddingRecord {
                         chunk_id: "chunk-a".to_string(),
                         vector: vec![1.0, 0.0, 0.0],
+                        content_hash: None,
+                        chunking_profile_revision: None,
+                        embedding_profile_revision: None,
+                        embedding_dimensions: None,
                     },
                     ChunkEmbeddingRecord {
                         chunk_id: "chunk-b".to_string(),
                         vector: vec![0.0, 1.0, 0.0],
+                        content_hash: None,
+                        chunking_profile_revision: None,
+                        embedding_profile_revision: None,
+                        embedding_dimensions: None,
                     },
                 ],
             )
             .expect("store embeddings");
         assert_eq!(stored, 2);
+        assert_eq!(
+            vector_repo
+                .count_document_embeddings(&document.id, &profile.id)
+                .expect("fresh embedding count succeeds"),
+            2
+        );
+
+        let states = vector_repo
+            .list_chunk_embedding_states(&document.id, &profile.id)
+            .expect("embedding states should load");
+        assert_eq!(states.len(), 2);
+        assert_eq!(states[0].embedding_profile_revision, Some(1));
+        assert_eq!(states[0].embedding_dimensions, Some(3));
 
         let results = vector_repo
             .search_chunk_embeddings(&[0.98, 0.02, 0.0], 2, Some(&[document.id.clone()]))
@@ -594,5 +760,49 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].chunk_id, "chunk-a");
         assert_eq!(results[0].document_id, document.id);
+
+        db.connection()
+            .execute(
+                "UPDATE embedding_profiles SET revision = 2 WHERE id = ?1",
+                params![&profile.id],
+            )
+            .expect("profile revision should update");
+        assert_eq!(
+            vector_repo
+                .count_document_embeddings(&document.id, &profile.id)
+                .expect("stale embedding count succeeds"),
+            0
+        );
+    }
+
+    #[test]
+    fn locks_embedding_profile_dimensions_once() {
+        let db = test_db();
+        let vector_repo = VectorRepository::new(&db);
+
+        let profile = vector_repo
+            .create_embedding_profile(CreateEmbeddingProfileRequest {
+                provider: "custom_openai".to_string(),
+                model: "custom-embedding".to_string(),
+                dimensions: 0,
+                distance_metric: Some("cosine".to_string()),
+                is_active: true,
+                revision: 1,
+            })
+            .expect("create profile");
+
+        let locked = vector_repo
+            .lock_embedding_profile_dimensions(&profile.id, 1024)
+            .expect("lock dimensions succeeds")
+            .expect("profile should still exist");
+        assert_eq!(locked.dimensions, 1024);
+        assert_eq!(locked.revision, 2);
+
+        let relocked = vector_repo
+            .lock_embedding_profile_dimensions(&profile.id, 2048)
+            .expect("relock dimensions succeeds")
+            .expect("profile should still exist");
+        assert_eq!(relocked.dimensions, 1024);
+        assert_eq!(relocked.revision, 2);
     }
 }

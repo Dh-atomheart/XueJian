@@ -364,6 +364,12 @@ def _assemble_analysis(
     return {
         "pageCount": page_count,
         "parseMetadata": parse_metadata or {},
+        "chunkingProfile": {
+            "strategy": "docling_parent_child_v1",
+            "maxParentChars": MAX_PARENT_CHARS,
+            "maxChildChars": MAX_CHILD_CHARS,
+            "overlapUnits": OVERLAP_UNITS,
+        },
         "anchors": anchors,
         "sections": [
             {key: value for key, value in section.items() if key != "blocks"}

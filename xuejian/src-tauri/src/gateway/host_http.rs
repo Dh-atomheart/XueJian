@@ -9,6 +9,7 @@ use crate::commands::settings::resolve_effective_embedding_profile;
 use crate::db::{
     rag_embedding_readiness_status, rag_required_chunk_count, ApiConfig, ChunkEmbeddingRecord,
     CreateCardCandidateRequest, EmbeddingProfile, ModelProfile, Mvp0BackgroundJobRepository,
+    KnowledgeQaRepository,
     ProviderBudgetUsage, QueryEmbeddingCacheRepository, SettingsRepository,
     UpdateMvp0BackgroundJobStatusRequest, UpsertQueryEmbeddingCacheRequest, VectorRepository,
     WorkflowModelAssignment,
@@ -548,6 +549,23 @@ fn route_request(
             }
         }
 
+        ("POST", "/tool-gateway/knowledge-qa/recent-messages") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match list_recent_knowledge_qa_messages_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
         ("POST", "/tool-gateway/candidates") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
@@ -577,7 +595,92 @@ fn route_request(
             }
         }
 
+        ("GET", path) if path.starts_with("/tool-gateway/study/review-summary") => {
+            match study_review_summary_json(&app_state, path) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", "/tool-gateway/study/review-candidates") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match submit_study_review_candidates_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
         // ── ToolGateway: knowledge search ─────────────────
+        ("POST", "/tool-gateway/artifacts") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match upsert_artifacts_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("GET", path) if path.starts_with("/tool-gateway/artifacts?") => {
+            match list_artifacts_json(&app_state, path) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("GET", path) if path.starts_with("/tool-gateway/artifacts/") => {
+            let artifact_id = path.strip_prefix("/tool-gateway/artifacts/").unwrap_or("");
+            match get_artifact_json(&app_state, artifact_id) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "artifact_not_found"}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/artifacts/") && path.ends_with("/lifecycle") => {
+            let artifact_id = path
+                .strip_prefix("/tool-gateway/artifacts/")
+                .and_then(|value| value.strip_suffix("/lifecycle"))
+                .unwrap_or("");
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match update_artifact_lifecycle_json(&app_state, artifact_id, request) {
+                Ok(Some(payload)) => GatewayResponse::Ok(payload.to_string()),
+                Ok(None) => GatewayResponse::NotFound(json!({"error": "artifact_not_found"}).to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
         ("POST", "/tool-gateway/search-chunks") => {
             let request: Value = match serde_json::from_slice(body) {
                 Ok(v) => v,
@@ -605,6 +708,40 @@ fn route_request(
                 }
             };
             match persist_chunk_embeddings_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", "/tool-gateway/embeddings/chunks/states") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match list_chunk_embedding_states_json(&app_state, request) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", "/tool-gateway/embeddings/profiles/lock-dimensions") => {
+            let request: Value = match serde_json::from_slice(body) {
+                Ok(v) => v,
+                Err(error) => {
+                    return GatewayResponse::BadRequest(
+                        json!({"error": error.to_string()}).to_string(),
+                    )
+                }
+            };
+            match lock_embedding_dimensions_json(&app_state, request) {
                 Ok(payload) => GatewayResponse::Ok(payload.to_string()),
                 Err(error) => {
                     GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
@@ -1276,6 +1413,8 @@ fn get_document_json(state: &AppState, document_id: &str) -> Result<Option<Value
             "fileType": host_document_file_type(&document.original_filename),
             "status": host_document_status(&document.parse_status),
             "pageCount": document.page_count,
+            "chunkingProfile": document.chunking_profile,
+            "chunkingProfileRevision": document.chunking_profile_revision,
         })
     }))
 }
@@ -1297,71 +1436,122 @@ fn save_document_analysis_json(
     document_id: &str,
     request: Value,
 ) -> Result<Value> {
-    let page_count = request["pageCount"].as_i64().unwrap_or(0) as i32;
-    let anchors: Vec<crate::db::CreateMvp0SourceAnchorRequest> = request["anchors"]
+    let anchors = request["anchors"]
         .as_array()
         .unwrap_or(&Vec::new())
         .iter()
-        .map(|anchor| crate::db::CreateMvp0SourceAnchorRequest {
-            document_id: document_id.to_string(),
-            chunk_id: None,
-            page: anchor["page"].as_i64().unwrap_or(1) as i32,
-            quote: anchor["textQuote"].as_str().unwrap_or("").to_string(),
-            bbox_json: if anchor["rects"].is_array()
-                && !anchor["rects"].as_array().unwrap_or(&Vec::new()).is_empty()
-            {
-                Some(anchor["rects"].to_string())
-            } else {
-                None
-            },
+        .map(|anchor| {
+            Ok(crate::db::CreateDocumentAnchorRequest {
+                id: anchor["id"].as_str().map(ToOwned::to_owned),
+                page: anchor["page"].as_i64().unwrap_or(1) as i32,
+                paragraph: anchor["paragraph"].as_i64().map(|value| value as i32),
+                text_quote: anchor["textQuote"].as_str().unwrap_or("").to_string(),
+                rects: if anchor["rects"].is_array() {
+                    serde_json::from_value(anchor["rects"].clone())?
+                } else {
+                    Vec::new()
+                },
+                hash: anchor["hash"].as_str().unwrap_or("").to_string(),
+                hierarchy_path: if anchor["hierarchyPath"].is_array() {
+                    Some(serde_json::from_value(anchor["hierarchyPath"].clone())?)
+                } else {
+                    None
+                },
+                quote_hash: anchor["quoteHash"].as_str().map(ToOwned::to_owned),
+            })
         })
-        .collect();
-    let chunks: Vec<crate::db::CreateMvp0DocumentChunkRequest> = request["chunks"]
+        .collect::<Result<Vec<_>>>()?;
+    let sections = request["sections"]
         .as_array()
         .unwrap_or(&Vec::new())
         .iter()
-        .map(|chunk| crate::db::CreateMvp0DocumentChunkRequest {
-            document_id: document_id.to_string(),
-            page_start: chunk["pageStart"]
-                .as_i64()
-                .or_else(|| chunk["pageEnd"].as_i64())
-                .unwrap_or(1) as i32,
-            page_end: chunk["pageEnd"]
-                .as_i64()
-                .or_else(|| chunk["pageStart"].as_i64())
-                .unwrap_or(1) as i32,
-            chunk_index: chunk["chunkIndex"].as_i64().unwrap_or(0) as i32,
-            text: chunk["content"].as_str().unwrap_or("").to_string(),
-            parser: format!(
-                "pymupdf::{}",
-                chunk["chunkKind"].as_str().unwrap_or("semantic")
-            ),
+        .map(|section| {
+            Ok(crate::db::CreateDocumentSectionRequest {
+                id: section["id"].as_str().map(ToOwned::to_owned),
+                section_index: section["sectionIndex"].as_i64().unwrap_or(0) as i32,
+                heading: section["heading"].as_str().map(ToOwned::to_owned),
+                hierarchy_path: if section["hierarchyPath"].is_array() {
+                    Some(serde_json::from_value(section["hierarchyPath"].clone())?)
+                } else {
+                    None
+                },
+                page_start: section["pageStart"].as_i64().map(|value| value as i32),
+                page_end: section["pageEnd"].as_i64().map(|value| value as i32),
+                anchor_start_id: section["anchorStartId"].as_str().map(ToOwned::to_owned),
+                anchor_end_id: section["anchorEndId"].as_str().map(ToOwned::to_owned),
+                content: section["content"].as_str().unwrap_or("").to_string(),
+                token_count: section["tokenCount"].as_i64().map(|value| value as i32),
+                metadata: if section["metadata"].is_null() {
+                    None
+                } else {
+                    Some(section["metadata"].clone())
+                },
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
+    let chunks = request["chunks"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .map(|chunk| {
+            Ok(crate::db::CreateDocumentChunkRequest {
+                id: chunk["id"].as_str().map(ToOwned::to_owned),
+                section_id: chunk["sectionId"].as_str().map(ToOwned::to_owned),
+                anchor_id: chunk["anchorId"].as_str().map(ToOwned::to_owned),
+                page_start: chunk["pageStart"].as_i64().map(|value| value as i32),
+                page_end: chunk["pageEnd"].as_i64().map(|value| value as i32),
+                chunk_index: chunk["chunkIndex"].as_i64().unwrap_or(0) as i32,
+                chunk_kind: chunk["chunkKind"].as_str().map(ToOwned::to_owned),
+                content: chunk["content"].as_str().unwrap_or("").to_string(),
+                token_count: chunk["tokenCount"].as_i64().map(|value| value as i32),
+                metadata: if chunk["metadata"].is_null() {
+                    None
+                } else {
+                    Some(chunk["metadata"].clone())
+                },
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     let db = state.lock_db()?;
     let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
-    repo.replace_analysis(document_id, page_count, &chunks, &anchors)?;
+    repo.replace_analysis(
+        document_id,
+        crate::db::ReplaceMvp0DocumentAnalysisRequest {
+            page_count: request["pageCount"].as_i64().unwrap_or(0) as i32,
+            chunking_profile: if request["chunkingProfile"].is_null() {
+                None
+            } else {
+                Some(request["chunkingProfile"].clone())
+            },
+            anchors,
+            sections,
+            chunks,
+        },
+    )?;
     Ok(json!({"ok": true}))
 }
 
 fn list_anchors_json(state: &AppState, document_id: &str) -> Result<Value> {
     let db = state.lock_db()?;
-    let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
-    let anchors = repo.list_source_anchors(document_id)?;
+    let repo = crate::db::DocumentRepository::new(&db);
+    let anchors = repo.list_anchors(document_id)?;
     Ok(anchors
         .into_iter()
         .map(|anchor| {
-            let quote_hash = host_quote_hash(&anchor.quote);
+            let quote_hash = anchor
+                .quote_hash
+                .clone()
+                .unwrap_or_else(|| host_quote_hash(&anchor.text_quote));
             json!({
                 "id": anchor.id,
                 "documentId": anchor.document_id,
                 "page": anchor.page,
-                "paragraph": Value::Null,
-                "textQuote": anchor.quote,
-                "rects": host_anchor_rects(anchor.bbox_json.as_deref()),
-                "hash": quote_hash,
-                "hierarchyPath": [],
+                "paragraph": anchor.paragraph,
+                "textQuote": anchor.text_quote,
+                "rects": anchor.rects,
+                "hash": anchor.hash,
+                "hierarchyPath": anchor.hierarchy_path,
                 "quoteHash": quote_hash,
             })
         })
@@ -1372,30 +1562,92 @@ fn list_anchors_json(state: &AppState, document_id: &str) -> Result<Value> {
 fn list_chunks_json(state: &AppState, document_id: &str) -> Result<Value> {
     let db = state.lock_db()?;
     let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
-    let chunks = repo.list_chunks(document_id)?;
+    let chunks = repo.list_structured_chunks(document_id)?;
     Ok(chunks
         .into_iter()
         .map(|chunk| {
             json!({
                 "id": chunk.id,
                 "documentId": chunk.document_id,
-                "sectionId": Value::Null,
-                "anchorId": Value::Null,
+                "sectionId": chunk.section_id,
+                "anchorId": chunk.anchor_id,
                 "pageStart": chunk.page_start,
                 "pageEnd": chunk.page_end,
                 "chunkIndex": chunk.chunk_index,
-                "chunkKind": host_chunk_kind(&chunk.parser),
-                "content": chunk.text,
-                "tokenCount": chunk.char_count,
-                "metadata": Value::Null,
+                "chunkKind": chunk.chunk_kind,
+                "content": chunk.content,
+                "tokenCount": chunk.token_count,
+                "metadata": chunk.metadata,
             })
         })
         .collect::<Vec<_>>()
         .into())
 }
 
-fn list_sections_json(_state: &AppState, _document_id: &str) -> Result<Value> {
-    Ok(Value::Array(Vec::new()))
+fn list_sections_json(state: &AppState, document_id: &str) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::Mvp0DocumentRepository::new(db.connection());
+    let sections = repo.list_sections(document_id)?;
+    Ok(sections
+        .into_iter()
+        .map(|section| {
+            json!({
+                "id": section.id,
+                "documentId": section.document_id,
+                "sectionIndex": section.section_index,
+                "heading": section.heading,
+                "hierarchyPath": section.hierarchy_path,
+                "pageStart": section.page_start,
+                "pageEnd": section.page_end,
+                "anchorStartId": section.anchor_start_id,
+                "anchorEndId": section.anchor_end_id,
+                "content": section.content,
+                "tokenCount": section.token_count,
+                "metadata": section.metadata,
+            })
+        })
+        .collect::<Vec<_>>()
+        .into())
+}
+
+fn list_recent_knowledge_qa_messages_json(state: &AppState, request: Value) -> Result<Value> {
+    let conversation_id = request
+        .get("conversationId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| HostGatewayError::App("conversationId is required".to_string()))?;
+    let limit = request
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(4)
+        .clamp(1, 8) as usize;
+
+    let db = state.lock_db()?;
+    let repo = KnowledgeQaRepository::new(&db);
+    let messages = repo.list_messages(conversation_id)?;
+    let recent_messages = messages
+        .into_iter()
+        .rev()
+        .filter(|message| {
+            (message.role == "user" || message.role == "assistant")
+                && !message.content.trim().is_empty()
+        })
+        .take(limit)
+        .collect::<Vec<_>>();
+
+    Ok(recent_messages
+        .into_iter()
+        .rev()
+        .map(|message| {
+            let content = message.content.chars().take(400).collect::<String>();
+            json!({
+                "role": message.role,
+                "content": content,
+            })
+        })
+        .collect::<Vec<_>>()
+        .into())
 }
 
 fn host_document_file_type(file_name: &str) -> String {
@@ -1425,24 +1677,10 @@ fn host_persisted_parse_status(status: &str) -> &str {
     }
 }
 
-fn host_chunk_kind(parser: &str) -> &str {
-    parser
-        .split("::")
-        .nth(1)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("semantic")
-}
-
 fn host_quote_hash(quote: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(quote.trim().as_bytes());
     format!("{:x}", hasher.finalize())
-}
-
-fn host_anchor_rects(bbox_json: Option<&str>) -> Value {
-    bbox_json
-        .and_then(|value| serde_json::from_str::<Value>(value).ok())
-        .unwrap_or_else(|| Value::Array(Vec::new()))
 }
 
 fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
@@ -1530,6 +1768,619 @@ fn persist_candidates_json(state: &AppState, request: Value) -> Result<Value> {
     }))
 }
 
+fn submit_study_review_candidates_json(state: &AppState, request: Value) -> Result<Value> {
+    let run_id = request["runId"].as_str().map(str::trim).unwrap_or("");
+    let candidates = match request["candidates"].as_array() {
+        Some(arr) => arr,
+        None => return Ok(json!({"acceptedCount": 0, "rejectedCount": 0, "stored": false})),
+    };
+    let dry_run = request["dryRun"].as_bool().unwrap_or(true);
+    let idempotency_key = request["idempotencyKey"].as_str().map(str::trim).unwrap_or("");
+    let dry_run_ref = request["dryRunRef"].as_str().map(str::trim).unwrap_or("");
+    let rollback_ref = request["rollbackRef"].as_str().map(str::trim).unwrap_or("");
+    let rollback_requested = request["rollback"].as_bool().unwrap_or(false)
+        || request["action"].as_str().map(str::trim) == Some("rollback");
+
+    if run_id.is_empty() {
+        return Ok(json!({
+            "acceptedCount": 0,
+            "rejectedCount": candidates.len(),
+            "stored": false,
+            "error": "missing_run_id",
+        }));
+    }
+
+    let db = state.lock_db()?;
+    let workflow_repo = crate::db::WorkflowRepository::new(&db);
+    if workflow_repo.get_run(run_id)?.is_none() {
+        return Ok(json!({
+            "acceptedCount": 0,
+            "rejectedCount": candidates.len(),
+            "stored": false,
+            "error": "run_not_found",
+        }));
+    }
+
+    if rollback_requested {
+        if idempotency_key.is_empty() || rollback_ref.is_empty() {
+            return Ok(json!({
+                "acceptedCount": 0,
+                "rejectedCount": candidates.len(),
+                "stored": false,
+                "error": "study_schedule_write_failed",
+                "blockingReasons": ["idempotency_key_missing", "rollback_ref_missing"],
+            }));
+        }
+        let checkpoint_ref = format!("study_review_candidates:{idempotency_key}");
+        let Some(existing) = workflow_repo.get_checkpoint(run_id, &checkpoint_ref)? else {
+            return Ok(json!({
+                "acceptedCount": 0,
+                "rejectedCount": candidates.len(),
+                "stored": false,
+                "error": "rollback_not_supported",
+            }));
+        };
+        let mut payload = existing.payload;
+        payload["writeState"] = json!("rolled_back");
+        payload["rolledBackAt"] = json!(chrono::Utc::now().to_rfc3339());
+        workflow_repo.upsert_checkpoint(crate::db::UpsertWorkflowCheckpointRequest {
+            run_id: run_id.to_string(),
+            checkpoint_ref,
+            step_key: Some("review_candidates_rolled_back".to_string()),
+            payload: payload.clone(),
+        })?;
+        let event = workflow_repo.append_event(crate::db::AppendWorkflowEventRequest {
+            run_id: run_id.to_string(),
+            event_type: "rolled_back".to_string(),
+            message: Some("Study schedule write rolled back".to_string()),
+            progress: None,
+            payload: Some(json!({"rollbackRef": rollback_ref, "idempotencyKey": idempotency_key})),
+        })?;
+        return Ok(json!({
+            "acceptedCount": 0,
+            "rejectedCount": 0,
+            "stored": false,
+            "writeState": "rolled_back",
+            "rollbackRef": rollback_ref,
+            "auditEventId": event.id,
+        }));
+    }
+
+    if !dry_run {
+        let mut blocking_reasons = Vec::new();
+        if idempotency_key.is_empty() {
+            blocking_reasons.push("idempotency_key_missing");
+        }
+        if dry_run_ref.is_empty() {
+            blocking_reasons.push("dry_run_ref_missing");
+        }
+        if rollback_ref.is_empty() {
+            blocking_reasons.push("rollback_ref_missing");
+        }
+        if !blocking_reasons.is_empty() {
+            return Ok(json!({
+                "acceptedCount": 0,
+                "rejectedCount": candidates.len(),
+                "stored": false,
+                "error": "study_schedule_write_failed",
+                "blockingReasons": blocking_reasons,
+            }));
+        }
+
+        let checkpoint_ref = format!("study_review_candidates:{idempotency_key}");
+        if let Some(existing) = workflow_repo.get_checkpoint(run_id, &checkpoint_ref)? {
+            let payload = existing.payload;
+            return Ok(json!({
+                "acceptedCount": payload["acceptedCount"].as_u64().unwrap_or(0),
+                "rejectedCount": payload["rejectedCount"].as_u64().unwrap_or(0),
+                "stored": true,
+                "skippedDuplicates": payload["createdReviewCandidateIds"].as_array().map(|arr| arr.len()).unwrap_or(0),
+                "createdReviewCandidateIds": payload["createdReviewCandidateIds"].clone(),
+                "dryRunRef": dry_run_ref,
+                "rollbackRef": rollback_ref,
+                "idempotencyKey": idempotency_key,
+            }));
+        }
+    }
+
+    let card_repo = crate::db::CardRepository::new(&db);
+    let mut accepted_candidates = Vec::new();
+    let mut created_review_candidate_ids = Vec::new();
+    let mut rejected_count = 0usize;
+    let mut discarded_reasons = Vec::new();
+
+    for (index, candidate) in candidates.iter().enumerate() {
+        let card_id = candidate["cardId"].as_str().map(str::trim).unwrap_or("");
+        let Some(suggested_interval_days) = candidate["suggestedIntervalDays"].as_i64() else {
+            rejected_count += 1;
+            discarded_reasons.push(json!({"index": index, "reason": "missing_suggested_interval_days"}));
+            continue;
+        };
+
+        if card_id.is_empty() || card_repo.get_card_by_id(card_id)?.is_none() {
+            rejected_count += 1;
+            discarded_reasons.push(json!({"index": index, "cardId": card_id, "reason": "card_not_found"}));
+            continue;
+        }
+
+        let candidate_id = if idempotency_key.is_empty() {
+            format!("review-candidate:{run_id}:{index}:{card_id}")
+        } else {
+            format!("review-candidate:{idempotency_key}:{index}:{card_id}")
+        };
+        created_review_candidate_ids.push(candidate_id.clone());
+        accepted_candidates.push(json!({
+            "id": candidate_id,
+            "cardId": card_id,
+            "suggestedIntervalDays": suggested_interval_days,
+            "reason": candidate["reason"].as_str(),
+        }));
+    }
+
+    let accepted_count = accepted_candidates.len();
+    let effective_dry_run_ref = if dry_run_ref.is_empty() {
+        format!("study-dry-run:{run_id}:{}", uuid::Uuid::new_v4())
+    } else {
+        dry_run_ref.to_string()
+    };
+    let effective_rollback_ref = if rollback_ref.is_empty() {
+        format!("rollback:{run_id}:{}", uuid::Uuid::new_v4())
+    } else {
+        rollback_ref.to_string()
+    };
+    let checkpoint_ref = if dry_run {
+        format!("study_review_candidates_dry_run:{effective_dry_run_ref}")
+    } else {
+        format!("study_review_candidates:{idempotency_key}")
+    };
+    let payload = json!({
+        "runId": run_id,
+        "dryRun": dry_run,
+        "dryRunRef": effective_dry_run_ref,
+        "idempotencyKey": idempotency_key,
+        "rollbackRef": effective_rollback_ref,
+        "acceptedCount": accepted_count,
+        "rejectedCount": rejected_count,
+        "discardedReasons": discarded_reasons,
+        "candidates": accepted_candidates,
+        "createdReviewCandidateIds": if dry_run { json!([]) } else { json!(created_review_candidate_ids.clone()) },
+        "writeState": if dry_run { "dry_run_ready" } else { "written" },
+    });
+    let mut checkpoint_id = None;
+    if dry_run || accepted_count > 0 {
+        let checkpoint = workflow_repo.upsert_checkpoint(crate::db::UpsertWorkflowCheckpointRequest {
+            run_id: run_id.to_string(),
+            checkpoint_ref,
+            step_key: Some(if dry_run {
+                "review_candidates_dry_run".to_string()
+            } else {
+                "review_candidates_submitted".to_string()
+            }),
+            payload,
+        })?;
+        checkpoint_id = Some(checkpoint.id);
+    }
+    let event = workflow_repo.append_event(crate::db::AppendWorkflowEventRequest {
+        run_id: run_id.to_string(),
+        event_type: if dry_run { "dry_run_ready" } else { "written" }.to_string(),
+        message: Some(if dry_run {
+            "Study review candidates dry-run completed".to_string()
+        } else {
+            "Study review candidates submitted".to_string()
+        }),
+        progress: None,
+        payload: Some(json!({
+            "dryRun": dry_run,
+            "dryRunRef": effective_dry_run_ref,
+            "rollbackRef": effective_rollback_ref,
+            "acceptedCount": accepted_count,
+            "rejectedCount": rejected_count,
+        })),
+    })?;
+
+    Ok(json!({
+        "acceptedCount": accepted_count,
+        "rejectedCount": rejected_count,
+        "stored": !dry_run && accepted_count > 0,
+        "dryRunRef": effective_dry_run_ref,
+        "rollbackRef": effective_rollback_ref,
+        "idempotencyKey": idempotency_key,
+        "createdReviewCandidateIds": if dry_run { json!([]) } else { json!(created_review_candidate_ids) },
+        "discardedReasons": discarded_reasons,
+        "skippedDuplicates": 0,
+        "auditEventId": event.id,
+        "checkpointId": checkpoint_id,
+    }))
+}
+
+fn study_review_summary_json(state: &AppState, path_with_qs: &str) -> Result<Value> {
+    let qs = path_with_qs.splitn(2, '?').nth(1).unwrap_or("");
+    let document_id = qs_param(qs, "documentId");
+    let limit: i64 = qs_param(qs, "limit")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(200)
+        .clamp(1, 1000);
+
+    let db = state.lock_db()?;
+    let repo = crate::db::CardRepository::new(&db);
+    let cards = repo.list_cards(crate::db::CardFilters {
+        document_id,
+        anchor_id: None,
+        page_number: None,
+        limit: Some(limit),
+    })?;
+    let card_ids = cards
+        .iter()
+        .map(|card| card.id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let logs = repo
+        .list_review_logs(None, Some(limit))?
+        .into_iter()
+        .filter(|log| card_ids.contains(log.card_id.as_str()))
+        .collect::<Vec<_>>();
+
+    let mut state_counts = BTreeMap::<String, i64>::new();
+    let mut rating_counts = BTreeMap::<String, i64>::new();
+    let mut recent_failures_by_card = BTreeMap::<String, i64>::new();
+    let mut topics = BTreeMap::<String, Value>::new();
+    let mut document_ids = Vec::<String>::new();
+    let mut low_retrievability_cards = Vec::<Value>::new();
+    let mut high_difficulty_cards = Vec::<Value>::new();
+
+    for log in &logs {
+        *rating_counts.entry(log.rating.clone()).or_insert(0) += 1;
+        if matches!(log.rating.as_str(), "again" | "hard") {
+            *recent_failures_by_card.entry(log.card_id.clone()).or_insert(0) += 1;
+        }
+    }
+
+    for card in &cards {
+        *state_counts.entry(card.state.clone()).or_insert(0) += 1;
+        if let Some(document_id) = card.document_id.as_deref() {
+            if !document_ids.iter().any(|item| item == document_id) {
+                document_ids.push(document_id.to_string());
+            }
+        }
+        if card.retrievability.unwrap_or(1.0) <= 0.45 {
+            low_retrievability_cards.push(study_card_summary_json(card));
+        }
+        if card.difficulty >= 0.75 {
+            high_difficulty_cards.push(study_card_summary_json(card));
+        }
+
+        let mut topic_names = study_card_topics(card);
+        if topic_names.is_empty() {
+            topic_names.push(
+                card.document_id
+                    .clone()
+                    .unwrap_or_else(|| "untagged".to_string()),
+            );
+        }
+        for topic_name in topic_names {
+            let entry = topics.entry(topic_name.clone()).or_insert_with(|| {
+                json!({
+                    "topic": topic_name,
+                    "cardCount": 0,
+                    "lowRetrievabilityCount": 0,
+                    "highDifficultyCount": 0,
+                    "recentFailureCount": 0,
+                    "documentIds": [],
+                    "exampleCardIds": [],
+                })
+            });
+            entry["cardCount"] = json!(entry["cardCount"].as_i64().unwrap_or(0) + 1);
+            if card.retrievability.unwrap_or(1.0) <= 0.45 {
+                entry["lowRetrievabilityCount"] =
+                    json!(entry["lowRetrievabilityCount"].as_i64().unwrap_or(0) + 1);
+            }
+            if card.difficulty >= 0.75 {
+                entry["highDifficultyCount"] =
+                    json!(entry["highDifficultyCount"].as_i64().unwrap_or(0) + 1);
+            }
+            let failures = recent_failures_by_card.get(&card.id).copied().unwrap_or(0);
+            if failures > 0 {
+                entry["recentFailureCount"] =
+                    json!(entry["recentFailureCount"].as_i64().unwrap_or(0) + failures);
+            }
+            study_push_json_string(&mut entry["documentIds"], card.document_id.as_deref());
+            study_push_json_string(&mut entry["exampleCardIds"], Some(card.id.as_str()));
+        }
+    }
+
+    Ok(json!({
+        "documentIds": document_ids,
+        "totalCards": cards.len(),
+        "stateCounts": state_counts,
+        "lowRetrievabilityCards": low_retrievability_cards,
+        "highDifficultyCards": high_difficulty_cards,
+        "recentReviews": {
+            "total": logs.len(),
+            "ratings": rating_counts,
+        },
+        "topicSummary": topics.into_values().collect::<Vec<_>>(),
+    }))
+}
+
+fn study_card_summary_json(card: &crate::db::Card) -> Value {
+    json!({
+        "id": card.id,
+        "title": card.title,
+        "documentId": card.document_id,
+        "tags": card.tags,
+        "difficulty": card.difficulty,
+        "stability": card.stability,
+        "retrievability": card.retrievability,
+        "state": card.state,
+        "nextReview": card.next_review,
+    })
+}
+
+fn study_card_topics(card: &crate::db::Card) -> Vec<String> {
+    let mut topics = Vec::<String>::new();
+    if let Some(Value::Array(values)) = card.tags.as_ref() {
+        for value in values {
+            if let Some(tag) = value.as_str().map(str::trim).filter(|tag| !tag.is_empty()) {
+                if !topics.iter().any(|item| item == tag) {
+                    topics.push(tag.to_string());
+                }
+            }
+        }
+    }
+    if topics.is_empty() {
+        if let Some(title) = card.title.as_deref().map(str::trim).filter(|title| !title.is_empty())
+        {
+            topics.push(title.chars().take(40).collect::<String>());
+        }
+    }
+    topics
+}
+
+fn study_push_json_string(array_value: &mut Value, candidate: Option<&str>) {
+    let Some(value) = candidate.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    if !array_value.is_array() {
+        *array_value = Value::Array(Vec::new());
+    }
+    let array = array_value.as_array_mut().expect("array checked above");
+    if !array.iter().any(|item| item.as_str() == Some(value)) {
+        array.push(json!(value));
+    }
+}
+
+fn upsert_artifacts_json(state: &AppState, request: Value) -> Result<Value> {
+    let run_id = request["runId"].as_str().map(str::trim).unwrap_or("");
+    let artifacts = if let Some(items) = request["artifacts"].as_array() {
+        items.clone()
+    } else if let Some(object) = request["artifacts"].as_object() {
+        object.values().cloned().collect::<Vec<_>>()
+    } else if request["artifactId"].is_string() {
+        vec![request.clone()]
+    } else {
+        return Ok(json!({
+            "storedCount": 0,
+            "error": "artifact_schema_invalid",
+            "blockingReasons": ["artifacts_missing"],
+        }));
+    };
+    let db = state.lock_db()?;
+    let repo = crate::db::ArtifactRepository::new(&db);
+    let mut stored = Vec::<Value>::new();
+    let mut rejected = Vec::<Value>::new();
+    for artifact in artifacts {
+        match artifact_to_upsert_request(run_id, artifact) {
+            Ok(req) => {
+                let saved = repo.upsert(req)?;
+                stored.push(workflow_artifact_to_json(saved));
+            }
+            Err(reason) => rejected.push(json!(reason)),
+        }
+    }
+    Ok(json!({
+        "storedCount": stored.len(),
+        "rejectedCount": rejected.len(),
+        "artifacts": stored,
+        "rejectedReasons": rejected,
+        "error": if rejected.is_empty() { Value::Null } else { json!("artifact_schema_invalid") },
+    }))
+}
+
+fn get_artifact_json(state: &AppState, artifact_id: &str) -> Result<Option<Value>> {
+    let db = state.lock_db()?;
+    let repo = crate::db::ArtifactRepository::new(&db);
+    let decoded = percent_decode_path_component(artifact_id);
+    Ok(repo.get(&decoded)?.map(workflow_artifact_to_json))
+}
+
+fn list_artifacts_json(state: &AppState, path_with_qs: &str) -> Result<Value> {
+    let qs = path_with_qs.splitn(2, '?').nth(1).unwrap_or("");
+    let db = state.lock_db()?;
+    let repo = crate::db::ArtifactRepository::new(&db);
+    let artifacts = repo.list(crate::db::WorkflowArtifactFilters {
+        run_id: qs_param(qs, "runId").map(percent_decode_path_component),
+        artifact_type: qs_param(qs, "artifactType").map(percent_decode_path_component),
+        lifecycle_status: qs_param(qs, "lifecycleStatus").map(percent_decode_path_component),
+        limit: qs_param(qs, "limit").and_then(|value| value.parse::<i64>().ok()),
+    })?;
+    Ok(json!({
+        "items": artifacts.into_iter().map(workflow_artifact_to_json).collect::<Vec<_>>()
+    }))
+}
+
+fn update_artifact_lifecycle_json(
+    state: &AppState,
+    artifact_id: &str,
+    request: Value,
+) -> Result<Option<Value>> {
+    let lifecycle_status = request["lifecycleStatus"].as_str().map(str::trim).unwrap_or("");
+    if !matches!(
+        lifecycle_status,
+        "consumed" | "superseded" | "rolled_back" | "expired"
+    ) {
+        return Ok(Some(json!({
+            "error": "artifact_lifecycle_invalid",
+            "lifecycleStatus": lifecycle_status,
+        })));
+    }
+    let db = state.lock_db()?;
+    let repo = crate::db::ArtifactRepository::new(&db);
+    let decoded = percent_decode_path_component(artifact_id);
+    Ok(repo
+        .mark_lifecycle(&decoded, lifecycle_status)?
+        .map(workflow_artifact_to_json))
+}
+
+fn artifact_to_upsert_request(
+    fallback_run_id: &str,
+    mut artifact: Value,
+) -> std::result::Result<crate::db::UpsertWorkflowArtifactRequest, &'static str> {
+    redact_sensitive_json(&mut artifact);
+    let artifact_id = artifact["artifactId"].as_str().map(str::trim).unwrap_or("");
+    let artifact_type = artifact["artifactType"].as_str().map(str::trim).unwrap_or("");
+    let schema_version = artifact["schemaVersion"].as_i64().unwrap_or(0);
+    let summary = artifact["summary"].as_str().map(str::trim).unwrap_or("");
+    let created_by = artifact["createdBy"].as_str().map(str::trim).unwrap_or("");
+    if artifact_id.is_empty() {
+        return Err("artifact_id_missing");
+    }
+    if !matches!(
+        artifact_type,
+        "evidence"
+            | "answer"
+            | "card_candidate"
+            | "formal_card_write"
+            | "learning_advice"
+            | "study_schedule_write"
+            | "trace"
+    ) {
+        return Err("artifact_type_invalid");
+    }
+    if schema_version <= 0 {
+        return Err("schema_version_missing");
+    }
+    if summary.is_empty() {
+        return Err("summary_missing");
+    }
+    if !artifact["qualityEnvelope"].is_object() {
+        return Err("quality_envelope_missing");
+    }
+    if !matches!(
+        created_by,
+        "langgraph_rag" | "langgraph_card" | "langgraph_study" | "langgraph_multi_agent"
+    ) {
+        return Err("created_by_invalid");
+    }
+    let run_id = artifact["runId"]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback_run_id);
+    if run_id.is_empty() {
+        return Err("run_id_missing");
+    }
+    let lifecycle_status = artifact["lifecycleStatus"]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("created");
+    if !matches!(
+        lifecycle_status,
+        "created" | "consumed" | "superseded" | "rolled_back" | "expired"
+    ) {
+        return Err("lifecycle_status_invalid");
+    }
+    let source_refs = if artifact["sourceRefs"].is_array() {
+        artifact["sourceRefs"].clone()
+    } else {
+        json!([])
+    };
+    let error_category = artifact["errorCategory"].as_str().map(str::to_string);
+    Ok(crate::db::UpsertWorkflowArtifactRequest {
+        id: artifact_id.to_string(),
+        run_id: run_id.to_string(),
+        artifact_type: artifact_type.to_string(),
+        schema_version,
+        summary: summary.to_string(),
+        source_refs,
+        quality_envelope: artifact["qualityEnvelope"].clone(),
+        error_category,
+        created_by: created_by.to_string(),
+        lifecycle_status: lifecycle_status.to_string(),
+        payload: artifact,
+    })
+}
+
+fn workflow_artifact_to_json(artifact: crate::db::WorkflowArtifact) -> Value {
+    json!({
+        "artifactId": artifact.id,
+        "runId": artifact.run_id,
+        "artifactType": artifact.artifact_type,
+        "schemaVersion": artifact.schema_version,
+        "summary": artifact.summary,
+        "sourceRefs": artifact.source_refs,
+        "qualityEnvelope": artifact.quality_envelope,
+        "errorCategory": artifact.error_category,
+        "createdBy": artifact.created_by,
+        "lifecycleStatus": artifact.lifecycle_status,
+        "payload": artifact.payload,
+        "createdAt": artifact.created_at,
+        "updatedAt": artifact.updated_at,
+    })
+}
+
+fn redact_sensitive_json(value: &mut Value) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                redact_sensitive_json(item);
+            }
+        }
+        Value::Object(map) => {
+            let keys = map.keys().cloned().collect::<Vec<_>>();
+            for key in keys {
+                let lower = key.to_ascii_lowercase();
+                if matches!(
+                    lower.as_str(),
+                    "prompt"
+                        | "messages"
+                        | "chain_of_thought"
+                        | "chainofthought"
+                        | "api_key"
+                        | "apikey"
+                        | "authorization"
+                ) {
+                    map.remove(&key);
+                    continue;
+                }
+                if let Some(item) = map.get_mut(&key) {
+                    redact_sensitive_json(item);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn percent_decode_path_component(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let Ok(hex) = std::str::from_utf8(&bytes[index + 1..index + 3]) {
+                if let Ok(decoded) = u8::from_str_radix(hex, 16) {
+                    output.push(decoded);
+                    index += 3;
+                    continue;
+                }
+            }
+        }
+        output.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&output).into_owned()
+}
+
 fn persist_cards_json(state: &AppState, request: Value) -> Result<Value> {
     let document_id = request["documentId"].as_str().unwrap_or("");
     let cards = match request["cards"].as_array() {
@@ -1537,6 +2388,7 @@ fn persist_cards_json(state: &AppState, request: Value) -> Result<Value> {
         None => {
             return Ok(json!({
                 "createdCount": 0,
+                "createdCardIds": [],
                 "skippedDuplicates": 0,
                 "discardedLowQuality": 0,
             }))
@@ -1611,6 +2463,7 @@ fn persist_cards_json(state: &AppState, request: Value) -> Result<Value> {
     let result = repo.insert_generated_cards(requests)?;
     Ok(json!({
         "createdCount": result.created_count,
+        "createdCardIds": result.created_card_ids,
         "skippedDuplicates": result.skipped_duplicates,
         "discardedLowQuality": result.discarded_low_quality,
     }))
@@ -1650,7 +2503,14 @@ fn search_chunks_json(state: &AppState, request: Value) -> Result<Value> {
     } else {
         Some(document_ids.as_slice())
     };
-    let results = repo.search_chunks(&query, scoped_document_ids, limit)?;
+    let results = match repo.search_chunks_fts5(&query, scoped_document_ids, limit) {
+        Ok(results) if !results.is_empty() => results,
+        Ok(_) => repo.search_chunks(&query, scoped_document_ids, limit)?,
+        Err(error) => {
+            log::warn!("FTS chunk search failed, falling back to contains search: {}", error);
+            repo.search_chunks(&query, scoped_document_ids, limit)?
+        }
+    };
 
     Ok(results
         .into_iter()
@@ -1665,6 +2525,7 @@ fn search_chunks_json(state: &AppState, request: Value) -> Result<Value> {
                 "pageEnd": r.page_end,
                 "content": r.content,
                 "snippet": r.snippet,
+                "lexicalScore": r.lexical_score,
             })
         })
         .collect::<Vec<_>>()
@@ -1685,7 +2546,20 @@ fn persist_chunk_embeddings_json(state: &AppState, request: Value) -> Result<Val
                         .iter()
                         .map(|value| value.as_f64().map(|number| number as f32))
                         .collect::<Option<Vec<_>>>()?;
-                    Some(ChunkEmbeddingRecord { chunk_id, vector })
+                    Some(ChunkEmbeddingRecord {
+                        chunk_id,
+                        vector,
+                        content_hash: item["contentHash"].as_str().map(str::to_string),
+                        chunking_profile_revision: item["chunkingProfileRevision"]
+                            .as_i64()
+                            .map(|value| value as i32),
+                        embedding_profile_revision: item["embeddingProfileRevision"]
+                            .as_i64()
+                            .map(|value| value as i32),
+                        embedding_dimensions: item["embeddingDimensions"]
+                            .as_i64()
+                            .map(|value| value as i32),
+                    })
                 })
                 .collect::<Vec<_>>()
         })
@@ -1704,6 +2578,52 @@ fn persist_chunk_embeddings_json(state: &AppState, request: Value) -> Result<Val
     Ok(json!({
         "storedCount": stored_count,
     }))
+}
+
+fn list_chunk_embedding_states_json(state: &AppState, request: Value) -> Result<Value> {
+    let document_id = request["documentId"].as_str().unwrap_or("").trim();
+    let profile_id = request["profileId"].as_str().unwrap_or("").trim();
+    if document_id.is_empty() || profile_id.is_empty() {
+        return Ok(json!([]));
+    }
+
+    let db = state.lock_db()?;
+    let repo = VectorRepository::new(&db);
+    let states = repo.list_chunk_embedding_states(document_id, profile_id)?;
+    Ok(states
+        .into_iter()
+        .map(|item| {
+            json!({
+                "chunkId": item.chunk_id,
+                "contentHash": item.content_hash,
+                "chunkingProfileRevision": item.chunking_profile_revision,
+                "embeddingProfileRevision": item.embedding_profile_revision,
+                "embeddingDimensions": item.embedding_dimensions,
+                "embeddedAt": item.embedded_at,
+            })
+        })
+        .collect::<Vec<_>>()
+        .into())
+}
+
+fn lock_embedding_dimensions_json(state: &AppState, request: Value) -> Result<Value> {
+    let profile_id = request["profileId"].as_str().unwrap_or("").trim();
+    let dimensions = request["dimensions"].as_i64().unwrap_or(0) as i32;
+    if profile_id.is_empty() || dimensions <= 0 {
+        return Ok(Value::Null);
+    }
+
+    let db = state.lock_db()?;
+    let repo = VectorRepository::new(&db);
+    let profile = repo.lock_embedding_profile_dimensions(profile_id, dimensions)?;
+    match profile {
+        Some(profile) if profile.dimensions == dimensions => Ok(embedding_profile_to_json(profile)),
+        Some(profile) => Err(HostGatewayError::App(format!(
+            "Embedding dimensions already locked to {}, requested {}",
+            profile.dimensions, dimensions
+        ))),
+        None => Ok(Value::Null),
+    }
 }
 
 fn document_embedding_readiness_json(state: &AppState, request: Value) -> Result<Value> {
@@ -1909,7 +2829,25 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
     } else {
         Some(document_ids.as_slice())
     };
-    let lexical_results = document_repo.search_chunks(&query, scoped_document_ids, limit * 3)?;
+    let (lexical_results, lexical_status) = match document_repo
+        .search_chunks_fts5(&query, scoped_document_ids, limit * 3)
+    {
+        Ok(results) if !results.is_empty() => (results, "fts5_bm25"),
+        Ok(_) => (
+            document_repo.search_chunks(&query, scoped_document_ids, limit * 3)?,
+            "fallback",
+        ),
+        Err(error) => {
+            log::warn!(
+                "Hybrid lexical search failed, falling back to contains search: {}",
+                error
+            );
+            (
+                document_repo.search_chunks(&query, scoped_document_ids, limit * 3)?,
+                "fallback",
+            )
+        }
+    };
 
     let vector_results = if let Some(query_embedding) = query_embedding.as_deref() {
         vector_repo.search_chunk_embeddings(
@@ -1946,10 +2884,14 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
                 "snippet": result.snippet,
                 "score": 0.0,
                 "rrfScore": 0.0,
+                "lexicalScore": result.lexical_score,
+                "lexicalSource": lexical_status,
+                "vectorScore": 0.0,
                 "ftsRank": Value::Null,
                 "vectorRank": Value::Null,
                 "distance": Value::Null,
                 "vectorBacked": false,
+                "retrievalMode": "lexical",
             })
         });
 
@@ -1957,6 +2899,8 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
         entry["rrfScore"] = json!(current_score + rrf_score);
         entry["score"] = entry["rrfScore"].clone();
         entry["ftsRank"] = json!(rank as i64);
+        entry["lexicalScore"] = json!(result.lexical_score);
+        entry["lexicalSource"] = json!(lexical_status);
     }
 
     for (index, result) in vector_results.into_iter().enumerate() {
@@ -1979,10 +2923,14 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
                 "snippet": snippet,
                 "score": 0.0,
                 "rrfScore": 0.0,
+                "lexicalScore": Value::Null,
+                "lexicalSource": Value::Null,
+                "vectorScore": 0.0,
                 "ftsRank": Value::Null,
                 "vectorRank": Value::Null,
                 "distance": Value::Null,
                 "vectorBacked": false,
+                "retrievalMode": "vector",
             })
         });
 
@@ -1990,8 +2938,11 @@ fn search_hybrid_json(state: &AppState, request: Value) -> Result<Value> {
         entry["rrfScore"] = json!(current_score + rrf_score);
         entry["score"] = entry["rrfScore"].clone();
         entry["vectorRank"] = json!(rank as i64);
+        entry["vectorScore"] = json!(rrf_score);
         entry["distance"] = json!(result.distance);
         entry["vectorBacked"] = json!(true);
+        let has_lexical = !entry["ftsRank"].is_null();
+        entry["retrievalMode"] = json!(if has_lexical { "hybrid" } else { "vector" });
     }
 
     let mut merged_results = merged.into_values().collect::<Vec<_>>();

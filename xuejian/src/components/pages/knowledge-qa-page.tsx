@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import {
   Copy,
@@ -31,6 +31,9 @@ import {
 } from '@/shared/ui'
 import { cn } from '@/lib/utils'
 import { CardMarkdownRenderer } from '@/components/cards/CardMarkdownRenderer'
+import { RagProgressCard } from '@/components/knowledge/RagProgressCard'
+import { RagTracePanel } from '@/components/knowledge/RagTracePanel'
+import type { AgentToolInvocation, RagProgressStep, RagTrace } from '@/types'
 
 export interface KnowledgeQaDocumentScope {
   id: string
@@ -76,6 +79,11 @@ export interface KnowledgeQaTurnView {
   status: 'pending' | 'answered' | 'error' | 'cancelled'
   errorMessage?: string | null
   citations: KnowledgeQaCitationView[]
+  ragTrace?: RagTrace | null
+  ragProgressSteps?: RagProgressStep[]
+  agentTrace?: AgentToolInvocation[] | null
+  sessionMemoryUsed?: boolean
+  sessionMemorySummary?: string | null
 }
 
 export interface KnowledgeQaSearchResultView {
@@ -123,19 +131,6 @@ const EXAMPLE_PROMPTS = [
   '请总结这章的核心结论。',
   '这个概念和前文的另一个概念有什么区别？',
   '列出资料中支持这个结论的证据。',
-]
-
-const STREAMING_STATUS_WORDS = [
-  '检索中',
-  '生成中',
-  '搜罗中',
-  '筛选中',
-  '整理中',
-  '归纳中',
-  '核对中',
-  '引用中',
-  '组织中',
-  '收束中',
 ]
 
 const DOCUMENT_STATUS_LABELS: Record<KnowledgeQaDocumentScope['status'], string> = {
@@ -198,15 +193,15 @@ function ConversationsPanel({
                     onClick={() => onSelectConversation(conversation.id)}
                     className="min-w-0 flex-1 text-left"
                   >
-                  <span className="block truncate text-sm font-medium">{conversation.title}</span>
-                  <span className="mt-1 flex items-center justify-between gap-2 text-[11px]">
-                    <span>{formatConversationTime(conversation.updatedAt)}</span>
-                    <span>
-                      {conversation.documentIds.length > 0
-                        ? `${conversation.documentIds.length} 份文档`
-                        : '全部文档'}
+                    <span className="block truncate text-sm font-medium">{conversation.title}</span>
+                    <span className="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                      <span>{formatConversationTime(conversation.updatedAt)}</span>
+                      <span>
+                        {conversation.documentIds.length > 0
+                          ? `${conversation.documentIds.length} 份文档`
+                          : '全部文档'}
+                      </span>
                     </span>
-                  </span>
                   </button>
                   <button
                     type="button"
@@ -231,9 +226,13 @@ function ScopeMenu({
   selectedDocumentIds,
   onToggleDocument,
   onClearDocuments,
-}: Pick<KnowledgeQaPageProps, 'documents' | 'selectedDocumentIds' | 'onToggleDocument' | 'onClearDocuments'>) {
+}: Pick<
+  KnowledgeQaPageProps,
+  'documents' | 'selectedDocumentIds' | 'onToggleDocument' | 'onClearDocuments'
+>) {
   const readyCount = documents.filter((document) => document.status === 'ready').length
-  const scopeLabel = selectedDocumentIds.length > 0 ? `已选 ${selectedDocumentIds.length} 份` : '全部已向量化文档'
+  const scopeLabel =
+    selectedDocumentIds.length > 0 ? `已选 ${selectedDocumentIds.length} 份` : '全部已向量化文档'
 
   return (
     <DropdownMenuPrimitive.Portal>
@@ -248,7 +247,9 @@ function ScopeMenu({
         <div className="flex items-center justify-between gap-3 border-b border-line-soft/70 px-2 py-2">
           <div className="min-w-0">
             <p className="text-xs font-medium text-ink">{scopeLabel}</p>
-            <p className="mt-0.5 text-[11px] text-ink-soft">{readyCount}/{documents.length} 可用</p>
+            <p className="mt-0.5 text-[11px] text-ink-soft">
+              {readyCount}/{documents.length} 可用
+            </p>
           </div>
           {selectedDocumentIds.length > 0 ? (
             <button
@@ -262,47 +263,49 @@ function ScopeMenu({
         </div>
 
         <div className="mt-1 max-h-72 overflow-y-auto py-1">
-        {documents.length === 0 ? (
-          <div className="px-2 py-6 text-center text-xs leading-5 text-ink-muted">
-            当前没有可用于 RAG 问答的文档。请先解析文档并生成向量。
-          </div>
-        ) : (
-          documents.map((doc) => {
-            const active = selectedDocumentIds.includes(doc.id)
-            return (
-              <DropdownMenuPrimitive.CheckboxItem
-                key={doc.id}
-                checked={active}
-                onClick={() => onToggleDocument(doc.id)}
-                className={cn(
-                  'flex h-9 cursor-pointer select-none items-center gap-2 rounded-lg px-2 text-xs outline-none transition-colors',
-                  active
-                    ? 'bg-ink/[0.06] text-ink'
-                    : 'text-ink-muted hover:bg-paper-muted hover:text-ink'
-                )}
-                onSelect={(event) => event.preventDefault()}
-              >
-                <span
+          {documents.length === 0 ? (
+            <div className="px-2 py-6 text-center text-xs leading-5 text-ink-muted">
+              当前没有可用于 RAG 问答的文档。请先解析文档并生成向量。
+            </div>
+          ) : (
+            documents.map((doc) => {
+              const active = selectedDocumentIds.includes(doc.id)
+              return (
+                <DropdownMenuPrimitive.CheckboxItem
+                  key={doc.id}
+                  checked={active}
+                  onClick={() => onToggleDocument(doc.id)}
                   className={cn(
-                    'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border text-[10px] leading-none',
-                    active ? 'border-ink bg-ink text-paper-card' : 'border-line-soft bg-paper-card'
+                    'flex h-9 cursor-pointer select-none items-center gap-2 rounded-lg px-2 text-xs outline-none transition-colors',
+                    active
+                      ? 'bg-ink/[0.06] text-ink'
+                      : 'text-ink-muted hover:bg-paper-muted hover:text-ink'
                   )}
-                  aria-hidden
+                  onSelect={(event) => event.preventDefault()}
                 >
-                  {active ? '✓' : null}
-                </span>
-                <FileText className="h-3.5 w-3.5 shrink-0 text-ink-soft" />
-                <span className="min-w-0 flex-1 truncate font-medium">{doc.title}</span>
-                <Badge
-                  variant={doc.status === 'embedding_failed' ? 'destructive' : 'secondary'}
-                  className="shrink-0 rounded-md px-1.5 py-0 text-[10px]"
-                >
-                  {DOCUMENT_STATUS_LABELS[doc.status]}
-                </Badge>
-              </DropdownMenuPrimitive.CheckboxItem>
-            )
-          })
-        )}
+                  <span
+                    className={cn(
+                      'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border text-[10px] leading-none',
+                      active
+                        ? 'border-ink bg-ink text-paper-card'
+                        : 'border-line-soft bg-paper-card'
+                    )}
+                    aria-hidden
+                  >
+                    {active ? '✓' : null}
+                  </span>
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-ink-soft" />
+                  <span className="min-w-0 flex-1 truncate font-medium">{doc.title}</span>
+                  <Badge
+                    variant={doc.status === 'embedding_failed' ? 'destructive' : 'secondary'}
+                    className="shrink-0 rounded-md px-1.5 py-0 text-[10px]"
+                  >
+                    {DOCUMENT_STATUS_LABELS[doc.status]}
+                  </Badge>
+                </DropdownMenuPrimitive.CheckboxItem>
+              )
+            })
+          )}
         </div>
       </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
@@ -332,7 +335,12 @@ function WarningBanner({
             {message ? <p className="mt-1 text-sm text-muted-foreground">{message}</p> : null}
           </div>
         </div>
-        <Button variant="outline" onClick={onRestartService} disabled={isRestartingService} className="rounded-lg">
+        <Button
+          variant="outline"
+          onClick={onRestartService}
+          disabled={isRestartingService}
+          className="rounded-lg"
+        >
           <RefreshCcw className="h-4 w-4" />
           {isRestartingService ? '重启中' : '重启服务'}
         </Button>
@@ -358,13 +366,7 @@ function UserMessage({ content, anchorId }: { content: string; anchorId: string 
   )
 }
 
-function CitationBadge({
-  citation,
-  index,
-}: {
-  citation: KnowledgeQaCitationView
-  index: number
-}) {
+function CitationBadge({ citation, index }: { citation: KnowledgeQaCitationView; index: number }) {
   return (
     <span className="group relative inline-flex">
       <button
@@ -380,10 +382,14 @@ function CitationBadge({
           data-testid="knowledge-qa-citation-card"
         >
           <span className="block">
-            <span className="block truncate text-xs font-medium text-ink">{citation.documentTitle}</span>
+            <span className="block truncate text-xs font-medium text-ink">
+              {citation.documentTitle}
+            </span>
             <span className="mt-0.5 block text-[11px] text-ink-soft">{citation.pageLabel}</span>
           </span>
-          <span className="block whitespace-pre-wrap text-xs leading-5 text-ink-muted">{citation.snippet}</span>
+          <span className="block whitespace-pre-wrap text-xs leading-5 text-ink-muted">
+            {citation.snippet}
+          </span>
         </span>
       </span>
     </span>
@@ -414,12 +420,15 @@ function knowledgeRetrievalStatusLabel(status?: KnowledgeQaTurnView['retrievalSt
 function AnswerMeta({
   answerMode,
   retrievalStatus,
+  sessionMemoryUsed,
+  sessionMemorySummary,
 }: {
   answerMode?: KnowledgeQaTurnView['answerMode']
   retrievalStatus?: KnowledgeQaTurnView['retrievalStatus']
+  sessionMemoryUsed?: boolean
+  sessionMemorySummary?: string | null
 }) {
-  const isPlainGrounded =
-    !answerMode || (answerMode === 'grounded' && retrievalStatus === 'ready')
+  const isPlainGrounded = !answerMode || (answerMode === 'grounded' && retrievalStatus === 'ready')
 
   if (isPlainGrounded) {
     return null
@@ -439,9 +448,20 @@ function AnswerMeta({
 
   return (
     <div className="mb-3" data-testid="knowledge-qa-answer-meta">
-      <Badge variant="secondary" className="rounded-md">
-        {label}
-      </Badge>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="secondary" className="rounded-md">
+          {label}
+        </Badge>
+        {sessionMemoryUsed ? (
+          <Badge
+            variant="secondary"
+            className="rounded-md border border-border/60 bg-card text-xs text-muted-foreground"
+            title={sessionMemorySummary ?? '本轮回答使用了会话记忆辅助理解指代'}
+          >
+            使用了会话记忆
+          </Badge>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -451,6 +471,9 @@ function AssistantMessage({
   citations,
   answerMode,
   retrievalStatus,
+  ragTrace,
+  sessionMemoryUsed,
+  sessionMemorySummary,
   anchorId,
   actions,
 }: {
@@ -458,6 +481,9 @@ function AssistantMessage({
   citations: KnowledgeQaCitationView[]
   answerMode?: KnowledgeQaTurnView['answerMode']
   retrievalStatus?: KnowledgeQaTurnView['retrievalStatus']
+  ragTrace?: KnowledgeQaTurnView['ragTrace']
+  sessionMemoryUsed?: KnowledgeQaTurnView['sessionMemoryUsed']
+  sessionMemorySummary?: KnowledgeQaTurnView['sessionMemorySummary']
   anchorId: string
   actions?: ReactNode
 }) {
@@ -470,7 +496,13 @@ function AssistantMessage({
           </div>
           <Card className="mt-2 border-border/50 bg-card">
             <CardContent className="p-4">
-              <AnswerMeta answerMode={answerMode} retrievalStatus={retrievalStatus} />
+              <AnswerMeta
+                answerMode={answerMode}
+                retrievalStatus={retrievalStatus}
+                sessionMemoryUsed={sessionMemoryUsed}
+                sessionMemorySummary={sessionMemorySummary}
+              />
+              {ragTrace ? <RagTracePanel ragTrace={ragTrace} /> : null}
               <CardMarkdownRenderer content={content} variant="knowledge" />
               {citations.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-1.5" aria-label="引用">
@@ -488,26 +520,29 @@ function AssistantMessage({
   )
 }
 
-function StreamingIndicator({ anchorId }: { anchorId: string }) {
-  const [statusIndex, setStatusIndex] = useState(0)
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setStatusIndex((current) => (current + 1) % STREAMING_STATUS_WORDS.length)
-    }, 1400)
-    return () => window.clearInterval(timer)
-  }, [])
-
+function StreamingIndicator({
+  anchorId,
+  progressSteps,
+}: {
+  anchorId: string
+  progressSteps?: RagProgressStep[]
+}) {
   return (
-    <div id={anchorId} className="scroll-mt-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-foreground/5 text-xs">AI</div>
-        <Card className="border-border/50 bg-card">
-          <CardContent className="flex items-center gap-2 p-3">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-            <span className="min-w-12 text-xs text-muted-foreground">{STREAMING_STATUS_WORDS[statusIndex]}</span>
-          </CardContent>
-        </Card>
+    <div
+      id={anchorId}
+      className="scroll-mt-4"
+    >
+      <div className="flex justify-start">
+        <div className="max-w-2xl">
+          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-foreground/5 text-xs">
+            AI
+          </div>
+          <Card className="mt-2 border-border/50 bg-card">
+            <CardContent className="p-4">
+              <RagProgressCard steps={progressSteps ?? []} />
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   )
@@ -535,6 +570,28 @@ export function getKnowledgeQaDisplayError(rawMessage?: string | null): string {
   const message = rawMessage.trim()
   const lower = message.toLowerCase()
   if (lower.includes('provider_timeout') || lower.includes('timed out') || lower.includes('timeout')) {
+    return 'Model request timed out. Try a smaller document scope or a more reliable provider.'
+  }
+  if (lower.includes('provider_validation_failed') || lower.includes('field required') || lower.includes('extra inputs')) {
+    return 'Model response failed workflow schema validation. Retry or switch to a model that follows structured JSON better.'
+  }
+  if (lower.includes('provider_invalid_json') || lower.includes('invalid_json') || lower.includes('json')) {
+    return 'Model returned invalid JSON. Retry; if it repeats, switch models or simplify the question.'
+  }
+  if (lower.includes('citation_invalid') || lower.includes('citation_audit_failed')) {
+    return 'Citation audit failed. The answer was blocked because sources could not be verified.'
+  }
+  if (lower.includes('host_gateway_error')) {
+    return 'Host Gateway call failed. Check the local desktop service and retry.'
+  }
+  if (lower.includes('workflow_exception') || lower.includes('knowledge qa workflow failed')) {
+    return 'Knowledge QA backend workflow failed. Check workflow details, adjust the scope or model configuration, then retry.'
+  }
+  if (
+    lower.includes('provider_timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('timeout')
+  ) {
     return '模型响应超时，请稍后重试。'
   }
   if (lower.includes('invalid_json') || lower.includes('json')) {
@@ -590,7 +647,9 @@ function EmptyChatState({ onUsePrompt }: Pick<KnowledgeQaPageProps, 'onUsePrompt
       </div>
       <div>
         <p className="text-base font-medium text-foreground">向文档提问</p>
-        <p className="mt-1 text-sm text-muted-foreground">选择文档范围后提问，回答会附带可追溯引用。</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          选择文档范围后提问，回答会附带可追溯引用。
+        </p>
       </div>
       <div className="grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2">
         {EXAMPLE_PROMPTS.map((prompt) => (
@@ -620,7 +679,12 @@ function ConversationIndex({ turns }: { turns: KnowledgeQaTurnView[] }) {
     >
       <div className="flex min-h-full flex-col items-center justify-center gap-1.5">
         {turns.flatMap((turn) => [
-          <IndexMark key={`${turn.id}-user`} roleLabel="我" text={turn.question} targetId={messageAnchor(turn.id, 'user')} />,
+          <IndexMark
+            key={`${turn.id}-user`}
+            roleLabel="我"
+            text={turn.question}
+            targetId={messageAnchor(turn.id, 'user')}
+          />,
           <IndexMark
             key={`${turn.id}-assistant`}
             roleLabel="AI"
@@ -651,9 +715,7 @@ function IndexMark({
         onClick={() => scrollToMessage(targetId)}
         className={cn(
           'block h-[3px] w-4 rounded-full transition-all hover:w-5 focus-visible:w-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25',
-          roleLabel === '我'
-            ? 'bg-ink-soft/45 hover:bg-ink-muted'
-            : 'bg-ink/28 hover:bg-ink/55'
+          roleLabel === '我' ? 'bg-ink-soft/45 hover:bg-ink-muted' : 'bg-ink/28 hover:bg-ink/55'
         )}
       />
     </Tooltip>
@@ -847,7 +909,11 @@ function ChatInput({
             disabled={submitDisabled || !question.trim()}
             aria-label="发送问题"
           >
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-5 w-5" />}
+            {isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-5 w-5" />
+            )}
           </Button>
         )}
       </div>
@@ -862,7 +928,8 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
   const isEmpty = props.turns.length === 0
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [copiedTurnId, setCopiedTurnId] = useState<string | null>(null)
-  const activePendingTurn = [...props.turns].reverse().find((turn) => turn.status === 'pending') ?? null
+  const activePendingTurn =
+    [...props.turns].reverse().find((turn) => turn.status === 'pending') ?? null
   const regenerateDisabled = Boolean(props.isRegenerateDisabled || activePendingTurn)
 
   const handleCopyAnswer = (turnId: string, answer?: string | null) => {
@@ -871,16 +938,16 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
     }
     void copyTextToClipboard(answer).then(() => {
       setCopiedTurnId(turnId)
-      window.setTimeout(() => setCopiedTurnId((current) => (current === turnId ? null : current)), 1600)
+      window.setTimeout(
+        () => setCopiedTurnId((current) => (current === turnId ? null : current)),
+        1600
+      )
     })
   }
 
   if (!props.hasConfiguration) {
     return (
-      <div
-        className="flex h-full min-h-0 flex-col overflow-hidden"
-        data-testid="knowledge-qa-page"
-      >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="knowledge-qa-page">
         <div className="flex flex-1 items-center justify-center p-6">
           <UnconfiguredState feature="知识问答" onConfigure={props.onOpenSettings} />
         </div>
@@ -902,10 +969,7 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
   }
 
   return (
-    <div
-      className="flex h-full min-h-0 flex-col overflow-hidden"
-      data-testid="knowledge-qa-page"
-    >
+    <div className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="knowledge-qa-page">
       {props.serviceWarningTitle ? (
         <div className="shrink-0 px-6 pb-4 pt-6">
           <WarningBanner
@@ -925,13 +989,20 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
             onSelectConversation={props.onSelectConversation}
             onNewConversation={props.onNewConversation}
             onRequestDelete={(conversation) =>
-              setDeleteTarget({ type: 'conversation', id: conversation.id, title: conversation.title })
+              setDeleteTarget({
+                type: 'conversation',
+                id: conversation.id,
+                title: conversation.title,
+              })
             }
           />
         </aside>
 
         <div className="flex min-h-0 flex-col overflow-hidden">
-          <div className="min-h-0 flex-1 overflow-y-auto py-4 pr-1" data-testid="knowledge-qa-message-scroll">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto py-4 pr-1"
+            data-testid="knowledge-qa-message-scroll"
+          >
             {isEmpty ? (
               <EmptyChatState onUsePrompt={props.onUsePrompt} />
             ) : (
@@ -939,18 +1010,29 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                 {props.turns.map((turn) =>
                   turn.status === 'pending' ? (
                     <div key={turn.id} className="space-y-4">
-                      <UserMessage content={turn.question} anchorId={messageAnchor(turn.id, 'user')} />
-                      <StreamingIndicator anchorId={messageAnchor(turn.id, 'assistant')} />
+                      <UserMessage
+                        content={turn.question}
+                        anchorId={messageAnchor(turn.id, 'user')}
+                      />
+                      <StreamingIndicator
+                        anchorId={messageAnchor(turn.id, 'assistant')}
+                        progressSteps={turn.ragProgressSteps}
+                      />
                       <TurnActions
                         answer={null}
                         onCopy={() => undefined}
                         regenerateDisabled={regenerateDisabled}
-                        onDelete={() => setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })}
+                        onDelete={() =>
+                          setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })
+                        }
                       />
                     </div>
                   ) : turn.status === 'cancelled' ? (
                     <div key={turn.id} className="space-y-4">
-                      <UserMessage content={turn.question} anchorId={messageAnchor(turn.id, 'user')} />
+                      <UserMessage
+                        content={turn.question}
+                        anchorId={messageAnchor(turn.id, 'user')}
+                      />
                       <CancelledNotice
                         message={turn.errorMessage}
                         anchorId={messageAnchor(turn.id, 'assistant')}
@@ -960,12 +1042,17 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                         onCopy={() => undefined}
                         onRegenerate={() => props.onRetryQuestion(turn.id)}
                         regenerateDisabled={regenerateDisabled}
-                        onDelete={() => setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })}
+                        onDelete={() =>
+                          setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })
+                        }
                       />
                     </div>
                   ) : turn.status === 'error' ? (
                     <div key={turn.id} className="space-y-4">
-                      <UserMessage content={turn.question} anchorId={messageAnchor(turn.id, 'user')} />
+                      <UserMessage
+                        content={turn.question}
+                        anchorId={messageAnchor(turn.id, 'user')}
+                      />
                       <div id={messageAnchor(turn.id, 'assistant')} className="scroll-mt-4">
                         <InlineError
                           message={getKnowledgeQaDisplayError(turn.errorMessage)}
@@ -977,17 +1064,25 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                         onCopy={() => undefined}
                         onRegenerate={() => props.onRetryQuestion(turn.id)}
                         regenerateDisabled={regenerateDisabled}
-                        onDelete={() => setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })}
+                        onDelete={() =>
+                          setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })
+                        }
                       />
                     </div>
                   ) : (
                     <div key={turn.id} className="space-y-4">
-                      <UserMessage content={turn.question} anchorId={messageAnchor(turn.id, 'user')} />
+                      <UserMessage
+                        content={turn.question}
+                        anchorId={messageAnchor(turn.id, 'user')}
+                      />
                       <AssistantMessage
                         content={turn.answer ?? ''}
                         answerMode={turn.answerMode}
                         retrievalStatus={turn.retrievalStatus}
                         citations={turn.citations}
+                        ragTrace={turn.ragTrace}
+                        sessionMemoryUsed={turn.sessionMemoryUsed}
+                        sessionMemorySummary={turn.sessionMemorySummary}
                         anchorId={messageAnchor(turn.id, 'assistant')}
                         actions={
                           <TurnActions
@@ -996,7 +1091,13 @@ export function KnowledgeQaPage(props: KnowledgeQaPageProps) {
                             onCopy={() => handleCopyAnswer(turn.id, turn.answer)}
                             onRegenerate={() => props.onRetryQuestion(turn.id)}
                             regenerateDisabled={regenerateDisabled}
-                            onDelete={() => setDeleteTarget({ type: 'turn', id: turn.id, question: turn.question })}
+                            onDelete={() =>
+                              setDeleteTarget({
+                                type: 'turn',
+                                id: turn.id,
+                                question: turn.question,
+                              })
+                            }
                           />
                         }
                       />

@@ -19,11 +19,13 @@ use crate::{
         CommandError, CommandResult,
     },
     db::{
-        rag_embeddable_chunks, rag_required_chunk_count, CreateMvp0BackgroundJobRequest,
-        CreateMvp0DocumentChunkRequest, CreateMvp0DocumentRequest, CreateMvp0SourceAnchorRequest,
-        Database, EmbeddingProfile, Mvp0BackgroundJob, Mvp0BackgroundJobRepository,
-        Mvp0CardRepository, Mvp0Document, Mvp0DocumentChunk, Mvp0DocumentRepository,
-        Mvp0SourceAnchor, UpdateMvp0BackgroundJobStatusRequest, VectorRepository,
+        rag_embeddable_chunks, rag_required_chunk_count, CreateDocumentAnchorRequest,
+        CreateDocumentChunkRequest, CreateDocumentSectionRequest,
+        CreateMvp0BackgroundJobRequest, CreateMvp0DocumentRequest,
+        Database, DocumentAnchorRect, DocumentChunk, DocumentSection, EmbeddingProfile,
+        Mvp0BackgroundJob, Mvp0BackgroundJobRepository, Mvp0CardRepository, Mvp0Document,
+        Mvp0DocumentChunk, Mvp0DocumentRepository, Mvp0SourceAnchor,
+        ReplaceMvp0DocumentAnalysisRequest, UpdateMvp0BackgroundJobStatusRequest, VectorRepository,
     },
 };
 
@@ -172,6 +174,45 @@ impl From<Mvp0DocumentChunk> for DocumentChunkDto {
     }
 }
 
+impl From<DocumentSection> for DocumentSectionDto {
+    fn from(section: DocumentSection) -> Self {
+        Self {
+            id: section.id,
+            document_id: section.document_id,
+            section_index: section.section_index,
+            heading: section.heading,
+            hierarchy_path: section.hierarchy_path,
+            page_start: section.page_start,
+            page_end: section.page_end,
+            anchor_start_id: section.anchor_start_id,
+            anchor_end_id: section.anchor_end_id,
+            content: section.content,
+            token_count: section.token_count,
+            metadata: section.metadata,
+            created_at: section.created_at,
+        }
+    }
+}
+
+impl From<DocumentChunk> for DocumentChunkDto {
+    fn from(chunk: DocumentChunk) -> Self {
+        Self {
+            id: chunk.id,
+            document_id: chunk.document_id,
+            section_id: chunk.section_id,
+            anchor_id: chunk.anchor_id,
+            page_start: chunk.page_start,
+            page_end: chunk.page_end,
+            chunk_index: chunk.chunk_index,
+            chunk_kind: chunk.chunk_kind,
+            content: chunk.content,
+            token_count: chunk.token_count,
+            metadata: chunk.metadata,
+            created_at: chunk.created_at,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDocumentDto {
@@ -231,6 +272,8 @@ pub struct SaveDocumentChunkDto {
 #[serde(rename_all = "camelCase")]
 pub struct SaveDocumentAnalysisDto {
     pub page_count: i32,
+    #[serde(default)]
+    pub chunking_profile: Option<serde_json::Value>,
     #[serde(default)]
     pub anchors: Vec<SaveDocumentAnchorDto>,
     #[serde(default)]
@@ -489,31 +532,72 @@ pub fn save_document_analysis(
     let chunks = data
         .chunks
         .into_iter()
-        .map(|chunk| CreateMvp0DocumentChunkRequest {
-            document_id: id.clone(),
-            page_start: chunk.page_start.or(chunk.page_end).unwrap_or(1),
-            page_end: chunk.page_end.or(chunk.page_start).unwrap_or(1),
+        .map(|chunk| CreateDocumentChunkRequest {
+            id: chunk.id,
+            section_id: chunk.section_id,
+            anchor_id: chunk.anchor_id,
+            page_start: chunk.page_start,
+            page_end: chunk.page_end,
             chunk_index: chunk.chunk_index,
-            text: chunk.content,
-            parser: encode_chunk_parser(chunk.chunk_kind.as_deref()),
+            chunk_kind: chunk.chunk_kind,
+            content: chunk.content,
+            token_count: chunk.token_count,
+            metadata: chunk.metadata,
         })
         .collect::<Vec<_>>();
     let anchors = data
         .anchors
         .into_iter()
         .map(|anchor| {
-            Ok(CreateMvp0SourceAnchorRequest {
-                document_id: id.clone(),
-                chunk_id: None,
+            Ok(CreateDocumentAnchorRequest {
+                id: anchor.id,
                 page: anchor.page,
-                quote: anchor.text_quote,
-                bbox_json: serialize_anchor_rects(&anchor.rects)?,
+                paragraph: anchor.paragraph,
+                text_quote: anchor.text_quote,
+                rects: anchor
+                    .rects
+                    .into_iter()
+                    .map(|rect| DocumentAnchorRect {
+                        x: rect.x,
+                        y: rect.y,
+                        width: rect.width,
+                        height: rect.height,
+                    })
+                    .collect(),
+                hash: anchor.hash,
+                hierarchy_path: anchor.hierarchy_path,
+                quote_hash: anchor.quote_hash,
             })
         })
         .collect::<CommandResult<Vec<_>>>()?;
+    let sections = data
+        .sections
+        .into_iter()
+        .map(|section| CreateDocumentSectionRequest {
+            id: section.id,
+            section_index: section.section_index,
+            heading: section.heading,
+            hierarchy_path: section.hierarchy_path,
+            page_start: section.page_start,
+            page_end: section.page_end,
+            anchor_start_id: section.anchor_start_id,
+            anchor_end_id: section.anchor_end_id,
+            content: section.content,
+            token_count: section.token_count,
+            metadata: section.metadata,
+        })
+        .collect::<Vec<_>>();
 
-    let _ = data.sections;
-    repo.replace_analysis(&id, data.page_count, &chunks, &anchors)?;
+    repo.replace_analysis(
+        &id,
+        ReplaceMvp0DocumentAnalysisRequest {
+            page_count: data.page_count,
+            chunking_profile: data.chunking_profile,
+            anchors,
+            sections,
+            chunks,
+        },
+    )?;
 
     let document = repo
         .find_document_by_id(&id)?
@@ -534,10 +618,13 @@ pub fn list_document_anchors(
 
 #[tauri::command]
 pub fn list_document_sections(
-    _state: State<'_, AppState>,
-    _document_id: String,
+    state: State<'_, AppState>,
+    document_id: String,
 ) -> CommandResult<Vec<DocumentSectionDto>> {
-    Ok(Vec::new())
+    let db = state.lock_db()?;
+    let repo = Mvp0DocumentRepository::new(db.connection());
+    let sections = repo.list_sections(&document_id)?;
+    Ok(sections.into_iter().map(Into::into).collect())
 }
 
 #[tauri::command]
@@ -547,7 +634,7 @@ pub fn list_document_chunks(
 ) -> CommandResult<Vec<DocumentChunkDto>> {
     let db = state.lock_db()?;
     let repo = Mvp0DocumentRepository::new(db.connection());
-    let chunks = repo.list_chunks(&document_id)?;
+    let chunks = repo.list_structured_chunks(&document_id)?;
     Ok(chunks.into_iter().map(Into::into).collect())
 }
 
@@ -918,20 +1005,6 @@ fn deserialize_anchor_rects(bbox_json: Option<&str>) -> Vec<DocumentAnchorRectDt
     bbox_json
         .and_then(|value| serde_json::from_str::<Vec<DocumentAnchorRectDto>>(value).ok())
         .unwrap_or_default()
-}
-
-fn serialize_anchor_rects(rects: &[DocumentAnchorRectDto]) -> CommandResult<Option<String>> {
-    if rects.is_empty() {
-        return Ok(None);
-    }
-
-    serde_json::to_string(rects).map(Some).map_err(|error| {
-        CommandError::Internal(format!("Failed to serialize anchor rects: {error}"))
-    })
-}
-
-fn encode_chunk_parser(chunk_kind: Option<&str>) -> String {
-    format!("pymupdf::{}", chunk_kind.unwrap_or("semantic"))
 }
 
 fn decode_chunk_kind(parser: &str) -> &str {
@@ -1786,6 +1859,7 @@ mod tests {
     use super::*;
     use crate::db::{
         test_support::TestDatabase, CreateMvp0CardGroupRequest, CreateMvp0CardRequest,
+        CreateMvp0DocumentChunkRequest,
     };
     use rusqlite::Connection;
 
@@ -1851,14 +1925,44 @@ mod tests {
     }
 
     fn insert_test_embedding_state(conn: &Connection, chunk: &Mvp0DocumentChunk, profile_id: &str) {
+        let (chunk_rowid, content_hash, chunking_profile_revision): (i64, Option<String>, i32) = conn
+            .query_row(
+                "SELECT c.rowid, c.content_hash, d.chunking_profile_revision
+                 FROM document_chunks c
+                 JOIN documents d ON d.id = c.document_id
+                 WHERE c.id = ?1",
+                [&chunk.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("chunk embedding metadata should load");
+        let (profile_revision, profile_dimensions): (i32, i32) = conn
+            .query_row(
+                "SELECT revision, dimensions FROM embedding_profiles WHERE id = ?1",
+                [profile_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("embedding profile metadata should load");
+
         conn.execute(
             "INSERT INTO document_chunk_embedding_state (
-                chunk_id, profile_id, chunk_rowid, created_at
-             ) VALUES (?1, ?2, ?3, ?4)",
+                chunk_id,
+                profile_id,
+                chunk_rowid,
+                content_hash,
+                chunking_profile_revision,
+                embedding_profile_revision,
+                embedding_dimensions,
+                created_at,
+                embedded_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
             rusqlite::params![
                 &chunk.id,
                 profile_id,
-                i64::from(chunk.chunk_index) + 1,
+                chunk_rowid,
+                &content_hash,
+                chunking_profile_revision,
+                profile_revision,
+                profile_dimensions,
                 Utc::now().to_rfc3339(),
             ],
         )
@@ -1874,7 +1978,13 @@ mod tests {
             "SELECT COUNT(*)
              FROM document_chunk_embedding_state state
              JOIN document_chunks chunks ON chunks.id = state.chunk_id
-             WHERE chunks.document_id = ?1 AND state.profile_id = ?2",
+                         JOIN documents documents ON documents.id = chunks.document_id
+                         JOIN embedding_profiles profiles ON profiles.id = state.profile_id
+                         WHERE chunks.document_id = ?1
+                             AND state.profile_id = ?2
+                             AND state.embedding_profile_revision = profiles.revision
+                             AND state.chunking_profile_revision = documents.chunking_profile_revision
+                             AND (profiles.dimensions <= 0 OR state.embedding_dimensions = profiles.dimensions)",
             rusqlite::params![document_id, profile_id],
             |row| row.get(0),
         )

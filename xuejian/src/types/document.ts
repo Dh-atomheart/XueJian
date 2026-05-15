@@ -450,7 +450,12 @@ export type ApiAuthMode = 'api_key' | 'adc'
 
 export type KeyStatus = 'none' | 'stored' | 'verified' | 'invalid' | 'expired'
 
-export type WorkflowType = 'card_generation' | 'document_embedding' | 'knowledge_qa'
+export type WorkflowType =
+  | 'card_generation'
+  | 'document_embedding'
+  | 'knowledge_qa'
+  | 'agent_task'
+  | 'agent_card_generation'
 
 export interface ModelCapabilities {
   vision: boolean
@@ -657,6 +662,38 @@ export interface WorkflowCheckpoint {
   updatedAt: Date
 }
 
+export type WorkflowArtifactType =
+  | 'evidence'
+  | 'answer'
+  | 'card_candidate'
+  | 'formal_card_write'
+  | 'learning_advice'
+  | 'study_schedule_write'
+  | 'trace'
+
+export type WorkflowArtifactLifecycleStatus =
+  | 'created'
+  | 'consumed'
+  | 'superseded'
+  | 'rolled_back'
+  | 'expired'
+
+export interface WorkflowArtifact {
+  artifactId: string
+  runId: string
+  artifactType: WorkflowArtifactType
+  schemaVersion: number
+  summary: string
+  sourceRefs: string[]
+  qualityEnvelope: Record<string, unknown>
+  errorCategory: string | null
+  createdBy: string
+  lifecycleStatus: WorkflowArtifactLifecycleStatus
+  payload: Record<string, unknown>
+  createdAt: Date
+  updatedAt: Date
+}
+
 export interface KnowledgeQaConversation {
   id: string
   title: string
@@ -707,6 +744,33 @@ export interface WorkflowEvent {
   createdAt: Date
 }
 
+export type RagProgressStepKey =
+  | 'query_embedding'
+  | 'rewrite'
+  | 'retrieve'
+  | 'rerank'
+  | 'gate'
+  | 'second_retrieval'
+  | 'pack'
+  | 'generate'
+  | 'audit'
+
+export type RagProgressStepStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed'
+
+export interface RagProgressEventPayload {
+  stepKey: RagProgressStepKey
+  status: RagProgressStepStatus
+  title?: string | null
+  detail?: string | null
+  progress?: number | null
+  metrics?: Record<string, string | number | boolean | null>
+}
+
+export interface RagProgressStep extends RagProgressEventPayload {
+  id: string
+  createdAt: Date
+}
+
 export interface ServiceHealthStatus {
   status: 'starting' | 'healthy' | 'degraded' | 'stopped'
   endpoint: string | null
@@ -751,6 +815,95 @@ export interface Citation {
   relevanceScore: number | null
 }
 
+export interface RagRetrievalSummary {
+  chunkCount: number
+  retrievedDocumentCount: number
+  lexicalStatus: string
+  retrievalMode: string
+}
+
+export interface RagRewriteSummary {
+  status: string
+  triggerReason: string | null
+  recentMessageCount: number
+  originalQueryPreview: string
+  rewrittenQueryPreview: string
+}
+
+export interface RagMergeSummary {
+  status: string
+  childChunksExpanded: number
+  parentContextsAdded: number
+  sectionContextsAdded: number
+  charsAdded: number
+}
+
+export interface RagPackingSummary {
+  passageCount: number
+  totalChars: number
+  budgetChars: number
+}
+
+export interface RagRerankSummary {
+  status: string
+  provider: string
+  topScore: number | null
+  averageScore: number | null
+  chunkCount: number
+}
+
+export interface RagRelevanceGateSummary {
+  decision: string
+  topScore: number | null
+  threshold: number
+  chunkCount: number
+  reason: string
+}
+
+export interface RagSecondRetrievalSummary {
+  status: string
+  used: boolean
+  queryPreview: string
+  additionalChunkCount: number
+  reason: string | null
+}
+
+export interface RagAuditSummary {
+  totalCitations: number
+  validCitations: number
+  rejectedCitations: number
+  auditStatus: string
+}
+
+export interface AgentToolInvocation {
+  toolKey: string
+  durationMs: number
+  inputSummary: Record<string, unknown>
+  outputSummary: Record<string, unknown>
+  errorCategory: string | null
+}
+
+export interface RagTrace {
+  embeddingReadiness: string
+  retrievalMode: string
+  queryRewriteUsed: boolean
+  secondRetrievalUsed: boolean
+  retrievedDocumentCount: number
+  parentMergeStatus: string | null
+  rerankStatus: string | null
+  relevanceGateDecision: string | null
+  citationAuditStatus: string | null
+  failureReason: string | null
+  retrievalSummary: RagRetrievalSummary
+  rewriteSummary?: RagRewriteSummary
+  mergeSummary: RagMergeSummary
+  packingSummary: RagPackingSummary
+  rerankSummary?: RagRerankSummary
+  relevanceGateSummary?: RagRelevanceGateSummary
+  secondRetrievalSummary?: RagSecondRetrievalSummary
+  auditSummary: RagAuditSummary
+}
+
 export interface RagAnswer {
   answer: string
   answerMode: 'grounded' | 'no_relevant_content' | 'excerpt_fallback'
@@ -769,6 +922,10 @@ export interface RagAnswer {
     | 'query_embedding_failed'
     | 'no_hits'
   citations: Citation[]
+  ragTrace?: RagTrace | null
+  agentTrace?: AgentToolInvocation[] | null
+  sessionMemoryUsed?: boolean
+  sessionMemorySummary?: string | null
 }
 
 export interface ChunkSearchResult {

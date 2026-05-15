@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type {
   ApiConfig,
   ApiConnectionTestResult,
+  AgentToolInvocation,
   BasicCard,
   BasicCardGroup,
   BasicCardSource,
@@ -33,12 +34,14 @@ import type {
   PointsSummary,
   ProviderBudgetUsage,
   RagAnswer,
+  RagTrace,
   ReviewLog,
   ServiceHealthStatus,
   StudyQueueItem,
   StudyReviewResult,
   WorkflowModelAssignment,
   WorkflowCheckpoint,
+  WorkflowArtifact,
   WorkflowRun,
   WorkflowEvent,
 } from './document'
@@ -441,7 +444,13 @@ export const discoveredModelSchema = z.object({
   isRecommended: z.boolean(),
 }) as z.ZodType<DiscoveredModel>
 
-export const workflowTypeSchema = z.enum(['card_generation', 'document_embedding', 'knowledge_qa'])
+export const workflowTypeSchema = z.enum([
+  'card_generation',
+  'document_embedding',
+  'knowledge_qa',
+  'agent_task',
+  'agent_card_generation',
+])
 
 export const apiConfigSchema = z.object({
   id: z.string().uuid(),
@@ -804,6 +813,30 @@ export const workflowCheckpointSchema = z.object({
   updatedAt: dateValueSchema,
 }) as z.ZodType<WorkflowCheckpoint>
 
+export const workflowArtifactSchema = z.object({
+  artifactId: z.string().min(1),
+  runId: z.string().uuid(),
+  artifactType: z.enum([
+    'evidence',
+    'answer',
+    'card_candidate',
+    'formal_card_write',
+    'learning_advice',
+    'study_schedule_write',
+    'trace',
+  ]),
+  schemaVersion: z.number().int().min(1),
+  summary: z.string(),
+  sourceRefs: z.array(z.string()),
+  qualityEnvelope: z.record(z.unknown()),
+  errorCategory: z.string().nullable(),
+  createdBy: z.string().min(1),
+  lifecycleStatus: z.enum(['created', 'consumed', 'superseded', 'rolled_back', 'expired']),
+  payload: z.record(z.unknown()),
+  createdAt: dateValueSchema,
+  updatedAt: dateValueSchema,
+}) as z.ZodType<WorkflowArtifact>
+
 export const knowledgeQaConversationSchema = z.object({
   id: z.string().uuid(),
   title: z.string().min(1),
@@ -887,6 +920,113 @@ export const citationSchema = z.object({
   relevanceScore: z.number().min(0).max(1).nullable(),
 }) as z.ZodType<Citation>
 
+const ragRetrievalSummarySchema = z
+  .object({
+    chunkCount: z.number().int().nonnegative(),
+    retrievedDocumentCount: z.number().int().nonnegative(),
+    lexicalStatus: z.string(),
+    retrievalMode: z.string(),
+  })
+  .passthrough() as z.ZodType<import('./document').RagRetrievalSummary>
+
+const ragRewriteSummarySchema = z
+  .object({
+    status: z.string(),
+    triggerReason: z.string().nullable(),
+    recentMessageCount: z.number().int().nonnegative(),
+    originalQueryPreview: z.string(),
+    rewrittenQueryPreview: z.string(),
+  })
+  .passthrough() as z.ZodType<import('./document').RagRewriteSummary>
+
+const ragMergeSummarySchema = z
+  .object({
+    status: z.string(),
+    childChunksExpanded: z.number().int().nonnegative(),
+    parentContextsAdded: z.number().int().nonnegative(),
+    sectionContextsAdded: z.number().int().nonnegative(),
+    charsAdded: z.number().int().nonnegative(),
+  })
+  .passthrough() as z.ZodType<import('./document').RagMergeSummary>
+
+const ragPackingSummarySchema = z
+  .object({
+    passageCount: z.number().int().nonnegative(),
+    totalChars: z.number().int().nonnegative(),
+    budgetChars: z.number().int().nonnegative(),
+  })
+  .passthrough() as z.ZodType<import('./document').RagPackingSummary>
+
+const ragRerankSummarySchema = z
+  .object({
+    status: z.string(),
+    provider: z.string(),
+    topScore: z.number().nullable(),
+    averageScore: z.number().nullable(),
+    chunkCount: z.number().int().nonnegative(),
+  })
+  .passthrough() as z.ZodType<import('./document').RagRerankSummary>
+
+const ragRelevanceGateSummarySchema = z
+  .object({
+    decision: z.string(),
+    topScore: z.number().nullable(),
+    threshold: z.number(),
+    chunkCount: z.number().int().nonnegative(),
+    reason: z.string(),
+  })
+  .passthrough() as z.ZodType<import('./document').RagRelevanceGateSummary>
+
+const ragSecondRetrievalSummarySchema = z
+  .object({
+    status: z.string(),
+    used: z.boolean(),
+    queryPreview: z.string(),
+    additionalChunkCount: z.number().int().nonnegative(),
+    reason: z.string().nullable(),
+  })
+  .passthrough() as z.ZodType<import('./document').RagSecondRetrievalSummary>
+
+const ragAuditSummarySchema = z
+  .object({
+    totalCitations: z.number().int().nonnegative(),
+    validCitations: z.number().int().nonnegative(),
+    rejectedCitations: z.number().int().nonnegative(),
+    auditStatus: z.string(),
+  })
+  .passthrough() as z.ZodType<import('./document').RagAuditSummary>
+
+export const ragTraceSchema = z
+  .object({
+    embeddingReadiness: z.string(),
+    retrievalMode: z.string(),
+    queryRewriteUsed: z.boolean(),
+    secondRetrievalUsed: z.boolean(),
+    retrievedDocumentCount: z.number().int().nonnegative(),
+    parentMergeStatus: z.string().nullable(),
+    rerankStatus: z.string().nullable(),
+    relevanceGateDecision: z.string().nullable(),
+    citationAuditStatus: z.string().nullable(),
+    failureReason: z.string().nullable(),
+    retrievalSummary: ragRetrievalSummarySchema,
+    rewriteSummary: ragRewriteSummarySchema.optional(),
+    mergeSummary: ragMergeSummarySchema,
+    packingSummary: ragPackingSummarySchema,
+    rerankSummary: ragRerankSummarySchema.optional(),
+    relevanceGateSummary: ragRelevanceGateSummarySchema.optional(),
+    secondRetrievalSummary: ragSecondRetrievalSummarySchema.optional(),
+    auditSummary: ragAuditSummarySchema,
+  })
+  .passthrough() as z.ZodType<RagTrace>
+
+export const agentToolInvocationSchema = z.object({
+  toolKey: z.string(),
+  durationMs: z.number(),
+  inputSummary: z.record(z.unknown()),
+  outputSummary: z.record(z.unknown()),
+  errorCategory: z.string().nullable(),
+}) as z.ZodType<AgentToolInvocation>
+
 export const ragAnswerSchema = z.object({
   answer: z.string().min(1),
   answerMode: z.enum(['grounded', 'no_relevant_content', 'excerpt_fallback']),
@@ -906,6 +1046,10 @@ export const ragAnswerSchema = z.object({
     'no_hits',
   ]),
   citations: z.array(citationSchema),
+  ragTrace: ragTraceSchema.nullable().optional(),
+  agentTrace: z.array(agentToolInvocationSchema).nullable().optional(),
+  sessionMemoryUsed: z.boolean().optional(),
+  sessionMemorySummary: z.string().nullable().optional(),
 }) as z.ZodType<RagAnswer>
 
 export const chunkSearchResultSchema = z.object({

@@ -10,13 +10,11 @@ import {
   WifiOff,
   type LucideIcon,
 } from 'lucide-react'
-import {
-  hasUsableApiConfig,
-  useApiConfigsQuery,
-} from '@/queries/apiConfigs'
+import { hasUsableApiConfig, useApiConfigsQuery } from '@/queries/apiConfigs'
 import { useOrchestrationServiceHealthQuery } from '@/queries/orchestration'
 import { cn } from '@/lib/utils'
 import { isTauriEnvironment } from '@/services/gateway'
+import { AgentPanel } from '@/features/agent'
 import { useAppUiStore, type NavItemId } from '@/store'
 
 interface AppShellProps {
@@ -120,11 +118,11 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
             <div className="px-2 py-2">
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-line-soft bg-paper-card font-reading text-lg text-ink shadow-card">
-                  学
+                  笺
                 </div>
                 <div className="min-w-0">
                   <p className="text-[10px] uppercase tracking-[0.22em] text-ink-soft">XUEJIAN</p>
-                  <p className="truncate font-ui text-base font-medium text-ink">学鉴</p>
+                  <p className="truncate font-ui text-base font-medium text-ink">学笺</p>
                 </div>
               </div>
             </div>
@@ -149,6 +147,7 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
           </div>
         </aside>
       ) : null}
+      <AgentPanel />
 
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         {!isReader ? (
@@ -225,11 +224,7 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
           </header>
         ) : null}
 
-        <main
-          className={cn(
-            'app-shell-main min-h-0 flex-1 basis-0 overflow-hidden'
-          )}
-        >
+        <main className={cn('app-shell-main min-h-0 flex-1 basis-0 overflow-hidden')}>
           <div
             className={cn(
               'mx-auto h-full min-h-0 w-full max-w-[1480px]',
@@ -311,11 +306,7 @@ function RuntimeStatus({
       >
         <WifiOff className={cn('mt-0.5 h-3.5 w-3.5', !hasIssue && 'opacity-50')} />
         <p>
-          {tauriRuntime
-            ? hasIssue
-              ? '本地服务需要检查。'
-              : '本地服务已连接。'
-            : 'Web 预览模式。'}
+          {tauriRuntime ? (hasIssue ? '本地服务需要检查。' : '本地服务已连接。') : 'Web 预览模式。'}
         </p>
       </div>
     </div>

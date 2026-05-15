@@ -147,6 +147,7 @@ pub struct PersistCardCandidatesResult {
 #[derive(Debug, Clone, Default)]
 pub struct PersistGeneratedCardsResult {
     pub created_count: usize,
+    pub created_card_ids: Vec<String>,
     pub skipped_duplicates: usize,
     pub discarded_low_quality: usize,
 }
@@ -974,6 +975,7 @@ impl<'a> CardRepository<'a> {
             )?;
 
             result.created_count += 1;
+            result.created_card_ids.push(new_card_id);
         }
 
         transaction.commit()?;
@@ -1982,6 +1984,7 @@ mod tests {
             .expect("insert generated cards");
 
         assert_eq!(result.created_count, 1);
+        assert_eq!(result.created_card_ids.len(), 1);
         assert_eq!(result.discarded_low_quality, 1);
 
         let cards = repo
@@ -1993,6 +1996,7 @@ mod tests {
             })
             .expect("list cards");
         assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].id, result.created_card_ids[0]);
         assert_eq!(cards[0].front, "What is FSRS?");
     }
 

@@ -78,6 +78,7 @@ class FakeHost:
         self.embedding_error = embedding_error
         self.chunks = chunks or []
         self.config = config
+        self.workflow_events = []
 
     def is_run_cancelled(self, run_id):
         return False
@@ -90,6 +91,18 @@ class FakeHost:
 
     def get_config_for_workflow(self, workflow_type):
         return self.config
+
+    def emit_workflow_event(self, run_id, event_type, message=None, progress=None, payload=None):
+        self.workflow_events.append(
+            {
+                "runId": run_id,
+                "eventType": event_type,
+                "message": message,
+                "progress": progress,
+                "payload": payload,
+            }
+        )
+        return self.workflow_events[-1]
 
 
 class EmbeddingCacheHost:
@@ -293,7 +306,7 @@ def test_run_returns_no_hits_when_hybrid_has_no_vector_hits(monkeypatch):
     result = workflow.run_knowledge_qa_workflow("run-1", "问题", ["doc-1"], host)
 
     assert result["answer"]["retrievalStatus"] == "no_hits"
-    assert result["answer"]["retrievalMode"] == "hybrid"
+    assert result["answer"]["retrievalMode"] == "fts5"
 
 
 def test_run_uses_lexical_hits_for_structured_synthesis_when_vector_flags_are_absent(monkeypatch):
@@ -341,6 +354,76 @@ def test_run_uses_lexical_hits_for_structured_synthesis_when_vector_flags_are_ab
     assert result["answer"]["retrievalStatus"] == "ready"
     assert result["answer"]["citations"][0]["chunkId"] == "chunk-career"
     assert "| 步骤 | 做法 |" in result["answer"]["answer"]
+
+
+def test_run_emits_failed_progress_when_query_embedding_fails(monkeypatch):
+    def fail_embed(*args, **kwargs):
+        raise RuntimeError("provider failed")
+
+    monkeypatch.setattr(workflow, "embed_query_with_resilience", fail_embed)
+    host = FakeHost(profile={"id": "profile-1"})
+
+    workflow.run_knowledge_qa_workflow("run-1", "question", ["doc-1"], host)
+
+    failed_steps = [
+        event["payload"]
+        for event in host.workflow_events
+        if event["eventType"] == "progress"
+        and event["payload"]
+        and event["payload"].get("status") == "failed"
+    ]
+    assert any(step["stepKey"] == "query_embedding" for step in failed_steps)
+
+
+def test_run_emits_safe_progress_events_for_success_path(monkeypatch):
+    monkeypatch.setattr(
+        workflow,
+        "embed_query_with_resilience",
+        lambda *args, **kwargs: SimpleNamespace(
+            vector=[0.1, 0.2],
+            cache_hit=False,
+            attempts=1,
+            latency_ms=12.0,
+            status="ready",
+        ),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "_try_langchain_qa",
+        lambda *args, **kwargs: {
+            "answer": "Retrieval practice improves recall.",
+            "answerMode": "grounded",
+            "citations": [{"chunkId": "chunk-progress", "snippet": "improves recall"}],
+        },
+    )
+    host = FakeHost(
+        profile={"id": "profile-1"},
+        config=({"id": "config-1", "provider": "custom_openai", "model": "qa-model"}, "key"),
+        chunks=[
+            {
+                "id": "chunk-progress",
+                "documentId": "doc-1",
+                "pageStart": 1,
+                "content": "Retrieval practice improves recall.",
+                "vectorRank": 1,
+                "score": 0.91,
+            }
+        ],
+    )
+
+    workflow.run_knowledge_qa_workflow("run-1", "question", ["doc-1"], host)
+
+    payloads = [
+        event["payload"]
+        for event in host.workflow_events
+        if event["eventType"] == "progress" and event["payload"]
+    ]
+    step_keys = [payload["stepKey"] for payload in payloads]
+    assert "retrieve" in step_keys
+    assert "generate" in step_keys
+    assert "audit" in step_keys
+    assert all("prompt" not in payload for payload in payloads)
+    assert all("providerRawResponse" not in payload for payload in payloads)
 
 
 def test_run_returns_excerpt_fallback_when_model_times_out(monkeypatch):

@@ -519,6 +519,7 @@ pub async fn send_knowledge_qa_message(
         run.id.clone(),
         question,
         Some(effective_document_ids),
+        Some(conversation.id.clone()),
         Some(assistant_message.id.clone()),
     );
 
@@ -623,6 +624,7 @@ pub async fn regenerate_knowledge_qa_turn(
         run.id.clone(),
         question,
         Some(effective_document_ids),
+        Some(conversation.id.clone()),
         Some(assistant_message.id.clone()),
     );
 
@@ -788,6 +790,7 @@ pub async fn start_knowledge_qa_workflow(
         data.question,
         Some(effective_document_ids),
         None,
+        None,
     );
     Ok(run)
 }
@@ -797,6 +800,7 @@ fn spawn_knowledge_qa_worker(
     run_id: String,
     question: String,
     document_ids: Option<Vec<String>>,
+    conversation_id: Option<String>,
     assistant_message_id: Option<String>,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -805,6 +809,7 @@ fn spawn_knowledge_qa_worker(
             &run_id,
             &question,
             &document_ids,
+            conversation_id.as_deref(),
             assistant_message_id.as_deref(),
         )
         .await
@@ -825,6 +830,7 @@ async fn execute_knowledge_qa_worker(
     run_id: &str,
     question: &str,
     document_ids: &Option<Vec<String>>,
+    conversation_id: Option<&str>,
     assistant_message_id: Option<&str>,
 ) -> CommandResult<()> {
     let state = app_handle.state::<AppState>();
@@ -885,6 +891,7 @@ async fn execute_knowledge_qa_worker(
             "runId": run_id,
             "question": question,
             "documentIds": document_ids,
+            "conversationId": conversation_id,
         }))
         .send()
         .await
@@ -928,6 +935,7 @@ fn complete_knowledge_qa_run(
         Err(_) => return,
     };
     let repo = WorkflowRepository::new(&db);
+    let artifact_repo = crate::db::ArtifactRepository::new(&db);
     if repo
         .get_run(run_id)
         .ok()
@@ -939,23 +947,38 @@ fn complete_knowledge_qa_run(
         return;
     }
     let now = chrono::Utc::now().to_rfc3339();
+    let result_status = result
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("completed");
+    let is_failed = result_status == "failed";
+    let error_message = result
+        .get("errorCategory")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| result.get("summary").and_then(serde_json::Value::as_str))
+        .map(str::to_string);
 
     let _ = repo.append_event(AppendWorkflowEventRequest {
         run_id: run_id.to_string(),
-        event_type: "completed".to_string(),
-        message: Some("Knowledge Q&A completed".to_string()),
-        progress: Some(1.0),
+        event_type: if is_failed { "failed" } else { "completed" }.to_string(),
+        message: Some(
+            error_message
+                .clone()
+                .unwrap_or_else(|| "Knowledge Q&A completed".to_string()),
+        ),
+        progress: if is_failed { None } else { Some(1.0) },
         payload: Some(result.clone()),
     });
+    let _ = artifact_repo.upsert_from_workflow_result(run_id, &result);
 
     let _ = repo.update_run(
         run_id,
         UpdateWorkflowRunRequest {
-            status: Some("completed".to_string()),
+            status: Some(if is_failed { "failed" } else { "completed" }.to_string()),
             checkpoint_ref: None,
             approval_payload: None,
             cost_usd: None,
-            error_message: None,
+            error_message: if is_failed { error_message.clone() } else { None },
             started_at: None,
             finished_at: Some(now),
         },
@@ -968,13 +991,23 @@ fn complete_knowledge_qa_run(
             .and_then(|value| value.get("answer"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or("Answer generated, but no displayable body was returned.");
-        let _ = qa_repo.update_message_result(
-            message_id,
-            "answered",
-            Some(answer),
-            Some(&result),
-            None,
-        );
+        if is_failed {
+            let _ = qa_repo.update_message_result(
+                message_id,
+                "error",
+                None,
+                Some(&result),
+                error_message.as_deref(),
+            );
+        } else {
+            let _ = qa_repo.update_message_result(
+                message_id,
+                "answered",
+                Some(answer),
+                Some(&result),
+                None,
+            );
+        }
         if let Ok(Some(message)) = qa_repo.get_message(message_id) {
             let _ = qa_repo.touch_conversation(&message.conversation_id);
         }
@@ -1149,6 +1182,10 @@ mod tests {
             .map(|chunk| ChunkEmbeddingRecord {
                 chunk_id: chunk.id.clone(),
                 vector: vec![0.1, 0.2, 0.3],
+                content_hash: None,
+                chunking_profile_revision: None,
+                embedding_profile_revision: None,
+                embedding_dimensions: None,
             })
             .collect::<Vec<_>>();
         vector_repo

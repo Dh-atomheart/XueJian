@@ -299,7 +299,7 @@ function mapDocumentToView(document: DocumentLibraryItem) {
     basicCardCount: document.basicCardCount,
     failureReason: document.lastFailureReason,
     status: document.status,
-    description: '文档已纳入学习库，可继续阅读或生成 Basic 卡片。',
+    description: '文档已纳入学习库，可继续阅读或生成卡片。',
     tags: [document.fileType.toUpperCase(), document.status],
   }
 }

@@ -869,6 +869,14 @@ def run(args: argparse.Namespace) -> Path:
         raise RuntimeError("Host gateway URL is required via --gateway-url or XUEJIAN_HOST_GATEWAY_URL")
 
     host = HostGatewayClient(args.gateway_url)
+    return run_with_host(host, args)
+
+
+def run_with_host(host: HostGatewayClient, args: argparse.Namespace) -> Path:
+    document_ids = parse_document_ids(args.document_ids)
+    if args.size <= 0:
+        raise ValueError("--size must be greater than zero")
+
     _config, llm, embeddings = build_runtime_from_host(host)
     documents = collect_ragas_documents(host, document_ids, max_chunk_chars=args.max_chunk_chars)
     cache_key = dataset_cache_key(

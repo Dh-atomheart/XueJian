@@ -261,6 +261,15 @@ class HostGatewayClient:
     def list_sections(self, document_id: str) -> list[dict]:
         return self._get(f"/tool-gateway/sections?documentId={document_id}")
 
+    def list_recent_qa_messages(self, conversation_id: str, limit: int = 4) -> list[dict]:
+        return self._post(
+            "/tool-gateway/knowledge-qa/recent-messages",
+            {
+                "conversationId": conversation_id,
+                "limit": limit,
+            },
+        )
+
     def list_document_chunks(self, document_id: str) -> list[dict]:
         return self.list_chunks(document_id)
 
@@ -278,6 +287,108 @@ class HostGatewayClient:
             "cards": cards,
         }, timeout=60)
 
+    def submit_review_candidates(
+        self,
+        run_id: str,
+        candidates: list[dict],
+        *,
+        dry_run: bool = True,
+        idempotency_key: str | None = None,
+        dry_run_ref: str | None = None,
+        rollback_ref: str | None = None,
+    ) -> dict:
+        payload: dict[str, Any] = {
+            "runId": run_id,
+            "candidates": candidates,
+            "dryRun": dry_run,
+        }
+        if idempotency_key:
+            payload["idempotencyKey"] = idempotency_key
+        if dry_run_ref:
+            payload["dryRunRef"] = dry_run_ref
+        if rollback_ref:
+            payload["rollbackRef"] = rollback_ref
+        try:
+            return self._post(
+                "/tool-gateway/study/review-candidates",
+                payload,
+            )
+        except HostGatewayHttpError as exc:
+            if exc.code == 404:
+                return {
+                    "acceptedCount": 0,
+                    "rejectedCount": len(candidates),
+                    "error": "route_not_implemented",
+                }
+            raise
+
+    def get_study_review_summary(
+        self,
+        document_id: str | None = None,
+        limit: int = 200,
+    ) -> dict:
+        params: list[str] = [f"limit={limit}"]
+        if document_id:
+            params.append(f"documentId={document_id}")
+        return self._get(f"/tool-gateway/study/review-summary?{'&'.join(params)}")
+
+    def create_artifact(self, run_id: str, artifact: dict[str, Any]) -> dict:
+        return self._post(
+            "/tool-gateway/artifacts",
+            {
+                "runId": run_id,
+                **artifact,
+            },
+        )
+
+    def create_artifacts(self, run_id: str, artifacts: dict[str, Any] | list[dict[str, Any]]) -> dict:
+        return self._post(
+            "/tool-gateway/artifacts",
+            {
+                "runId": run_id,
+                "artifacts": artifacts,
+            },
+        )
+
+    def get_artifact(self, artifact_id: str) -> dict | None:
+        from urllib.parse import quote
+
+        try:
+            return self._get(f"/tool-gateway/artifacts/{quote(artifact_id, safe='')}")
+        except (urllib.error.HTTPError, HostGatewayHttpError):
+            return None
+
+    def list_artifacts(
+        self,
+        *,
+        run_id: str | None = None,
+        artifact_type: str | None = None,
+        lifecycle_status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        from urllib.parse import quote
+
+        params: list[str] = [f"limit={limit}"]
+        if run_id:
+            params.append(f"runId={quote(run_id, safe='')}")
+        if artifact_type:
+            params.append(f"artifactType={quote(artifact_type, safe='')}")
+        if lifecycle_status:
+            params.append(f"lifecycleStatus={quote(lifecycle_status, safe='')}")
+        result = self._get(f"/tool-gateway/artifacts?{'&'.join(params)}")
+        return result.get("items", []) if isinstance(result, dict) else []
+
+    def mark_artifact_lifecycle(self, artifact_id: str, lifecycle_status: str) -> dict | None:
+        from urllib.parse import quote
+
+        try:
+            return self._post(
+                f"/tool-gateway/artifacts/{quote(artifact_id, safe='')}/lifecycle",
+                {"lifecycleStatus": lifecycle_status},
+            )
+        except (urllib.error.HTTPError, HostGatewayHttpError):
+            return None
+
     def count_candidates(self, run_id: str) -> dict:
         return self._get(f"/tool-gateway/candidates/count?runId={run_id}")
 
@@ -294,6 +405,28 @@ class HostGatewayClient:
             {
                 "profileId": profile_id,
                 "embeddings": embeddings,
+            },
+        )
+
+    def list_chunk_embedding_states(
+        self,
+        document_id: str,
+        profile_id: str,
+    ) -> list[dict]:
+        return self._post(
+            "/tool-gateway/embeddings/chunks/states",
+            {
+                "documentId": document_id,
+                "profileId": profile_id,
+            },
+        )
+
+    def lock_embedding_dimensions(self, profile_id: str, dimensions: int) -> dict | None:
+        return self._post(
+            "/tool-gateway/embeddings/profiles/lock-dimensions",
+            {
+                "profileId": profile_id,
+                "dimensions": dimensions,
             },
         )
 
