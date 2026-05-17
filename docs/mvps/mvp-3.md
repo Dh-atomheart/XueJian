@@ -92,5 +92,5 @@ RAG answer payload：
 - provider 超时、取消、非法 JSON 都有可理解状态。
 - 前端用户可见中文文案无乱码。
 
-详细测试见 [RAG 验收测试](../rag-acceptance-tests.md)。
+详细测试见 [RAG 验收测试](../rag/legacy/rag-acceptance-tests.md)。
 

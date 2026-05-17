@@ -52,6 +52,28 @@ def test_ragas_eval_endpoint_uses_existing_host_gateway(monkeypatch, tmp_path):
     assert captured["args"].max_chunk_chars == 900
 
 
+def test_ragas_eval_endpoint_defaults_to_200_plus_size(monkeypatch, tmp_path):
+    fake_host = object()
+    monkeypatch.setattr(server, "_host_gateway", fake_host)
+    captured = {}
+
+    def fake_run_with_host(host, args):
+        captured["args"] = args
+        return tmp_path / "ragas-run"
+
+    import orchestration_service.evals.ragas_knowledge_qa_eval as eval_module
+
+    monkeypatch.setattr(eval_module, "run_with_host", fake_run_with_host)
+
+    handler_cls = server.build_handler(0)
+    handler = FakeHandler({"documentIds": ["doc-1"]})
+
+    handler_cls._handle_ragas_knowledge_qa_eval(handler)
+
+    assert handler.response[0] == 200
+    assert captured["args"].size >= 200
+
+
 def test_ragas_eval_endpoint_requires_host_gateway(monkeypatch):
     monkeypatch.setattr(server, "_host_gateway", None)
 

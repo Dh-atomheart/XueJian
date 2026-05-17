@@ -37,6 +37,8 @@ class SupervisorPlanner:
         card_group_ids: list[str],
         options: dict[str, Any],
         previous_records: list[dict[str, Any]] | None = None,
+        previous_artifact_refs: dict[str, Any] | None = None,
+        follow_up_message: str = "",
     ) -> dict[str, Any]:
         if not self.config:
             raise RuntimeError("planner model is not configured")
@@ -57,6 +59,8 @@ class SupervisorPlanner:
                 "dryRun": bool(options.get("dryRun")),
             },
             "previousDecisionRecords": previous_records or [],
+            "previousArtifactRefs": previous_artifact_refs or {},
+            "followUpMessage": follow_up_message[:600],
             "requiredOutputShape": {
                 "intent": "short compound task intent",
                 "steps": [

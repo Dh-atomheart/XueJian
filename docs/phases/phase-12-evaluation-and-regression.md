@@ -79,7 +79,7 @@ docs/evals/
 ## Discovery Checklist
 
 - 读取 `xuejian/orchestration_service/evals/ragas_knowledge_qa_eval.py`。
-- 读取 `docs/ragas-rag-evaluation.md` 和 `docs/langsmith-rag-evaluation.md`。
+- 读取 `docs/rag/legacy/ragas-rag-evaluation.md` 和 `docs/rag/legacy/langsmith-rag-evaluation.md`。
 - 读取现有 Python / Vitest / Rust 测试。
 - 从 artifact store 和 workflow events 选取可回放案例。
 - 列出 Supervisor golden tasks。

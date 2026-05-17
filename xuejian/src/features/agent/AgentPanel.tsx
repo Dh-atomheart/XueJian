@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Bot,
-  BookOpenCheck,
   ChevronLeft,
   ChevronRight,
   FileText,
-  Layers3,
-  RotateCcw,
   Send,
   ShieldAlert,
   Sparkles,
-  Trash2,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { agentGateway } from '@/services/gateway/agent'
@@ -25,13 +21,17 @@ import {
 import { cardsQueryKeys, useDeleteCardMutation } from '@/queries/cards'
 import { cn } from '@/lib/utils'
 import { useAppUiStore } from '@/store'
-import type { Document, WorkflowArtifact, WorkflowRun } from '@/types'
+import type { Document, WorkflowRun } from '@/types'
 import { routeAgentRequest, type AgentRoute, type AgentRouteDecision } from './agentRouter'
 import {
   normalizeAgentWorkflowSummary,
   type AgentWorkflowSummary,
   type QualityEnvelope,
 } from './agentResult'
+import { ActionButtonGroup } from './components/ActionButtonGroup'
+import { ArtifactCardList } from './components/ArtifactCardList'
+import { ContextChips } from './components/ContextChips'
+import { TaskProgressTimeline } from './components/TaskProgressTimeline'
 
 interface AgentMessage {
   id: string
@@ -42,6 +42,9 @@ interface AgentMessage {
   summary?: AgentWorkflowSummary | null
 }
 
+type AgentAction = AgentWorkflowSummary['availableActions'][number]
+type ActionState = 'idle' | 'loading' | 'success' | 'failed'
+
 interface AgentPanelViewProps {
   isOpen: boolean
   input: string
@@ -50,17 +53,20 @@ interface AgentPanelViewProps {
   messages: AgentMessage[]
   routeDecision: AgentRouteDecision
   activeSummary: AgentWorkflowSummary | null
+  events: import('@/types').WorkflowEvent[]
   isSubmitting: boolean
   needsConfirmation: boolean
   actionNotice: string | null
+  actionStates?: Partial<Record<AgentAction, ActionState>>
   onToggleOpen: () => void
   onInputChange: (value: string) => void
   onToggleDocument: (documentId: string) => void
   onSubmit: (routeOverride?: AgentRoute) => void
-  onAction: (action: AgentWorkflowSummary['availableActions'][number]) => void
+  onAction: (action: AgentAction) => void
 }
 
 const POLL_INTERVAL_MS = 1_500
+const TERMINAL_RUN_STATUSES = new Set<WorkflowRun['status']>(['completed', 'failed', 'cancelled'])
 
 export function AgentPanel() {
   const [isOpen, setIsOpen] = useState(true)
@@ -73,6 +79,7 @@ export function AgentPanel() {
     null
   )
   const [actionNotice, setActionNotice] = useState<string | null>(null)
+  const [actionStates, setActionStates] = useState<Partial<Record<AgentAction, ActionState>>>({})
   const queryClient = useQueryClient()
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
   const readerDocumentId = useAppUiStore((state) => state.reader.documentId)
@@ -130,13 +137,14 @@ export function AgentPanel() {
       setPendingConfirmation(Boolean(text))
       return
     }
-    if (route === 'card' && effectiveDocumentIds.length === 0) {
-      setActionNotice('请先选择至少一份资料，再生成卡片。')
+    if ((route === 'card' || route === 'compound') && effectiveDocumentIds.length === 0) {
+      setActionNotice('请先选择至少一个文档，或在阅读器中打开一个文档后再生成卡片。')
       return
     }
 
     setPendingConfirmation(false)
     setActionNotice(null)
+    setActionStates({})
     const userMessage: AgentMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -146,7 +154,7 @@ export function AgentPanel() {
     const assistantMessage: AgentMessage = {
       id: `assistant-${Date.now()}`,
       role: 'assistant',
-      text: routeLabel(route),
+      text: `${routeLabel(route)}已提交`,
       route,
       runId: null,
       summary: null,
@@ -170,7 +178,7 @@ export function AgentPanel() {
           message.id === assistantMessage.id
             ? {
                 ...message,
-                text: '工作流启动失败。',
+                text: '工作流启动失败',
                 summary: {
                   status: 'failed',
                   summary: detail,
@@ -178,6 +186,8 @@ export function AgentPanel() {
                   qualityEnvelope: null,
                   errorCategory: 'workflow_start_failed',
                   createdCardIds: [],
+                  recommendationReason: null,
+                  rollbackAvailable: false,
                   availableActions: ['retry'],
                 },
               }
@@ -188,6 +198,7 @@ export function AgentPanel() {
   }
 
   async function startWorkflow(route: AgentRoute, text: string, documentIds: string[]): Promise<WorkflowRun> {
+    const agentContext = useAppUiStore.getState().agentContext
     if (route === 'qa') {
       return startKnowledgeQaWorkflow({ question: text, documentIds })
     }
@@ -202,7 +213,7 @@ export function AgentPanel() {
     return agentGateway.startAgentTask({
       userRequest: text,
       documentIds,
-      cardGroupIds: [],
+      cardGroupIds: agentContext.activeCardGroupIds,
       allowFormalCardWrite: route === 'compound',
     })
   }
@@ -215,7 +226,19 @@ export function AgentPanel() {
     )
   }
 
-  async function handleAction(action: AgentWorkflowSummary['availableActions'][number]) {
+  async function withActionState(action: AgentAction, operation: () => Promise<void>) {
+    setActionStates((current) => ({ ...current, [action]: 'loading' }))
+    try {
+      await operation()
+      setActionStates((current) => ({ ...current, [action]: 'success' }))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      setActionNotice(detail)
+      setActionStates((current) => ({ ...current, [action]: 'failed' }))
+    }
+  }
+
+  async function handleAction(action: AgentAction) {
     if (action === 'view_cards') {
       setActiveNavItem('cards')
       return
@@ -228,31 +251,88 @@ export function AgentPanel() {
       setActiveNavItem('library')
       return
     }
+    if (action === 'expand_reason') {
+      setActionNotice(activeSummary?.recommendationReason ?? '当前结果没有额外说明。')
+      return
+    }
     if (action === 'retry' && lastRequest) {
-      setInput(lastRequest.text)
-      setSelectedDocumentIds(lastRequest.documentIds)
-      const run = await startWorkflow(lastRequest.route, lastRequest.text, lastRequest.documentIds)
-      setActiveRunId(run.id)
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-retry-${Date.now()}`,
-          role: 'assistant',
-          text: `重新执行：${routeLabel(lastRequest.route)}`,
-          route: lastRequest.route,
-          runId: run.id,
-          summary: null,
-        },
-      ])
+      await withActionState('retry', async () => {
+        setInput(lastRequest.text)
+        setSelectedDocumentIds(lastRequest.documentIds)
+        const run = await startWorkflow(lastRequest.route, lastRequest.text, lastRequest.documentIds)
+        setActiveRunId(run.id)
+        setMessages((current) => [
+          ...current,
+          {
+            id: `assistant-retry-${Date.now()}`,
+            role: 'assistant',
+            text: `重新提交：${routeLabel(lastRequest.route)}`,
+            route: lastRequest.route,
+            runId: run.id,
+            summary: null,
+          },
+        ])
+      })
       return
     }
     if (action === 'undo_created' && activeSummary && activeSummary.createdCardIds.length > 0) {
-      await Promise.all(activeSummary.createdCardIds.map((id) => deleteCardMutation.mutateAsync(id)))
-      setActionNotice(`已删除 ${activeSummary.createdCardIds.length} 张刚创建的卡片。`)
-      void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
-      void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all })
+      await withActionState('undo_created', async () => {
+        await Promise.all(activeSummary.createdCardIds.map((id) => deleteCardMutation.mutateAsync(id)))
+        setActionNotice(`已撤销 ${activeSummary.createdCardIds.length} 张自动生成的卡片。`)
+        void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+        void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all })
+      })
+      return
+    }
+    if (action === 'create_card') {
+      setActiveNavItem('cards')
+      setActionNotice('候选卡片已在产物中展示。当前正式写卡由 CardGraph 工作流完成；需要重试时请直接使用“重试”。')
+      return
+    }
+    if (action === 'continue_task' && activeRunId && lastRequest) {
+      await withActionState('continue_task', async () => {
+        const run = await agentGateway.resumeAgentTask({
+          runId: activeRunId,
+          userRequest: lastRequest.text,
+          documentIds: lastRequest.documentIds,
+          cardGroupIds: useAppUiStore.getState().agentContext.activeCardGroupIds,
+          allowFormalCardWrite: lastRequest.route === 'compound',
+        })
+        setActiveRunId(run.id)
+        setActionNotice('任务已继续运行。')
+        void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all })
+      })
+      return
+    }
+    if (action === 'add_to_study_plan') {
+      setActiveNavItem('learning')
+      setActionNotice('学习计划建议已生成，请在学习页确认后执行。')
+      return
+    }
+    if (action === 'cancel_task' && activeRunId) {
+      await withActionState('cancel_task', async () => {
+        await agentGateway.cancelAgentTask(activeRunId)
+        setActionNotice('任务已取消。')
+        void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all })
+      })
+      return
+    }
+    if (action === 'rollback' && activeSummary) {
+      await withActionState('rollback', async () => {
+        if (activeSummary.createdCardIds.length > 0) {
+          await Promise.all(activeSummary.createdCardIds.map((id) => deleteCardMutation.mutateAsync(id)))
+        }
+        const refs = Object.values(activeSummary.artifactRefs).flat()
+        await Promise.allSettled(refs.map((ref) => agentGateway.updateWorkflowArtifactLifecycle(ref, 'rolled_back')))
+        setActionNotice('已回滚可回滚的卡片和工作流产物。')
+        void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.all })
+        void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.all })
+      })
+      return
     }
   }
+
+  const isSubmitting = Boolean(activeRunId && activeRun && !TERMINAL_RUN_STATUSES.has(activeRun.status))
 
   return (
     <AgentPanelView
@@ -263,9 +343,11 @@ export function AgentPanel() {
       messages={messages}
       routeDecision={routeDecision}
       activeSummary={activeSummary}
-      isSubmitting={Boolean(activeRunId && activeRun?.status !== 'completed' && activeRun?.status !== 'failed')}
+      events={activeEvents}
+      isSubmitting={isSubmitting}
       needsConfirmation={pendingConfirmation}
       actionNotice={actionNotice}
+      actionStates={actionStates}
       onToggleOpen={() => setIsOpen((value) => !value)}
       onInputChange={setInput}
       onToggleDocument={toggleDocument}
@@ -283,9 +365,11 @@ export function AgentPanelView({
   messages,
   routeDecision,
   activeSummary,
+  events,
   isSubmitting,
   needsConfirmation,
   actionNotice,
+  actionStates = {},
   onToggleOpen,
   onInputChange,
   onToggleDocument,
@@ -303,7 +387,7 @@ export function AgentPanelView({
       >
         {isOpen ? (
           <div className="flex h-full min-w-0 flex-1 flex-col">
-            <AgentPanelHeader onToggleOpen={onToggleOpen} />
+            <AgentPanelHeader onToggleOpen={onToggleOpen} documents={documents} selectedDocumentIds={selectedDocumentIds} />
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
               <DocumentScope
                 documents={documents}
@@ -313,13 +397,20 @@ export function AgentPanelView({
               <div className="mt-3 space-y-3">
                 {messages.length === 0 ? (
                   <div className="rounded-lg border border-line-soft bg-paper-base/70 p-3 text-xs leading-5 text-ink-muted">
-                    输入学习任务。简单问答走 KnowledgeGraph，制卡走 CardGraph，复合学习任务走 Supervisor。
+                    输入一个学习任务，工作台会自动选择知识问答、卡片生成、学习诊断或综合任务。需要精确控制时，可在提示出现后手动选择工作流。
                   </div>
                 ) : null}
                 {messages.map((message) => (
                   <AgentMessageBubble key={message.id} message={message} />
                 ))}
-                {activeSummary ? <AgentSummaryCard summary={activeSummary} onAction={onAction} /> : null}
+                {activeSummary ? (
+                  <AgentWorkbenchCard
+                    summary={activeSummary}
+                    events={events}
+                    actionStates={actionStates}
+                    onAction={onAction}
+                  />
+                ) : null}
               </div>
             </div>
             <AgentComposer
@@ -337,7 +428,7 @@ export function AgentPanelView({
             type="button"
             onClick={onToggleOpen}
             className="flex h-full w-full items-start justify-center px-2 py-4 text-ink-muted hover:bg-paper-muted"
-            aria-label="展开 Agent 面板"
+            aria-label="展开 Agent 工作台"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -358,26 +449,42 @@ export function AgentPanelView({
   )
 }
 
-function AgentPanelHeader({ onToggleOpen }: { onToggleOpen: () => void }) {
+function AgentPanelHeader({
+  onToggleOpen,
+  documents,
+  selectedDocumentIds,
+}: {
+  onToggleOpen: () => void
+  documents: Array<Pick<Document, 'id' | 'title' | 'status'>>
+  selectedDocumentIds: string[]
+}) {
   return (
-    <div className="flex h-14 shrink-0 items-center justify-between border-b border-line-soft px-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-line-soft bg-paper-base">
-          <Bot className="h-4 w-4" />
+    <div className="shrink-0 border-b border-line-soft px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-line-soft bg-paper-base">
+            <Bot className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-ink-soft">Workbench</p>
+            <p className="truncate text-sm font-medium text-ink">学习 Agent 工作台</p>
+          </div>
         </div>
-        <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-ink-soft">Controlled Agent</p>
-          <p className="truncate text-sm font-medium text-ink">学习任务入口</p>
-        </div>
+        <button
+          type="button"
+          onClick={onToggleOpen}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-line-soft text-ink-muted hover:bg-paper-muted"
+          aria-label="收起 Agent 工作台"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={onToggleOpen}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-line-soft text-ink-muted hover:bg-paper-muted"
-        aria-label="折叠 Agent 面板"
-      >
-        <ChevronLeft className="h-4 w-4" />
-      </button>
+      <div className="mt-1.5">
+        <ContextChips
+          documents={documents}
+          selectedDocumentIds={selectedDocumentIds}
+        />
+      </div>
     </div>
   )
 }
@@ -395,7 +502,7 @@ function DocumentScope({
     <div className="rounded-lg border border-line-soft bg-paper-base/72 p-2" data-testid="agent-panel-scope">
       <div className="mb-2 flex items-center gap-2 text-xs font-medium text-ink-muted">
         <FileText className="h-3.5 w-3.5" />
-        资料范围
+        文档范围
       </div>
       <div className="max-h-24 space-y-1 overflow-y-auto">
         {documents.slice(0, 8).map((document) => (
@@ -411,7 +518,7 @@ function DocumentScope({
             <span className="truncate">{document.title}</span>
           </label>
         ))}
-        {documents.length === 0 ? <p className="px-2 py-1 text-xs text-ink-soft">暂无可用资料</p> : null}
+        {documents.length === 0 ? <p className="px-2 py-1 text-xs text-ink-soft">暂无可用文档</p> : null}
       </div>
     </div>
   )
@@ -433,50 +540,18 @@ function AgentMessageBubble({ message }: { message: AgentMessage }) {
   )
 }
 
-function AgentSummaryCard({
+function AgentWorkbenchCard({
   summary,
+  events,
+  actionStates,
   onAction,
 }: {
   summary: AgentWorkflowSummary
-  onAction: (action: AgentWorkflowSummary['availableActions'][number]) => void
+  events: import('@/types').WorkflowEvent[]
+  actionStates: Partial<Record<AgentAction, ActionState>>
+  onAction: (action: AgentAction) => void
 }) {
-  const [artifactSummaries, setArtifactSummaries] = useState<Record<string, WorkflowArtifact | null>>({})
   const blockingReasons = summary.qualityEnvelope?.blockingReasons ?? []
-  const artifactEntries = Object.entries(summary.artifactRefs).filter(([, refs]) => refs.length > 0)
-  const artifactRefs = useMemo(() => artifactEntries.flatMap(([, refs]) => refs).slice(0, 8), [artifactEntries])
-
-  useEffect(() => {
-    const loader = (agentGateway as Partial<typeof agentGateway>).getWorkflowArtifact
-    if (!loader || artifactRefs.length === 0) return
-
-    const missingRefs = artifactRefs.filter((ref) => !(ref in artifactSummaries))
-    if (missingRefs.length === 0) return
-
-    let cancelled = false
-    void Promise.all(
-      missingRefs.map(async (ref) => {
-        try {
-          return [ref, await loader(ref)] as const
-        } catch {
-          return [ref, null] as const
-        }
-      })
-    ).then((items) => {
-      if (cancelled) return
-      setArtifactSummaries((current) => ({
-        ...current,
-        ...Object.fromEntries(items),
-      }))
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [artifactRefs, artifactSummaries])
-
-  const loadedArtifacts = artifactRefs
-    .map((ref) => artifactSummaries[ref])
-    .filter((artifact): artifact is WorkflowArtifact => Boolean(artifact))
 
   return (
     <div className="rounded-lg border border-line-soft bg-paper-base/86 p-3" data-testid="agent-panel-summary">
@@ -494,45 +569,15 @@ function AgentSummaryCard({
           {blockingReasons.join(', ')}
         </div>
       ) : null}
-      {artifactEntries.length > 0 ? (
-        <div className="mt-2 space-y-1" data-testid="agent-panel-artifact-refs">
-          {artifactEntries.map(([type, refs]) => (
-            <p key={type} className="truncate text-xs text-ink-muted">
-              <span className="font-medium text-ink">{type}</span>: {refs.join(', ')}
-            </p>
-          ))}
-        </div>
-      ) : null}
-      {loadedArtifacts.length > 0 ? (
-        <div className="mt-2 space-y-1" data-testid="agent-panel-artifact-summaries">
-          {loadedArtifacts.map((artifact) => (
-            <div
-              key={artifact.artifactId}
-              className="rounded-md border border-line-soft bg-paper-card px-2 py-1.5 text-xs text-ink-muted"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-ink">{artifact.artifactType}</span>
-                <span>{artifact.lifecycleStatus}</span>
-              </div>
-              <p className="mt-1 line-clamp-2 break-words">{artifact.summary}</p>
-              {artifact.errorCategory ? <p className="mt-1 text-ink-soft">{artifact.errorCategory}</p> : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {summary.availableActions.map((action) => (
-          <button
-            key={action}
-            type="button"
-            onClick={() => onAction(action)}
-            disabled={action === 'undo_created' && summary.createdCardIds.length === 0}
-            className="inline-flex h-8 items-center gap-1 rounded-lg border border-line-soft bg-paper-card px-2 text-xs text-ink transition hover:bg-paper-muted disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {actionIcon(action)}
-            {actionLabel(action)}
-          </button>
-        ))}
+      <div className="mt-3 space-y-3">
+        <ArtifactCardList summary={summary} onAction={onAction} />
+        <TaskProgressTimeline events={events} />
+        <ActionButtonGroup
+          actions={summary.availableActions}
+          onAction={onAction}
+          createdCardIds={summary.createdCardIds}
+          actionStates={actionStates}
+        />
       </div>
     </div>
   )
@@ -560,7 +605,7 @@ function AgentComposer({
       {actionNotice ? <p className="mb-2 text-xs text-ink-muted">{actionNotice}</p> : null}
       <div className="mb-2 flex items-center gap-2">
         <RouteChip route={routeDecision.route} />
-        <span className="text-[11px] text-ink-soft">{routeDecision.reason}</span>
+        <span className="truncate text-[11px] text-ink-soft">{routeReasonLabel(routeDecision.reason)}</span>
       </div>
       {needsConfirmation ? (
         <div className="mb-2 grid grid-cols-2 gap-2" data-testid="agent-panel-confirmation">
@@ -588,7 +633,7 @@ function AgentComposer({
           }}
           rows={3}
           className="min-h-[72px] flex-1 resize-none rounded-lg border border-line-soft bg-paper-base px-3 py-2 text-sm leading-5 text-ink outline-none transition focus:border-ink/30"
-          placeholder="解释资料、生成卡片、诊断薄弱点..."
+          placeholder="提问、生成卡片、诊断薄弱点，或组合成一个学习任务..."
           aria-label="Agent 任务输入"
         />
         <button
@@ -596,7 +641,7 @@ function AgentComposer({
           onClick={() => onSubmit()}
           disabled={isSubmitting || input.trim().length === 0}
           className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ink text-paper-base transition hover:bg-ink/88 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="发送 Agent 任务"
+          aria-label="提交 Agent 任务"
         >
           <Send className="h-4 w-4" />
         </button>
@@ -616,10 +661,12 @@ function StatusBadge({ status }: { status: AgentWorkflowSummary['status'] }) {
             ? 'border-themeAccent-danger/35 bg-themeAccent-danger/10 text-themeAccent-danger'
             : status === 'partial'
               ? 'border-highlight-yellow/45 bg-highlight-yellow/15 text-ink-muted'
-              : 'border-line-soft bg-paper-muted text-ink-muted'
+              : status === 'cancelled'
+                ? 'border-themeAccent-danger/25 bg-themeAccent-danger/10 text-themeAccent-danger'
+                : 'border-line-soft bg-paper-muted text-ink-muted'
       )}
     >
-      {status}
+      {statusLabel(status)}
     </span>
   )
 }
@@ -628,7 +675,7 @@ function QualityLine({ quality }: { quality: QualityEnvelope | null }) {
   if (!quality) return null
   return (
     <p className="mt-2 text-xs text-ink-muted">
-      quality: {quality.riskLevel ?? 'unknown'} / audit {quality.auditStatus ?? 'n/a'}
+      质量: {quality.riskLevel ?? 'unknown'} / 审计 {quality.auditStatus ?? 'n/a'}
       {typeof quality.confidence === 'number' ? ` / ${Math.round(quality.confidence * 100)}%` : ''}
     </p>
   )
@@ -646,46 +693,56 @@ function RouteChip({ route }: { route: AgentRoute }) {
 function routeLabel(route: AgentRoute) {
   switch (route) {
     case 'qa':
-      return '问答'
+      return '知识问答'
     case 'card':
-      return '制卡'
+      return '生成卡片'
     case 'study':
       return '学习诊断'
     case 'compound':
-      return '复合任务'
+      return '综合任务'
     default:
-      return '选择任务'
+      return '选择工作流'
   }
 }
 
-function actionLabel(action: AgentWorkflowSummary['availableActions'][number]) {
-  switch (action) {
-    case 'view_sources':
-      return '查看来源'
-    case 'view_cards':
-      return '查看卡片'
-    case 'undo_created':
-      return '撤销创建'
-    case 'start_review':
-      return '开始复习'
-    case 'retry':
+function routeReasonLabel(reason: string) {
+  switch (reason) {
+    case 'empty_request':
+      return '等待输入'
+    case 'multiple_learning_intents':
+      return '检测到多个学习意图'
+    case 'card_generation_intent':
+      return '检测到制卡意图'
+    case 'study_diagnosis_intent':
+      return '检测到学习诊断意图'
+    case 'knowledge_qa_intent':
+      return '检测到知识问答意图'
+    case 'no_clear_workflow_intent':
+      return '需要手动选择工作流'
     default:
-      return '重新生成'
+      return reason
   }
 }
 
-function actionIcon(action: AgentWorkflowSummary['availableActions'][number]) {
-  switch (action) {
-    case 'view_sources':
-      return <FileText className="h-3.5 w-3.5" />
-    case 'view_cards':
-      return <Layers3 className="h-3.5 w-3.5" />
-    case 'undo_created':
-      return <Trash2 className="h-3.5 w-3.5" />
-    case 'start_review':
-      return <BookOpenCheck className="h-3.5 w-3.5" />
-    case 'retry':
+function statusLabel(status: AgentWorkflowSummary['status']) {
+  switch (status) {
+    case 'queued':
+      return '排队中'
+    case 'running':
+      return '运行中'
+    case 'paused':
+      return '已暂停'
+    case 'waiting_confirmation':
+      return '待确认'
+    case 'completed':
+      return '已完成'
+    case 'failed':
+      return '失败'
+    case 'cancelled':
+      return '已取消'
+    case 'partial':
+      return '部分完成'
     default:
-      return <RotateCcw className="h-3.5 w-3.5" />
+      return status
   }
 }

@@ -158,7 +158,20 @@ body {
 }
 
 .app-shell-main {
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.app-shell-main * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.app-shell-main::-webkit-scrollbar,
+.app-shell-main *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .theme-button,

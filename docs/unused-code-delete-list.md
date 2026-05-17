@@ -1,6 +1,18 @@
 # Unused Code Delete List
 
-Last checked: 2026-05-08
+Last checked: 2026-05-15
+
+Cleanup policy: this list is now a second-phase source cleanup backlog. The 2026-05-15 repository cleanup archived only runtime artifacts, isolated scripts, and legacy docs; it did not move or delete active source files because the worktree contains ongoing RAG, supervisor, and agent-panel changes.
+
+Archived in the first cleanup pass:
+
+- `runtime/smoke/*.wav` -> `archive/deprecated-2026-05-15/runtime-smoke/`
+- `xuejian/diagnose.mjs` -> `archive/deprecated-2026-05-15/scripts/diagnose.mjs`
+- `scripts/ci/check-orchestration-deps.py` -> `archive/deprecated-2026-05-15/scripts/check-orchestration-deps.py`
+- root-level legacy RAG docs -> `docs/rag/legacy/`
+- `docs/xuejian_upgrade_docs/` -> `docs/archive/xuejian-upgrade-docs/`
+
+Do not delete source-code candidates from this list until the matching tests, evaluation scripts, and active routes are reviewed in the same change.
 
 This document lists files that are currently unreachable from the known product entry points and are candidates for deletion. It is based on static reference checks, not on runtime telemetry.
 
@@ -17,9 +29,9 @@ This document lists files that are currently unreachable from the known product 
   - `/workflows/knowledge-qa`
 - CI/script references under `.github/workflows`, `scripts`, `xuejian/scripts`, and `package.json`
 
-## Safe Delete Candidates
+## Second-Phase Source Cleanup Candidates
 
-These files are not reached by the current app entry points. Some are still referenced by unit tests or evaluation scripts; delete or update those tests at the same time.
+These files were not reached by the checked app entry points on 2026-05-08. Some are still referenced by unit tests or evaluation scripts; delete or update those tests at the same time.
 
 ### Old Home Component Chain
 
@@ -99,10 +111,10 @@ These are not imported by the current `BasicCardsPage` or active card rendering 
 
 ### Isolated Scripts
 
-No references were found from `package.json`, CI workflows, README, or other scripts.
+These were archived in the first cleanup pass and should not be restored unless a new package script, CI workflow, or documented maintenance workflow needs them.
 
-- `xuejian/diagnose.mjs`
-- `scripts/ci/check-orchestration-deps.py`
+- `archive/deprecated-2026-05-15/scripts/diagnose.mjs`
+- `archive/deprecated-2026-05-15/scripts/check-orchestration-deps.py`
 
 ### Unused Static Assets
 

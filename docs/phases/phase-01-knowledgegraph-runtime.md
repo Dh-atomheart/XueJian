@@ -7,7 +7,7 @@
 ## Inputs
 
 - Phase 00 已冻结契约。
-- `rag-langgraph-migration.md` 的 Target Architecture 与 KnowledgeGraph Contract。
+- `docs/rag/rag-langchain-langgraph-refactor.md` 的 Target Architecture 与 KnowledgeGraph Contract。
 - 现有 `knowledge_qa.py`、`knowledge_qa_agent.py`、`agent/graph.py`、`qa_tools.py`。
 
 ## Implementation Scope

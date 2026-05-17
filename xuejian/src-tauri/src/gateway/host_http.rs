@@ -1062,6 +1062,32 @@ fn route_request(
             }
         }
 
+        ("POST", path) if path.starts_with("/tool-gateway/runs/") && path.ends_with("/pause") => {
+            let run_id = path
+                .strip_prefix("/tool-gateway/runs/")
+                .and_then(|p| p.strip_suffix("/pause"))
+                .unwrap_or("");
+            match pause_run_json(&app_state, run_id) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
+        ("POST", path) if path.starts_with("/tool-gateway/runs/") && path.ends_with("/resume") => {
+            let run_id = path
+                .strip_prefix("/tool-gateway/runs/")
+                .and_then(|p| p.strip_suffix("/resume"))
+                .unwrap_or("");
+            match resume_run_json(&app_state, run_id) {
+                Ok(payload) => GatewayResponse::Ok(payload.to_string()),
+                Err(error) => {
+                    GatewayResponse::InternalError(json!({"error": error.to_string()}).to_string())
+                }
+            }
+        }
+
         ("POST", path) if path.starts_with("/tool-gateway/runs/") && path.ends_with("/events") => {
             let run_id = path
                 .strip_prefix("/tool-gateway/runs/")
@@ -3497,6 +3523,7 @@ fn save_checkpoint_json(state: &AppState, run_id: &str, request: Value) -> Resul
         "runId": cp.run_id,
         "checkpointRef": cp.checkpoint_ref,
         "stepKey": cp.step_key,
+        "payload": cp.payload,
         "createdAt": cp.created_at,
         "updatedAt": cp.updated_at,
     }))
@@ -3520,6 +3547,51 @@ fn cancel_run_json(state: &AppState, run_id: &str) -> Result<Value> {
     )?;
     match run {
         Some(r) => Ok(json!({"id": r.id, "status": r.status})),
+        None => Ok(json!({"error": "not_found"})),
+    }
+}
+
+fn pause_run_json(state: &AppState, run_id: &str) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::WorkflowRepository::new(&db);
+    let run = repo.update_run(
+        run_id,
+        crate::db::UpdateWorkflowRunRequest {
+            status: Some("paused".to_string()),
+            checkpoint_ref: None,
+            approval_payload: None,
+            cost_usd: None,
+            error_message: None,
+            started_at: None,
+            finished_at: None,
+        },
+    )?;
+    match run {
+        Some(r) => Ok(json!({"id": r.id, "status": r.status})),
+        None => Ok(json!({"error": "not_found"})),
+    }
+}
+
+fn resume_run_json(state: &AppState, run_id: &str) -> Result<Value> {
+    let db = state.lock_db()?;
+    let repo = crate::db::WorkflowRepository::new(&db);
+    let run = repo.update_run(
+        run_id,
+        crate::db::UpdateWorkflowRunRequest {
+            status: Some("running".to_string()),
+            checkpoint_ref: None,
+            approval_payload: None,
+            cost_usd: None,
+            error_message: None,
+            started_at: None,
+            finished_at: None,
+        },
+    )?;
+    match run {
+        Some(r) => {
+            let token = format!("{}-{}", r.id, chrono::Utc::now().timestamp_millis());
+            Ok(json!({"id": r.id, "status": r.status, "resumeToken": token}))
+        }
         None => Ok(json!({"error": "not_found"})),
     }
 }

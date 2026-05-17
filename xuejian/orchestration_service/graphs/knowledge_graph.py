@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from ..workflows import knowledge_qa as workflow
+from .base import BaseGraphBuilder
 from .knowledge_events import build_artifact_refs, build_rag_artifacts
 from .knowledge_nodes import (
     audit_citations,
@@ -78,83 +80,92 @@ def _route_after_audit_citations(state: KnowledgeGraphState) -> str:
     return "build_rag_trace"
 
 
-def build_knowledge_graph():
-    graph = StateGraph(KnowledgeGraphState)
-    graph.add_node("initialize_run", initialize_run)
-    graph.add_node("check_embedding_readiness", check_embedding_readiness)
-    graph.add_node("embed_question", embed_question)
-    graph.add_node("load_conversation_context", load_conversation_context)
-    graph.add_node("maybe_rewrite_query", maybe_rewrite_query)
-    graph.add_node("retrieve_evidence", retrieve_evidence)
-    graph.add_node("merge_parent_context", merge_parent_context)
-    graph.add_node("rerank_evidence", rerank_evidence)
-    graph.add_node("relevance_gate", relevance_gate)
-    graph.add_node("maybe_remediate_retrieval", maybe_remediate_retrieval)
-    graph.add_node("pack_context", pack_context)
-    graph.add_node("write_answer", write_answer)
-    graph.add_node("audit_citations", audit_citations)
-    graph.add_node("build_rag_trace", build_rag_trace)
-    graph.add_node("finalize_result", finalize_result)
+class KnowledgeGraphBuilder(BaseGraphBuilder):
+    """Builds the Knowledge QA RAG graph."""
 
-    graph.add_edge(START, "initialize_run")
-    graph.add_edge("initialize_run", "check_embedding_readiness")
-    graph.add_conditional_edges(
-        "check_embedding_readiness",
-        _route_after_readiness,
-        {
-            "embed_question": "embed_question",
-            "build_rag_trace": "build_rag_trace",
-        },
-    )
-    graph.add_edge("embed_question", "load_conversation_context")
-    graph.add_edge("load_conversation_context", "maybe_rewrite_query")
-    graph.add_edge("maybe_rewrite_query", "retrieve_evidence")
-    graph.add_edge("retrieve_evidence", "merge_parent_context")
-    graph.add_edge("merge_parent_context", "rerank_evidence")
-    graph.add_edge("rerank_evidence", "relevance_gate")
-    graph.add_conditional_edges(
-        "relevance_gate",
-        _route_after_relevance_gate,
-        {
-            "maybe_remediate_retrieval": "maybe_remediate_retrieval",
-            "build_rag_trace": "build_rag_trace",
-            "pack_context": "pack_context",
-        },
-    )
-    graph.add_conditional_edges(
-        "maybe_remediate_retrieval",
-        _route_after_remediation,
-        {
-            "pack_context": "pack_context",
-            "build_rag_trace": "build_rag_trace",
-        },
-    )
-    graph.add_edge("pack_context", "write_answer")
-    graph.add_conditional_edges(
-        "write_answer",
-        _route_after_write_answer,
-        {
-            "audit_citations": "audit_citations",
-            "build_rag_trace": "build_rag_trace",
-        },
-    )
-    graph.add_conditional_edges(
-        "audit_citations",
-        _route_after_audit_citations,
-        {
-            "maybe_remediate_retrieval": "maybe_remediate_retrieval",
-            "build_rag_trace": "build_rag_trace",
-        },
-    )
-    graph.add_edge("build_rag_trace", "finalize_result")
-    graph.add_edge("finalize_result", END)
-    return graph.compile()
+    state_class = KnowledgeGraphState
+
+    def _add_nodes(self, graph: StateGraph) -> None:  # type: ignore[override]
+        graph.add_node("initialize_run", initialize_run)
+        graph.add_node("check_embedding_readiness", check_embedding_readiness)
+        graph.add_node("embed_question", embed_question)
+        graph.add_node("load_conversation_context", load_conversation_context)
+        graph.add_node("maybe_rewrite_query", maybe_rewrite_query)
+        graph.add_node("retrieve_evidence", retrieve_evidence)
+        graph.add_node("merge_parent_context", merge_parent_context)
+        graph.add_node("rerank_evidence", rerank_evidence)
+        graph.add_node("relevance_gate", relevance_gate)
+        graph.add_node("maybe_remediate_retrieval", maybe_remediate_retrieval)
+        graph.add_node("pack_context", pack_context)
+        graph.add_node("write_answer", write_answer)
+        graph.add_node("audit_citations", audit_citations)
+        graph.add_node("build_rag_trace", build_rag_trace)
+        graph.add_node("finalize_result", finalize_result)
+
+    def _add_edges(self, graph: StateGraph) -> None:  # type: ignore[override]
+        graph.add_edge(START, "initialize_run")
+        graph.add_edge("initialize_run", "check_embedding_readiness")
+        graph.add_conditional_edges(
+            "check_embedding_readiness",
+            _route_after_readiness,
+            {
+                "embed_question": "embed_question",
+                "build_rag_trace": "build_rag_trace",
+            },
+        )
+        graph.add_edge("embed_question", "load_conversation_context")
+        graph.add_edge("load_conversation_context", "maybe_rewrite_query")
+        graph.add_edge("maybe_rewrite_query", "retrieve_evidence")
+        graph.add_edge("retrieve_evidence", "merge_parent_context")
+        graph.add_edge("merge_parent_context", "rerank_evidence")
+        graph.add_edge("rerank_evidence", "relevance_gate")
+        graph.add_conditional_edges(
+            "relevance_gate",
+            _route_after_relevance_gate,
+            {
+                "maybe_remediate_retrieval": "maybe_remediate_retrieval",
+                "build_rag_trace": "build_rag_trace",
+                "pack_context": "pack_context",
+            },
+        )
+        graph.add_conditional_edges(
+            "maybe_remediate_retrieval",
+            _route_after_remediation,
+            {
+                "pack_context": "pack_context",
+                "build_rag_trace": "build_rag_trace",
+            },
+        )
+        graph.add_edge("pack_context", "write_answer")
+        graph.add_conditional_edges(
+            "write_answer",
+            _route_after_write_answer,
+            {
+                "audit_citations": "audit_citations",
+                "build_rag_trace": "build_rag_trace",
+            },
+        )
+        graph.add_conditional_edges(
+            "audit_citations",
+            _route_after_audit_citations,
+            {
+                "maybe_remediate_retrieval": "maybe_remediate_retrieval",
+                "build_rag_trace": "build_rag_trace",
+            },
+        )
+        graph.add_edge("build_rag_trace", "finalize_result")
+        graph.add_edge("finalize_result", END)
+
+
+def build_knowledge_graph(*, checkpointer: MemorySaver | None = None):
+    return KnowledgeGraphBuilder(checkpointer=checkpointer).build()
 
 
 class KnowledgeGraphRunner:
-    def __init__(self, host: Any) -> None:
+    def __init__(self, host: Any, *, checkpointer: MemorySaver | None = None) -> None:
         self.host = host
-        self._graph = build_knowledge_graph()
+        self._checkpointer = checkpointer or MemorySaver()
+        self._graph = build_knowledge_graph(checkpointer=self._checkpointer)
 
     def _annotate_fallback(self, run_id: str, result: dict[str, Any]) -> dict[str, Any]:
         answer = result.get("answer") if isinstance(result, dict) else None
@@ -195,8 +206,9 @@ class KnowledgeGraphRunner:
             "conversation_id": conversation_id,
             "host_ref": self.host,
         }
+        config = {"configurable": {"thread_id": run_id}}
         try:
-            final_state = self._graph.invoke(initial_state)
+            final_state = self._graph.invoke(initial_state, config=config)
         except Exception as exc:
             logger.warning("KnowledgeGraph failed, using deterministic fallback: %s", exc)
             fallback_result = workflow.run_knowledge_qa_workflow(

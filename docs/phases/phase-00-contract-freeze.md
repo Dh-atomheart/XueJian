@@ -6,7 +6,7 @@
 
 ## Inputs
 
-- [RAG 问答 LangGraph 化改造文档](../rag-langgraph-migration.md)
+- [RAG LangChain / LangGraph 重构文档](../rag/rag-langchain-langgraph-refactor.md)
 - [多 Agent 升级开发文档](../multi-agent-development-guide.md)
 - 现有 `/workflows/knowledge-qa` payload
 - 现有 `KnowledgeQaPage`、`RagTracePanel`、citation card、fallback / no relevant UI
@@ -77,7 +77,7 @@ Supervisor 只能汇总 artifact refs、摘要、质量状态和错误类别。
 
 ## Discovery Checklist
 
-- 读取 `docs/rag-langgraph-migration.md`，确认 `QualityEnvelope`、`artifactRefs`、`langgraph_rag`、旧 runner 退出规则。
+- 读取 `docs/rag/rag-langchain-langgraph-refactor.md`，确认 `QualityEnvelope`、`artifactRefs`、`langgraph_rag`、旧 runner 退出规则。
 - 读取 `docs/multi-agent-development-guide.md`，确认 `QualityEnvelope`、`artifactRefs`、`langgraph_multi_agent`、Supervisor 禁止输出类型。
 - 读取 `docs/phases/README.md`，确认 phase 顺序和禁止跳阶段规则。
 - 检查 `xuejian/tests/unit/test_knowledge_qa.py` 中现有 payload、event、fallback 行为。

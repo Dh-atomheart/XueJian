@@ -16,7 +16,21 @@ export interface AgentWorkflowSummary {
   qualityEnvelope: QualityEnvelope | null
   errorCategory: string | null
   createdCardIds: string[]
-  availableActions: Array<'view_sources' | 'view_cards' | 'undo_created' | 'retry' | 'start_review'>
+  recommendationReason: string | null
+  rollbackAvailable: boolean
+  availableActions: Array<
+    | 'view_sources'
+    | 'view_cards'
+    | 'undo_created'
+    | 'retry'
+    | 'start_review'
+    | 'create_card'
+    | 'add_to_study_plan'
+    | 'expand_reason'
+    | 'continue_task'
+    | 'cancel_task'
+    | 'rollback'
+  >
 }
 
 const SENSITIVE_KEYS = new Set([
@@ -92,6 +106,8 @@ export function normalizeAgentWorkflowSummary(
     status === 'failed'
       ? failureSummary || payloadSummary || eventSummary(events) || run?.errorMessage || 'Workflow failed.'
       : payloadSummary || failureSummary || eventSummary(events) || 'Workflow is waiting for results.'
+  const recommendationReason = sanitizeAgentText(payload?.['recommendationReason']) ?? null
+  const rollbackAvailable = Boolean(payload?.['rollbackAvailable']) || createdCardIds.length > 0
 
   return {
     status,
@@ -100,7 +116,9 @@ export function normalizeAgentWorkflowSummary(
     qualityEnvelope,
     errorCategory,
     createdCardIds,
-    availableActions: buildAvailableActions(artifactRefs, createdCardIds),
+    recommendationReason,
+    rollbackAvailable,
+    availableActions: buildAvailableActions(artifactRefs, createdCardIds, status, rollbackAvailable),
   }
 }
 
@@ -161,13 +179,23 @@ function normalizeQualityEnvelope(value: unknown): QualityEnvelope | null {
 
 function buildAvailableActions(
   artifactRefs: Record<string, string[]>,
-  createdCardIds: string[]
+  createdCardIds: string[],
+  status: AgentWorkflowSummary['status'],
+  rollbackAvailable: boolean
 ): AgentWorkflowSummary['availableActions'] {
   const actions: AgentWorkflowSummary['availableActions'] = ['retry']
   if ((artifactRefs.evidence?.length ?? 0) > 0) actions.unshift('view_sources')
   if ((artifactRefs.card_candidate?.length ?? 0) > 0 || createdCardIds.length > 0) actions.push('view_cards')
   if (createdCardIds.length > 0) actions.push('undo_created')
   if ((artifactRefs.learning_advice?.length ?? 0) > 0) actions.push('start_review')
+  if ((artifactRefs.card_candidate?.length ?? 0) > 0) actions.push('create_card')
+  if ((artifactRefs.study_schedule_write?.length ?? 0) > 0) actions.push('add_to_study_plan')
+  if ((artifactRefs.answer?.length ?? 0) > 0 || (artifactRefs.learning_advice?.length ?? 0) > 0) actions.push('expand_reason')
+  if (status === 'waiting_confirmation' || status === 'paused' || status === 'partial') actions.push('continue_task')
+  if (status === 'running' || status === 'waiting_confirmation' || status === 'paused' || status === 'partial') {
+    actions.push('cancel_task')
+  }
+  if (rollbackAvailable) actions.push('rollback')
   return Array.from(new Set(actions))
 }
 
@@ -198,6 +226,7 @@ function asString(value: unknown): string | null {
 function asStatus(value: unknown): AgentWorkflowSummary['status'] | null {
   return value === 'queued' ||
     value === 'running' ||
+    value === 'paused' ||
     value === 'waiting_confirmation' ||
     value === 'completed' ||
     value === 'failed' ||

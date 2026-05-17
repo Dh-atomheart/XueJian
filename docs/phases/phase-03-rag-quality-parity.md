@@ -64,7 +64,7 @@ createdBy
 ```powershell
 pytest xuejian/tests/unit/test_knowledge_qa.py xuejian/tests/unit/test_knowledge_qa_agent.py
 cd xuejian; npm.cmd test -- tests/unit/knowledge-qa-result.test.ts tests/unit/knowledge-qa-page.test.tsx
-rg "groundingStatus|auditStatus|qualityEnvelope|artifactRefs" docs/rag-langgraph-migration.md docs/phases
+rg "groundingStatus|auditStatus|qualityEnvelope|artifactRefs" docs/rag/rag-langchain-langgraph-refactor.md docs/phases
 ```
 
 ## Do Not Proceed If

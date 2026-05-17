@@ -14,7 +14,6 @@ import { hasUsableApiConfig, useApiConfigsQuery } from '@/queries/apiConfigs'
 import { useOrchestrationServiceHealthQuery } from '@/queries/orchestration'
 import { cn } from '@/lib/utils'
 import { isTauriEnvironment } from '@/services/gateway'
-import { AgentPanel } from '@/features/agent'
 import { useAppUiStore, type NavItemId } from '@/store'
 
 interface AppShellProps {
@@ -147,8 +146,6 @@ export function AppShell({ children, contextPanel, className }: AppShellProps) {
           </div>
         </aside>
       ) : null}
-      <AgentPanel />
-
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         {!isReader ? (
           <header className="shrink-0 border-b border-line-soft bg-paper-base/88 px-4 py-3 backdrop-blur md:px-6">

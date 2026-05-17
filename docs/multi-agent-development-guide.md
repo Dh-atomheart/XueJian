@@ -66,12 +66,12 @@ Supervisor 可以生成用户可见的 orchestration summary，但只能汇总�
 
 当前落地边界：
 
-- RAG QA 已收敛到 `KnowledgeGraph`，以 [RAG 问答 LangGraph 化改造文档](./rag-langgraph-migration.md) 为准。
+- RAG QA 已收敛到 `KnowledgeGraph`，以 [RAG LangChain / LangGraph 重构文档](./rag/rag-langchain-langgraph-refactor.md) 为准。
 - CardGraph 已作为 `langgraph_card` subgraph 落地。
 - StudyGraph v1 已作为 `langgraph_study` subgraph 落地。
 - Intelligent Supervisor Graph 已作为 `langgraph_multi_agent` 落地。
 - `/workflows/agent-task` 已作为复合学习任务入口落地；普通 QA 和普通制卡仍走专用入口。
-- 全局 artifact store、跨 Graph artifact refs 通信、role event chain 尚未落地；RAG v1 最小 `evidence` / `answer` artifact 契约以 [RAG 问答 LangGraph 化改造文档](./rag-langgraph-migration.md) 为准。
+- 全局 artifact store、跨 Graph artifact refs 通信、role event chain 尚未落地；RAG v1 最小 `evidence` / `answer` artifact 契约以 [RAG LangChain / LangGraph 重构文档](./rag/rag-langchain-langgraph-refactor.md) 为准。
 - `allowed_callers` 的旧 caller 命名已开始迁移；card tools 使用 `langgraph_card`，study tools 使用 `langgraph_study`。
 
 迁移原则：
@@ -126,7 +126,7 @@ langgraph_multi_agent
 
 ### 4.1 KnowledgeGraph
 
-KnowledgeGraph 是多 Agent 体系中的 Knowledge Agent。它的权威设计见 [RAG 问答 LangGraph 化改造文档](./rag-langgraph-migration.md)。
+KnowledgeGraph 是多 Agent 体系中的 Knowledge Agent。它的权威设计见 [RAG LangChain / LangGraph 重构文档](./rag/rag-langchain-langgraph-refactor.md)。
 
 多 Agent 文档只规定集成边界：
 
@@ -667,7 +667,7 @@ unknown_error
 - `Knowledge Agent` 只能指向 `KnowledgeGraph`。
 - 多 Agent 不引用 `knowledge_qa_agent.py`。
 - `knowledge_qa.py` / `knowledge_qa_agent.py` 只保留迁移期 parity 或紧急回退语义。
-- 只有 `rag-langgraph-migration.md` 的 Contract、Artifact And Quality、Graph Runtime、RAG Quality Boundary、Lightweight Compatibility Parity 验收通过后，才能进入 Supervisor 对 KnowledgeGraph 的正式集成。
+- 只有 `docs/rag/rag-langchain-langgraph-refactor.md` 的 Contract、Artifact And Quality、Graph Runtime、RAG Quality Boundary、Lightweight Compatibility Parity 验收通过后，才能进入 Supervisor 对 KnowledgeGraph 的正式集成。
 
 ### Step 2: CardGraph
 
@@ -800,7 +800,7 @@ UI 不展示：
 
 ## 9. References
 
-- [RAG 问答 LangGraph 化改造文档](./rag-langgraph-migration.md)
+- [RAG LangChain / LangGraph 重构文档](./rag/rag-langchain-langgraph-refactor.md)
 - LangGraph Overview: https://docs.langchain.com/oss/python/langgraph/overview
 - LangGraph Graph API: https://docs.langchain.com/oss/python/langgraph/graph-api
 - LangGraph Persistence: https://docs.langchain.com/oss/python/langgraph/persistence

@@ -47,6 +47,7 @@ jobs:
               - 'xuejian/Cargo.lock'
             python:
               - 'xuejian/orchestration_service/**'
+              - 'xuejian/tests/unit/**'
               - 'scripts/ci/python_orchestration_smoke.py'
 
       - name: Compute flags
@@ -209,6 +210,61 @@ jobs:
           path: |
             xuejian/test-results/ci/python-smoke.json
             xuejian/test-results/ci/python-smoke-summary.md
+          if-no-files-found: warn
+
+  evaluation-regression:
+    name: evaluation-regression
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.python == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: xuejian/orchestration_service/requirements.txt
+
+      - name: Install orchestration dependencies
+        run: python -m pip install -r xuejian/orchestration_service/requirements.txt
+
+      - name: Run eval unit tests (deterministic)
+        shell: bash
+        run: |
+          mkdir -p xuejian/test-results/ci
+          set -o pipefail
+          pytest xuejian/tests/unit/test_eval_base.py \
+                 xuejian/tests/unit/test_cardgraph_quality_eval.py \
+                 xuejian/tests/unit/test_studygraph_recommendation_eval.py \
+                 xuejian/tests/unit/test_supervisor_golden_tasks_eval.py \
+                 xuejian/tests/unit/test_regression_report.py \
+                 -v --tb=short \
+                 2>&1 | tee xuejian/test-results/ci/eval-regression.log
+          echo "${PIPESTATUS[0]}" > xuejian/test-results/ci/eval-regression.exit
+
+      - name: Write eval regression summary
+        run: |
+          if [[ "$(cat xuejian/test-results/ci/eval-regression.exit)" == "0" ]]; then job_status=passed; else job_status=failed; fi
+          node xuejian/scripts/ci/write-check-summary.mjs \
+            --output xuejian/test-results/ci/eval-regression-summary.md \
+            --name eval-regression \
+            --status "$job_status" \
+            --command "pytest eval unit tests" \
+            --details "Blocking deterministic eval regression tests on main." \
+            --stdout-file "xuejian/test-results/ci/eval-regression.log"
+
+      - name: Upload eval regression artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-regression-results-main
+          path: |
+            xuejian/test-results/ci/eval-regression.log
+            xuejian/test-results/ci/eval-regression-summary.md
+            xuejian/test-results/ci/eval-regression.exit
           if-no-files-found: warn
 
   frontend-quality-baseline:

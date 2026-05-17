@@ -82,12 +82,14 @@ describe('AgentPanel workflow launcher', () => {
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
 
     await waitFor(() => {
-      expect(startAgentCardGenerationMock).toHaveBeenCalledWith({
-        userRequest: 'generate cards from this document',
-        documentIds: ['doc-single'],
-        cardCountHint: 6,
-        difficulty: 'medium',
-      })
+      expect(startAgentCardGenerationMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userRequest: 'generate cards from this document',
+          documentIds: ['doc-single'],
+          cardCountHint: 6,
+          difficulty: 'medium',
+        })
+      )
     })
     expect(startAgentTaskMock).not.toHaveBeenCalled()
     expect(startKnowledgeQaMock).not.toHaveBeenCalled()

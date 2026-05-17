@@ -77,6 +77,8 @@ export function BasicCardsPage() {
   const openReader = useAppUiStore((state) => state.openReader)
   const preferredBasicCardsDocumentId = useAppUiStore((state) => state.preferredBasicCardsDocumentId)
   const setPreferredBasicCardsDocumentId = useAppUiStore((state) => state.setPreferredBasicCardsDocumentId)
+  const setAgentContext = useAppUiStore((state) => state.setAgentContext)
+  const clearAgentContext = useAppUiStore((state) => state.clearAgentContext)
   const [selectedGroupId, setSelectedGroupId] = useState(ALL_FILTER)
   const [selectedDocumentId, setSelectedDocumentId] = useState(ALL_FILTER)
   const [searchQuery, setSearchQuery] = useState('')
@@ -153,6 +155,20 @@ export function BasicCardsPage() {
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages))
   }, [totalPages])
+
+  useEffect(() => {
+    if (selectedGroupId !== ALL_FILTER) {
+      setAgentContext({ activeCardGroupIds: [selectedGroupId] })
+    } else {
+      setAgentContext({ activeCardGroupIds: [] })
+    }
+  }, [selectedGroupId, setAgentContext])
+
+  useEffect(() => {
+    return () => {
+      clearAgentContext()
+    }
+  }, [clearAgentContext])
 
   const openCreateCard = useCallback(() => {
     if (activeGroups.length === 0) {

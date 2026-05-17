@@ -39,6 +39,7 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
   const setReaderScale = useAppUiStore((state) => state.setReaderScale)
   const setReaderTotalPages = useAppUiStore((state) => state.setReaderTotalPages)
   const selectCard = useAppUiStore((state) => state.selectCard)
+  const setAgentContext = useAppUiStore((state) => state.setAgentContext)
   const { data: document, isLoading: isLoadingDocument } = useDocumentQuery(documentId)
   const { data: anchors = [] } = useDocumentAnchorsQuery(documentId)
   const { data: pageCards = [] } = useCardsQuery(
@@ -106,6 +107,34 @@ export function ReaderPage({ documentId }: ReaderPageProps) {
   useEffect(() => {
     setActiveHighlightId(null)
   }, [reader.currentPage])
+
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    function onSelectionChange() {
+      if (timeoutId) clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        const selection = window.getSelection()
+        const text = selection?.toString().trim() ?? ''
+        if (!text) {
+          setAgentContext({ selectedTextPreview: null, selectedAnchorRefs: [] })
+          return
+        }
+        const preview = text.length > 500 ? `${text.slice(0, 500 - 3)}...` : text
+        setAgentContext({ selectedTextPreview: preview, selectedAnchorRefs: [] })
+      }, 150)
+    }
+    window.document.addEventListener('selectionchange', onSelectionChange)
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      window.document.removeEventListener('selectionchange', onSelectionChange)
+    }
+  }, [setAgentContext])
+
+  useEffect(() => {
+    return () => {
+      setAgentContext({ selectedTextPreview: null, selectedAnchorRefs: [] })
+    }
+  }, [setAgentContext])
 
   useEffect(() => {
     setPageViewport(null)

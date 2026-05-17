@@ -26,7 +26,7 @@ const checkpoint: WorkflowCheckpoint = {
   stepKey: 'agent-result',
   payload: {
     status: 'partial',
-    summary: '完成了检索和学习诊断，制卡被质量门槛阻断。',
+    summary: '任务部分完成，已生成学习诊断建议。',
     artifactRefs: {
       evidence: ['knowledge-qa://runs/r/evidence/1'],
       learning_advice: ['study-graph://runs/r/learning_advice'],
@@ -50,12 +50,13 @@ const checkpoint: WorkflowCheckpoint = {
 function makeViewProps(overrides: Partial<Parameters<typeof AgentPanelView>[0]> = {}) {
   return {
     isOpen: true,
-    input: '解释当前资料',
-    documents: [{ id: 'doc-1', title: '资料一', status: 'ready' }],
+    input: '请解释这份文档',
+    documents: [{ id: 'doc-1', title: '测试文档', status: 'ready' }],
     selectedDocumentIds: ['doc-1'],
     messages: [],
     routeDecision: { route: 'qa', confidence: 'high', reason: 'knowledge_qa_intent' },
     activeSummary: null,
+    events: [],
     isSubmitting: false,
     needsConfirmation: false,
     actionNotice: null,
@@ -69,14 +70,14 @@ function makeViewProps(overrides: Partial<Parameters<typeof AgentPanelView>[0]> 
 }
 
 describe('AgentPanel', () => {
-  it('renders status, artifact refs, quality blockers, and safe summary fields', () => {
+  it('renders status, artifact card list placeholder, quality blockers, and safe summary fields', () => {
     const summary = normalizeAgentWorkflowSummary(baseRun, checkpoint, [])
 
     render(<AgentPanelView {...makeViewProps({ activeSummary: summary })} />)
 
-    expect(screen.getByTestId('agent-panel-summary')).toHaveTextContent('partial')
+    expect(screen.getByTestId('agent-panel-summary')).toHaveTextContent('部分完成')
     expect(screen.getAllByText('quality_gate_failed').length).toBeGreaterThan(0)
-    expect(screen.getByTestId('agent-panel-artifact-refs')).toHaveTextContent('evidence')
+    expect(screen.getByTestId('artifact-card-list')).toBeInTheDocument()
     expect(screen.queryByText('hidden prompt')).not.toBeInTheDocument()
     expect(screen.queryByText('hidden reasoning')).not.toBeInTheDocument()
     expect(screen.queryByText('secret')).not.toBeInTheDocument()
@@ -97,7 +98,7 @@ describe('AgentPanel', () => {
     )
 
     expect(screen.getByTestId('agent-panel-confirmation')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '制卡' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成卡片' }))
     expect(onSubmit).toHaveBeenCalledWith('card')
   })
 
@@ -110,10 +111,10 @@ describe('AgentPanel', () => {
     }
 
     const { rerender } = render(<AgentPanelView {...makeViewProps({ activeSummary: withoutCards })} />)
-    expect(screen.queryByRole('button', { name: /撤销创建/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /撤销生成/ })).not.toBeInTheDocument()
 
     rerender(<AgentPanelView {...makeViewProps({ activeSummary: withCards })} />)
-    expect(screen.getByRole('button', { name: /撤销创建/ })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /撤销生成/ })).toBeEnabled()
   })
 
   it('removes sensitive payload keys and truncates long strings', () => {

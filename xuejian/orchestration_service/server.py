@@ -331,6 +331,22 @@ def build_handler(start_time: float):
                     self._handle_agent_task()
                     return
 
+                if self.path == "/workflows/agent-task/pause":
+                    self._handle_agent_task_pause()
+                    return
+
+                if self.path == "/workflows/agent-task/resume":
+                    self._handle_agent_task_resume()
+                    return
+
+                if self.path == "/workflows/agent-task/cancel":
+                    self._handle_agent_task_cancel()
+                    return
+
+                if self.path == "/workflows/agent-task/continue":
+                    self._handle_agent_task_continue()
+                    return
+
                 if self.path == "/workflows/card-animation":
                     self._handle_card_animation()
                     return
@@ -353,6 +369,22 @@ def build_handler(start_time: float):
 
                 if self.path == "/evals/ragas-knowledge-qa":
                     self._handle_ragas_knowledge_qa_eval()
+                    return
+
+                if self.path == "/evals/cardgraph-quality":
+                    self._handle_cardgraph_quality_eval()
+                    return
+
+                if self.path == "/evals/studygraph-recommendation":
+                    self._handle_studygraph_recommendation_eval()
+                    return
+
+                if self.path == "/evals/supervisor-golden-tasks":
+                    self._handle_supervisor_golden_tasks_eval()
+                    return
+
+                if self.path == "/evals/regression-suite":
+                    self._handle_regression_suite()
                     return
 
                 if self.path == "/exports/apkg":
@@ -600,6 +632,132 @@ def build_handler(start_time: float):
                 logger.error("Agent task workflow failed: %s", exc, exc_info=True)
                 self._write_json(200, _failed_supervisor_payload(run_id, exc))
 
+        def _handle_agent_task_pause(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"status": "failed", "error": "host_gateway_unavailable"})
+                return
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"status": "failed", "error": "invalid_json"})
+                return
+            run_id = str(body.get("runId") or "").strip()
+            if not run_id:
+                self._write_json(400, {"status": "failed", "error": "missing runId"})
+                return
+            try:
+                # Phase 10: pause is handled by the Rust host command layer.
+                # The Python endpoint only needs to acknowledge because the
+                # orchestration service itself does not hold in-memory state.
+                self._write_json(200, {"status": "paused", "runId": run_id})
+            except Exception as exc:
+                logger.error("Agent task pause failed: %s", exc, exc_info=True)
+                self._write_json(200, {"status": "failed", "error": str(exc)})
+
+        def _handle_agent_task_resume(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"status": "failed", "error": "host_gateway_unavailable"})
+                return
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"status": "failed", "error": "invalid_json"})
+                return
+            run_id = str(body.get("runId") or "").strip()
+            user_request = str(body.get("userRequest") or "").strip()
+            if not run_id or not user_request:
+                self._write_json(400, {"status": "failed", "error": "missing runId or userRequest"})
+                return
+            document_ids = _string_list(body.get("documentIds"))
+            card_group_ids = _string_list(body.get("cardGroupIds"))
+            options = body.get("options") if isinstance(body.get("options"), dict) else {}
+            try:
+                provider_config_id = str(options.get("providerConfigId") or "").strip()
+                planner_config, planner_api_key, resolved_provider_config_id = _resolve_agent_task_model(
+                    _host_gateway,
+                    provider_config_id or None,
+                )
+                from .graphs.supervisor_graph import SupervisorGraphRunner
+                result = SupervisorGraphRunner(_host_gateway).run_from_checkpoint(
+                    run_id,
+                    task_type=body.get("taskType") or "compound_study_task",
+                    user_request=user_request,
+                    document_ids=document_ids,
+                    card_group_ids=card_group_ids,
+                    options=options,
+                    provider_config_id=resolved_provider_config_id,
+                    planner_config=planner_config,
+                    planner_api_key=planner_api_key,
+                )
+                self._write_json(200, result)
+            except Exception as exc:
+                logger.error("Agent task resume failed: %s", exc, exc_info=True)
+                self._write_json(200, _failed_supervisor_payload(run_id, exc))
+
+        def _handle_agent_task_cancel(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"status": "failed", "error": "host_gateway_unavailable"})
+                return
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"status": "failed", "error": "invalid_json"})
+                return
+            run_id = str(body.get("runId") or "").strip()
+            if not run_id:
+                self._write_json(400, {"status": "failed", "error": "missing runId"})
+                return
+            try:
+                _host_gateway.cancel_run(run_id)
+                self._write_json(200, {"status": "cancelled", "runId": run_id})
+            except Exception as exc:
+                logger.error("Agent task cancel failed: %s", exc, exc_info=True)
+                self._write_json(200, {"status": "failed", "error": str(exc)})
+
+        def _handle_agent_task_continue(self) -> None:
+            if _host_gateway is None:
+                self._write_json(503, {"status": "failed", "error": "host_gateway_unavailable"})
+                return
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"status": "failed", "error": "invalid_json"})
+                return
+            run_id = str(body.get("runId") or "").strip()
+            user_request = str(body.get("userRequest") or "").strip()
+            parent_run_id = str(body.get("parentRunId") or "").strip()
+            follow_up_message = str(body.get("followUpMessage") or "").strip()
+            if not run_id or not user_request:
+                self._write_json(400, {"status": "failed", "error": "missing runId or userRequest"})
+                return
+            document_ids = _string_list(body.get("documentIds"))
+            card_group_ids = _string_list(body.get("cardGroupIds"))
+            options = body.get("options") if isinstance(body.get("options"), dict) else {}
+            try:
+                provider_config_id = str(options.get("providerConfigId") or "").strip()
+                planner_config, planner_api_key, resolved_provider_config_id = _resolve_agent_task_model(
+                    _host_gateway,
+                    provider_config_id or None,
+                )
+                from .graphs.supervisor_graph import SupervisorGraphRunner
+                result = SupervisorGraphRunner(_host_gateway).run(
+                    run_id,
+                    task_type=body.get("taskType") or "compound_study_task",
+                    user_request=user_request,
+                    document_ids=document_ids,
+                    card_group_ids=card_group_ids,
+                    options=options,
+                    provider_config_id=resolved_provider_config_id,
+                    planner_config=planner_config,
+                    planner_api_key=planner_api_key,
+                    parent_run_id=parent_run_id,
+                    follow_up_message=follow_up_message,
+                )
+                self._write_json(200, result)
+            except Exception as exc:
+                logger.error("Agent task continue failed: %s", exc, exc_info=True)
+                self._write_json(200, _failed_supervisor_payload(run_id, exc))
+
         def _handle_card_animation(self) -> None:
             if _host_gateway is None:
                 self._write_json(503, _failed_animation_payload("", RuntimeError("host_gateway_unavailable")))
@@ -821,37 +979,15 @@ def build_handler(start_time: float):
                     return
 
                 if runtime == "agent":
-                    emergency_enabled = str(
-                        os.getenv("XUEJIAN_ENABLE_AGENT_RUNTIME_EMERGENCY", "") or ""
-                    ).strip().lower() in {"1", "true", "yes", "on"}
-                    if not emergency_enabled:
-                        logger.error(
-                            "Rejected deprecated knowledge QA runtime 'agent' without emergency override"
-                        )
-                        self._write_json(
-                            400,
-                            {
-                                "error": (
-                                    "runtime 'agent' is disabled; use XUEJIAN_AGENT_RUNTIME=langgraph_rag "
-                                    "or set XUEJIAN_ENABLE_AGENT_RUNTIME_EMERGENCY=1 for emergency-only access"
-                                )
-                            },
-                        )
-                        return
-
-                    logger.error(
-                        "EMERGENCY-ONLY: knowledge QA runtime 'agent' enabled via "
-                        "XUEJIAN_ENABLE_AGENT_RUNTIME_EMERGENCY"
+                    logger.error("Deprecated knowledge QA runtime 'agent' is no longer supported")
+                    self._write_json(
+                        400,
+                        {
+                            "error": (
+                                "runtime 'agent' has been removed; use XUEJIAN_AGENT_RUNTIME=langgraph_rag"
+                            )
+                        },
                     )
-                    from .workflows.knowledge_qa_agent import AgentQaRunner
-
-                    result = AgentQaRunner(_host_gateway).run(
-                        run_id,
-                        question,
-                        document_ids,
-                        conversation_id=conversation_id,
-                    )
-                    self._write_json(200, result)
                     return
 
                 logger.error("Unsupported knowledge QA runtime: %s", runtime)
@@ -890,7 +1026,9 @@ def build_handler(start_time: float):
             else:
                 document_ids_arg = str(document_ids)
 
-            size = int(body.get("size") or 60)
+            from .evals.ragas_knowledge_qa_eval import DEFAULT_SIZE
+
+            size = int(body.get("size") or DEFAULT_SIZE)
             output_dir = body.get("out") or body.get("outputDir")
             cache_dir = body.get("cacheDir") or body.get("cache_dir") or "test-results/ragas/datasets"
             refresh_dataset = bool(body.get("refreshDataset") or body.get("refresh_dataset") or False)
@@ -934,6 +1072,115 @@ def build_handler(start_time: float):
                         "qualityEnvelope": _quality_envelope_for_error(_classify_workflow_exception(exc)),
                     },
                 )
+
+        def _handle_cardgraph_quality_eval(self) -> None:
+            """POST /evals/cardgraph-quality — run CardGraph quality regression eval."""
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"status": "failed", "error": "invalid_json"})
+                return
+
+            try:
+                from .evals.cardgraph_quality_eval import run_all_cases
+                from .evals.regression_report import run_regression
+
+                suite = run_all_cases()
+                output_dir_str = body.get("out") or body.get("outputDir")
+                output_dir = Path(output_dir_str) if output_dir_str else None
+                payload = run_regression(
+                    suites=[suite],
+                    runtime="langgraph_card",
+                    graph_version=suite.graph_version,
+                    output_dir=output_dir,
+                )
+                self._write_json(200, {"status": "ok", "report": payload})
+            except Exception as exc:
+                logger.error("CardGraph quality eval failed: %s", exc, exc_info=True)
+                self._write_json(500, {"status": "failed", "error": str(exc)})
+
+        def _handle_studygraph_recommendation_eval(self) -> None:
+            """POST /evals/studygraph-recommendation — run StudyGraph regression eval."""
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"status": "failed", "error": "invalid_json"})
+                return
+
+            try:
+                from .evals.regression_report import run_regression
+                from .evals.studygraph_recommendation_eval import run_all_cases
+
+                suite = run_all_cases()
+                output_dir_str = body.get("out") or body.get("outputDir")
+                output_dir = Path(output_dir_str) if output_dir_str else None
+                payload = run_regression(
+                    suites=[suite],
+                    runtime="langgraph_study",
+                    graph_version=suite.graph_version,
+                    output_dir=output_dir,
+                )
+                self._write_json(200, {"status": "ok", "report": payload})
+            except Exception as exc:
+                logger.error("StudyGraph recommendation eval failed: %s", exc, exc_info=True)
+                self._write_json(500, {"status": "failed", "error": str(exc)})
+
+        def _handle_supervisor_golden_tasks_eval(self) -> None:
+            """POST /evals/supervisor-golden-tasks — run Supervisor regression eval."""
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"status": "failed", "error": "invalid_json"})
+                return
+
+            try:
+                from .evals.regression_report import run_regression
+                from .evals.supervisor_golden_tasks_eval import run_all_cases
+
+                suite = run_all_cases()
+                output_dir_str = body.get("out") or body.get("outputDir")
+                output_dir = Path(output_dir_str) if output_dir_str else None
+                payload = run_regression(
+                    suites=[suite],
+                    runtime="langgraph_multi_agent",
+                    graph_version=suite.graph_version,
+                    output_dir=output_dir,
+                )
+                self._write_json(200, {"status": "ok", "report": payload})
+            except Exception as exc:
+                logger.error("Supervisor golden tasks eval failed: %s", exc, exc_info=True)
+                self._write_json(500, {"status": "failed", "error": str(exc)})
+
+        def _handle_regression_suite(self) -> None:
+            """POST /evals/regression-suite — run all four eval suites and return unified report."""
+            try:
+                body = json.loads(self._read_body())
+            except (json.JSONDecodeError, ValueError):
+                self._write_json(400, {"status": "failed", "error": "invalid_json"})
+                return
+
+            try:
+                from .evals.regression_report import run_all_eval_suites, run_regression
+
+                suites = run_all_eval_suites()
+                output_dir_str = body.get("out") or body.get("outputDir")
+                output_dir = Path(output_dir_str) if output_dir_str else None
+                payload = run_regression(
+                    suites=suites,
+                    runtime="xuejian-orchestration",
+                    graph_version="v1",
+                    output_dir=output_dir,
+                )
+                self._write_json(
+                    200,
+                    {
+                        "status": "blocked" if payload.get("blockingFailureCount", 0) else "passed",
+                        "report": payload,
+                    },
+                )
+            except Exception as exc:
+                logger.error("Regression suite failed: %s", exc, exc_info=True)
+                self._write_json(500, {"status": "failed", "error": str(exc)})
 
         def _handle_export_apkg(self) -> None:
             """POST /exports/apkg — export cards to an Anki .apkg file.

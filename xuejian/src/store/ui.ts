@@ -49,6 +49,14 @@ interface KnowledgeDraftState {
   sourceLabel: string | null
 }
 
+interface AgentContextState {
+  selectedTextPreview: string | null
+  selectedAnchorRefs: string[]
+  activeCardGroupIds: string[]
+  activeReviewSessionId: string | null
+  activeArtifactRefs: string[]
+}
+
 interface AppUiState {
   activeNavItem: NavItemId
   activeSettingsSection: SettingsSectionId
@@ -57,6 +65,7 @@ interface AppUiState {
   isContextRailOpen: boolean
   reader: ReaderState
   knowledgeDraft: KnowledgeDraftState
+  agentContext: AgentContextState
   feedbackLog: AppFeedbackEntry[]
   activeNotices: AppFeedbackEntry[]
   isFeedbackPanelOpen: boolean
@@ -64,7 +73,7 @@ interface AppUiState {
   setActiveNavItem: (item: NavItemId) => void
   setSettingsSection: (section: SettingsSectionId) => void
   setPreferredCardStudioDocumentId: (documentId: string | null) => void
-  setPreferredBasicCardsDocumentId: (documentId: string | null) => void
+  setPreferredBasicCardsDocumentId: (preferredBasicCardsDocumentId: string | null) => void
   setContextRailOpen: (open: boolean) => void
   openKnowledgeQa: (draft?: Partial<KnowledgeDraftState>) => void
   clearKnowledgeDraft: () => void
@@ -86,6 +95,8 @@ interface AppUiState {
   setFeedbackPanelOpen: (open: boolean) => void
   toggleFeedbackPanel: () => void
   setPageHeaderActions: (actions: PageHeaderAction[]) => void
+  setAgentContext: (partial: Partial<AgentContextState>) => void
+  clearAgentContext: () => void
   reportFeedback: (entry: {
     level?: AppFeedbackLevel
     scope: string
@@ -116,6 +127,14 @@ const initialKnowledgeDraftState: KnowledgeDraftState = {
   sourceLabel: null,
 }
 
+const initialAgentContextState: AgentContextState = {
+  selectedTextPreview: null,
+  selectedAnchorRefs: [],
+  activeCardGroupIds: [],
+  activeReviewSessionId: null,
+  activeArtifactRefs: [],
+}
+
 const MAX_FEEDBACK_LOG_ENTRIES = 120
 const MAX_ACTIVE_NOTICES = 4
 
@@ -143,6 +162,7 @@ export const useAppUiStore = create<AppUiState>((set) => ({
   isContextRailOpen: true,
   reader: initialReaderState,
   knowledgeDraft: initialKnowledgeDraftState,
+  agentContext: initialAgentContextState,
   feedbackLog: [],
   activeNotices: [],
   isFeedbackPanelOpen: false,
@@ -242,6 +262,11 @@ export const useAppUiStore = create<AppUiState>((set) => ({
   setFeedbackPanelOpen: (isFeedbackPanelOpen) => set({ isFeedbackPanelOpen }),
   toggleFeedbackPanel: () => set((state) => ({ isFeedbackPanelOpen: !state.isFeedbackPanelOpen })),
   setPageHeaderActions: (pageHeaderActions) => set({ pageHeaderActions }),
+  setAgentContext: (partial) =>
+    set((state) => ({
+      agentContext: { ...state.agentContext, ...partial },
+    })),
+  clearAgentContext: () => set({ agentContext: initialAgentContextState }),
   reportFeedback: ({ level, scope, title, detail, showToast = true }) => {
     const entry = createFeedbackEntry({ level, scope, title, detail })
     set((state) => ({

@@ -27,6 +27,10 @@ import {
   InlineError,
   Input,
   Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipRoot,
+  TooltipTrigger,
   UnconfiguredState,
 } from '@/shared/ui'
 import { cn } from '@/lib/utils'
@@ -55,6 +59,7 @@ export interface KnowledgeQaCitationView {
   documentTitle: string
   pageLabel: string
   snippet: string
+  passageIndex?: number | null
 }
 
 export interface KnowledgeQaTurnView {
@@ -366,33 +371,181 @@ function UserMessage({ content, anchorId }: { content: string; anchorId: string 
   )
 }
 
+const STANDARD_CITATION_PATTERN =
+  /\[\[\s*cite\s*:\s*([\d\s,\uFF0C\u3001;\uFF1B]+)\s*\]\]/gi
+const LABELED_CITATION_PATTERN =
+  /(?:\(|\uFF08|\[|\uFF3B|\u3010)\s*(?:passages?|sources?|refs?|references?|citations?|cites?|\u6587\u6BB5|\u6BB5\u843D|\u5F15\u7528|\u6765\u6E90|\u8D44\u6599|\u6750\u6599)\s*[:\uFF1A#]?\s*([\d\s,\uFF0C\u3001;\uFF1B]+)\s*(?:\)|\uFF09|\]|\uFF3D|\u3011)/gi
+const NUMERIC_CITATION_PATTERN =
+  /(?:\uFF3B|\u3010)\s*([\d\s,\uFF0C\u3001;\uFF1B]+)\s*(?:\uFF3D|\u3011)/g
+
 function CitationBadge({ citation, index }: { citation: KnowledgeQaCitationView; index: number }) {
   return (
-    <span className="group relative inline-flex">
-      <button
-        type="button"
-        aria-label={`引用 ${index + 1}`}
-        className="ml-1 inline-flex h-5 w-5 -translate-y-1 items-center justify-center rounded-full border border-ink/20 bg-paper-card align-super text-[10px] font-medium leading-none text-ink shadow-card transition hover:border-ink/35 hover:bg-paper-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
-      >
-        {index + 1}
-      </button>
-      <span className="pointer-events-none absolute bottom-full left-1/2 z-[90] mb-2 hidden max-h-80 w-80 max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-y-auto rounded-md border border-line-soft bg-paper-card p-3 text-left text-xs leading-5 text-ink shadow-card group-focus-within:block group-hover:block">
-        <span
-          className="block space-y-2 whitespace-normal break-words [overflow-wrap:anywhere]"
+    <TooltipProvider delayDuration={120}>
+      <TooltipRoot>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={`引用 ${index + 1}`}
+            data-testid="knowledge-qa-citation-badge"
+            className="ml-1 inline-flex h-5 min-w-5 -translate-y-1 items-center justify-center rounded-full border border-ink/20 bg-paper-card px-1.5 align-super text-[10px] font-medium leading-none text-ink shadow-card transition hover:border-ink/35 hover:bg-paper-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
+          >
+            {index + 1}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="center"
+          sideOffset={8}
+          collisionPadding={16}
+          avoidCollisions
+          className="z-[120] max-h-80 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md p-3 text-left text-xs leading-5"
           data-testid="knowledge-qa-citation-card"
         >
-          <span className="block">
-            <span className="block truncate text-xs font-medium text-ink">
-              {citation.documentTitle}
+          <span className="block space-y-2 whitespace-normal break-words [overflow-wrap:anywhere]">
+            <span className="block">
+              <span className="block truncate text-xs font-medium text-ink">
+                {citation.documentTitle}
+              </span>
+              <span className="mt-0.5 block text-[11px] text-ink-soft">{citation.pageLabel}</span>
             </span>
-            <span className="mt-0.5 block text-[11px] text-ink-soft">{citation.pageLabel}</span>
+            <span className="block whitespace-pre-wrap text-xs leading-5 text-ink-muted">
+              {citation.snippet}
+            </span>
           </span>
-          <span className="block whitespace-pre-wrap text-xs leading-5 text-ink-muted">
-            {citation.snippet}
-          </span>
-        </span>
-      </span>
-    </span>
+        </TooltipContent>
+      </TooltipRoot>
+    </TooltipProvider>
+  )
+}
+
+function buildInlineCitationContent(content: string, citations: KnowledgeQaCitationView[]) {
+  const inlineCitationIndexes = new Set<number>()
+
+  if (!content || citations.length === 0) {
+    return { content, inlineCitationIndexes }
+  }
+
+  const normalizedContent = content
+    .split(/(```[\s\S]*?```)/g)
+    .map((segment) => {
+      if (segment.startsWith('```')) {
+        return segment
+      }
+
+      return replaceCitationMarkers(segment, citations, inlineCitationIndexes)
+    })
+    .join('')
+
+  return { content: normalizedContent, inlineCitationIndexes }
+}
+
+function replaceCitationMarkers(
+  segment: string,
+  citations: KnowledgeQaCitationView[],
+  inlineCitationIndexes: Set<number>
+) {
+  return [STANDARD_CITATION_PATTERN, LABELED_CITATION_PATTERN, NUMERIC_CITATION_PATTERN].reduce(
+    (currentSegment, pattern) =>
+      currentSegment.replace(pattern, (match, citationNumbersRaw: string) => {
+        const citationLinks = citationNumbersToIndexes(citationNumbersRaw, citations)
+          .map((citationIndex) => {
+            inlineCitationIndexes.add(citationIndex)
+            return `[[${citationIndex + 1}]](#knowledge-qa-citation-${citationIndex})`
+          })
+
+        return citationLinks.length > 0 ? citationLinks.join('') : match
+      }),
+    segment
+  )
+}
+
+function citationNumbersToIndexes(
+  citationNumbersRaw: string,
+  citations: KnowledgeQaCitationView[]
+) {
+  const indexes: number[] = []
+  const seen = new Set<number>()
+
+  for (const numberMatch of citationNumbersRaw.matchAll(/\d+/g)) {
+    const sourceNumber = Number.parseInt(numberMatch[0], 10)
+    const citationIndex = resolveCitationIndex(sourceNumber, citations)
+    if (citationIndex != null && !seen.has(citationIndex)) {
+      seen.add(citationIndex)
+      indexes.push(citationIndex)
+    }
+  }
+
+  return indexes
+}
+
+function resolveCitationIndex(sourceNumber: number, citations: KnowledgeQaCitationView[]) {
+  if (!Number.isInteger(sourceNumber) || sourceNumber <= 0) {
+    return null
+  }
+
+  const passageMatchIndex = citations.findIndex((citation) => citation.passageIndex === sourceNumber)
+  if (passageMatchIndex >= 0) {
+    return passageMatchIndex
+  }
+
+  const fallbackIndex = sourceNumber - 1
+  return fallbackIndex >= 0 && fallbackIndex < citations.length ? fallbackIndex : null
+}
+
+function InlineCitationMarkdown({
+  content,
+  citations,
+}: {
+  content: string
+  citations: KnowledgeQaCitationView[]
+}) {
+  return (
+    <CardMarkdownRenderer
+      content={content}
+      variant="knowledge"
+      components={{
+        a: ({ href, children, ...props }) => {
+          const match = typeof href === 'string' ? href.match(/^#knowledge-qa-citation-(\d+)$/) : null
+          if (match) {
+            const citationIndex = Number.parseInt(match[1], 10)
+            const citation = citations[citationIndex]
+            if (citation) {
+              return <CitationBadge citation={citation} index={citationIndex} />
+            }
+          }
+
+          return (
+            <a href={href} {...props}>
+              {children}
+            </a>
+          )
+        },
+      }}
+    />
+  )
+}
+
+function CitationFallbackList({
+  citations,
+  hiddenIndexes,
+}: {
+  citations: KnowledgeQaCitationView[]
+  hiddenIndexes: Set<number>
+}) {
+  const visibleCitations = citations
+    .map((citation, citationIndex) => ({ citation, citationIndex }))
+    .filter(({ citationIndex }) => !hiddenIndexes.has(citationIndex))
+
+  if (visibleCitations.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5" aria-label="引用">
+      {visibleCitations.map(({ citation, citationIndex }) => (
+        <CitationBadge key={citation.id} citation={citation} index={citationIndex} />
+      ))}
+    </div>
   )
 }
 
@@ -487,6 +640,11 @@ function AssistantMessage({
   anchorId: string
   actions?: ReactNode
 }) {
+  const { content: contentWithInlineCitations, inlineCitationIndexes } = buildInlineCitationContent(
+    content,
+    citations
+  )
+
   return (
     <div id={anchorId} className="scroll-mt-4">
       <div className="flex justify-start">
@@ -503,14 +661,11 @@ function AssistantMessage({
                 sessionMemorySummary={sessionMemorySummary}
               />
               {ragTrace ? <RagTracePanel ragTrace={ragTrace} /> : null}
-              <CardMarkdownRenderer content={content} variant="knowledge" />
-              {citations.length > 0 ? (
-                <div className="mt-3 flex flex-wrap gap-1.5" aria-label="引用">
-                  {citations.map((citation, citationIndex) => (
-                    <CitationBadge key={citation.id} citation={citation} index={citationIndex} />
-                  ))}
-                </div>
-              ) : null}
+              <InlineCitationMarkdown
+                content={contentWithInlineCitations}
+                citations={citations}
+              />
+              <CitationFallbackList citations={citations} hiddenIndexes={inlineCitationIndexes} />
             </CardContent>
           </Card>
           {actions}

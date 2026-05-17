@@ -4,7 +4,7 @@
 
 M13 目标是把 RAG 检索质量做稳。重点是 embedding gate、向量检索、多文档排序、chunk packing 和无证据策略。
 
-M13 是 RAG Retrieval Quality 的基础阶段。Parent/Child Auto-merging、rerank、相关性门控、二次检索和 RAG trace UI 属于后续增强路线，详见 [RAG 检索质量升级蓝图](../rag-retrieval-upgrade.md)；该升级不得推翻本里程碑的 embedding gate、no FTS-only 正式回答和 citation 忠实边界。
+M13 是 RAG Retrieval Quality 的基础阶段。Parent/Child Auto-merging、rerank、相关性门控、二次检索和 RAG trace UI 属于后续增强路线，详见 [RAG 检索质量升级蓝图](../rag/legacy/rag-retrieval-upgrade.md)；该升级不得推翻本里程碑的 embedding gate、no FTS-only 正式回答和 citation 忠实边界。
 
 ## 范围
 

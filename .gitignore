@@ -158,6 +158,11 @@ generated/
 exports/
 
 # ----------------------------------------
+# Runtime Artifacts
+# ----------------------------------------
+runtime/
+
+# ----------------------------------------
 # Test & Coverage
 # ----------------------------------------
 coverage/
@@ -197,6 +202,7 @@ src-tauri/bundle/
 # Documents
 # ----------------------------------------
 # Generated documents and exports
+docs/
 
 # ----------------------------------------
 # Electron (if any legacy)

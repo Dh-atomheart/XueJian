@@ -2,7 +2,7 @@
 
 本文是 RAG LangGraph 化与多 Agent 升级的执行层 runbook 索引。架构权威仍在：
 
-- [RAG 问答 LangGraph 化改造文档](../rag-langgraph-migration.md)
+- [RAG LangChain / LangGraph 重构文档](../rag/rag-langchain-langgraph-refactor.md)
 - [多 Agent 升级开发文档](../multi-agent-development-guide.md)
 
 `docs/phases` 只负责把权威文档拆成可逐步实现、可验收、可停止的开发阶段。不得用旧版阶段文档替代本索引；旧阶段文档已经归档，不再作为当前开发入口。
@@ -54,7 +54,7 @@ phase-00-contract-freeze
 
 ## 权威关系
 
-- Phase 1-3 以 `rag-langgraph-migration.md` 为权威依据。
+- Phase 1-3 以 `docs/rag/rag-langchain-langgraph-refactor.md` 为权威依据。
 - Phase 4-13 以 `multi-agent-development-guide.md` 为权威依据。
 - Phase 3 未通过前，不得正式接入 Supervisor。
 - Phase 6 未通过前，不得把左侧 Agent 面板绑定到旧 RAG runner。
@@ -79,7 +79,7 @@ Discovery -> Implementation -> Verification -> Docs Sync
 
 - 前一 phase 的 `Exit Criteria` 未满足，不得进入下一 phase。
 - 每个 phase 开始前必须确认权威文档仍然一致。
-- RAG 相关 phase 以 `../rag-langgraph-migration.md` 为准。
+- RAG 相关 phase 以 `../rag/rag-langchain-langgraph-refactor.md` 为准。
 - 多 Agent 相关 phase 以 `../multi-agent-development-guide.md` 为准。
 - 任何自动写入都必须经过 Rust / Host Gateway，不允许 Python / LangGraph 直接写 SQLite。
 

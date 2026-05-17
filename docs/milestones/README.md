@@ -17,7 +17,7 @@ RAG 相关里程碑：
 - [M13：RAG Retrieval Quality](./m13-rag-retrieval-quality.md)
 - [M14：RAG UI Polish](./m14-rag-ui-polish.md)
 
-RAG 验收入口：[RAG 验收测试](../rag-acceptance-tests.md)。
+RAG 验收入口：[RAG 验收测试](../rag/legacy/rag-acceptance-tests.md)。
 
 UI 改造相关里程碑：
 
@@ -97,7 +97,7 @@ UI-05
 - M08：`docs/ai-card-generation.md`、`docs/background-jobs.md`。
 - M09：`docs/ai-card-generation.md`、`docs/background-jobs.md`、`docs/ipc-api.md`。
 - UI-01-UI-05：`docs/ui.md`、`docs/学习工作台_交互界面设计规范_v1.0.md`。
-- UI-05：`docs/rag-knowledge-qa.md`、`docs/rag-acceptance-tests.md`、`docs/milestones/m14-rag-ui-polish.md`。
+- UI-05：`docs/rag/legacy/rag-knowledge-qa.md`、`docs/rag/legacy/rag-acceptance-tests.md`、`docs/milestones/m14-rag-ui-polish.md`。
 
 这些文档不改变里程碑范围，只负责锁定 schema、接口、状态机、调度和 AI 生成契约。
 

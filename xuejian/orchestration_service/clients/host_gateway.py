@@ -568,6 +568,14 @@ class HostGatewayClient:
         except Exception:
             return None
 
+    def pause_run(self, run_id: str) -> dict:
+        """Request the host to mark the run as paused."""
+        return self._post(f"/tool-gateway/runs/{run_id}/pause", {})
+
+    def resume_run(self, run_id: str) -> dict:
+        """Request the host to mark the run as running and return a resume token."""
+        return self._post(f"/tool-gateway/runs/{run_id}/resume", {})
+
     def cancel_run(self, run_id: str) -> dict:
         """Request the host to mark the run as cancelled."""
         return self._post(f"/tool-gateway/runs/{run_id}/cancel", {})
@@ -587,6 +595,33 @@ class HostGatewayClient:
                 "message": message,
                 "progress": progress,
                 "payload": payload,
+            },
+        )
+
+    def emit_rag_progress(
+        self,
+        run_id: str,
+        step_key: str,
+        status: str,
+        *,
+        title: str = "",
+        detail: str | None = None,
+        progress: float | None = None,
+        metrics: dict[str, Any] | None = None,
+    ) -> dict:
+        """Emit a Knowledge Q&A RAG step as a workflow progress event."""
+        return self.emit_workflow_event(
+            run_id,
+            "progress",
+            message=detail or title or None,
+            progress=progress,
+            payload={
+                "stepKey": step_key,
+                "status": status,
+                "title": title or None,
+                "detail": detail,
+                "progress": progress,
+                "metrics": metrics or {},
             },
         )
 

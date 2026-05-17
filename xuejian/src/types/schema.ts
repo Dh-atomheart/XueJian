@@ -772,7 +772,7 @@ export const workflowRunSchema = z.object({
   id: z.string().uuid(),
   workflowType: workflowTypeSchema,
   presetId: z.string().nullable(),
-  status: z.enum(['queued', 'running', 'waiting_confirmation', 'completed', 'failed', 'cancelled']),
+  status: z.enum(['queued', 'running', 'paused', 'waiting_confirmation', 'completed', 'failed', 'cancelled']),
   threadId: z.string().min(1),
   checkpointRef: z.string().nullable(),
   approvalPayload: z.record(z.unknown()).nullable(),

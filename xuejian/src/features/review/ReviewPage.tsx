@@ -34,6 +34,8 @@ export function ReviewPage() {
   const cardStartedAtRef = useRef<number | null>(null)
 
   const setActiveNavItem = useAppUiStore((state) => state.setActiveNavItem)
+  const setAgentContext = useAppUiStore((state) => state.setAgentContext)
+  const clearAgentContext = useAppUiStore((state) => state.clearAgentContext)
   const { data, isLoading, isError, error, refetch } = useStudyQueueQuery()
   const submitReview = useSubmitStudyReviewMutation()
   const dailyQueue = data ?? []
@@ -128,6 +130,20 @@ export function ReviewPage() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [flipCard, handleRate, isFlipped, mode, submitReview.isPending])
+
+  useEffect(() => {
+    if (mode === 'studying' && currentCard) {
+      setAgentContext({ activeReviewSessionId: currentCard.id })
+    } else {
+      setAgentContext({ activeReviewSessionId: null })
+    }
+  }, [mode, currentCard, setAgentContext])
+
+  useEffect(() => {
+    return () => {
+      clearAgentContext()
+    }
+  }, [clearAgentContext])
 
   const handleStart = useCallback(() => {
     if (dailyQueue.length === 0) {

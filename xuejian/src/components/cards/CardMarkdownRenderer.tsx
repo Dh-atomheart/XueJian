@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown'
+import type { Components } from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -10,6 +11,7 @@ export interface CardMarkdownRendererProps {
   className?: string
   compact?: boolean
   variant?: 'card' | 'knowledge'
+  components?: Components
 }
 
 function normalizeMathDelimitersOutsideCodeBlocks(content: string): string {
@@ -50,6 +52,7 @@ export function CardMarkdownRenderer({
   className,
   compact = false,
   variant = 'card',
+  components,
 }: CardMarkdownRendererProps) {
   const normalizedContent = normalizeMathDelimitersOutsideCodeBlocks(content)
 
@@ -83,6 +86,7 @@ export function CardMarkdownRenderer({
               </table>
             </div>
           ),
+          ...components,
         }}
       >
         {normalizedContent}

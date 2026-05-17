@@ -29,6 +29,15 @@ export interface ListWorkflowArtifactsInput {
   limit?: number
 }
 
+export interface ResumeAgentTaskInput extends StartAgentTaskInput {
+  runId: string
+}
+
+export interface ContinueAgentTaskInput extends StartAgentTaskInput {
+  parentRunId: string
+  followUpMessage: string
+}
+
 export const agentGateway = {
   async startAgentTask(data: StartAgentTaskInput): Promise<WorkflowRun> {
     return invokeWithSchema('start_agent_task_workflow', workflowRunSchema, { data })
@@ -36,6 +45,22 @@ export const agentGateway = {
 
   async startAgentCardGeneration(data: StartAgentCardGenerationInput): Promise<WorkflowRun> {
     return invokeWithSchema('start_agent_card_generation_workflow', workflowRunSchema, { data })
+  },
+
+  async pauseAgentTask(runId: string): Promise<WorkflowRun> {
+    return invokeWithSchema('pause_agent_task', workflowRunSchema, { runId })
+  },
+
+  async resumeAgentTask(data: ResumeAgentTaskInput): Promise<WorkflowRun> {
+    return invokeWithSchema('resume_agent_task', workflowRunSchema, { data })
+  },
+
+  async cancelAgentTask(runId: string): Promise<WorkflowRun> {
+    return invokeWithSchema('cancel_agent_task', workflowRunSchema, { runId })
+  },
+
+  async continueAgentTask(data: ContinueAgentTaskInput): Promise<WorkflowRun> {
+    return invokeWithSchema('continue_agent_task', workflowRunSchema, { data })
   },
 
   async getWorkflowArtifact(artifactId: string): Promise<WorkflowArtifact> {

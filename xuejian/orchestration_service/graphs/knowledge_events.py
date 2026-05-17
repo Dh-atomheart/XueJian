@@ -48,31 +48,6 @@ def emit_progress(
     )
 
 
-def save_checkpoint(
-    host: Any,
-    run_id: str,
-    checkpoint_ref: str,
-    step_key: str,
-    payload: dict[str, Any],
-) -> None:
-    if not run_id:
-        return
-    save = getattr(host, "save_checkpoint", None)
-    if not callable(save):
-        return
-    try:
-        save(
-            run_id,
-            {
-                "checkpointRef": checkpoint_ref,
-                "stepKey": step_key,
-                "payload": payload,
-            },
-        )
-    except Exception:
-        return
-
-
 def build_artifact_refs(
     run_id: str,
     chunks: list[dict[str, Any]],
@@ -239,4 +214,56 @@ def build_rag_artifacts(
     return {
         "evidence": evidence_artifact,
         "answer": answer_artifact,
+    }
+
+
+def build_final_result(
+    state: dict[str, Any],
+    rag_trace: dict[str, Any],
+    error_category: str | None,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the final result payload with quality envelope and artifact refs."""
+    from .artifact_store import persist_graph_artifacts
+
+    answer_payload = result.get("answer") or {}
+    run_id = state.get("run_id", "")
+    host = state.get("host_ref")
+    packed_chunks = state.get("packed_chunks") or state.get("candidate_chunks") or []
+    citations = answer_payload.get("citations") or []
+    retrieval_mode = str(state.get("retrieval_mode") or "hybrid")
+
+    artifact_refs = build_artifact_refs(run_id, packed_chunks, citations)
+    quality_envelope = state.get("quality_envelope") or {}
+
+    artifacts = build_rag_artifacts(
+        run_id, packed_chunks, citations, quality_envelope, answer_payload,
+        retrieval_mode,
+        str(answer_payload.get("retrievalStatus") or state.get("retrieval_status") or "ready"),
+        error_category=str(error_category) if error_category else None,
+    )
+
+    result["runtime"] = str(state.get("runtime") or "langgraph")
+    result["graphVersion"] = str(state.get("graph_version") or "2.0")
+    result["fallbackUsed"] = bool(state.get("fallback_used"))
+    result["qualityEnvelope"] = quality_envelope
+    if artifacts:
+        result["artifacts"] = artifacts
+    if artifact_refs:
+        result["artifactRefs"] = artifact_refs
+
+    artifact_store_ok, artifact_store_error = persist_graph_artifacts(host, run_id, artifacts)
+    if not artifact_store_ok:
+        error_category = str(error_category or artifact_store_error or "artifact_write_failed")
+        quality_envelope["blockingReasons"] = list(
+            dict.fromkeys([*(quality_envelope.get("blockingReasons") or []), "artifact_write_failed"])
+        )
+        result["errorCategory"] = error_category
+
+    return {
+        "artifact_refs": artifact_refs,
+        "artifacts": artifacts,
+        "quality_envelope": quality_envelope,
+        "error_category": error_category,
+        "result": result,
     }

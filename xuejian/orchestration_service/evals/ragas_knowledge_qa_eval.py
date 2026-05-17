@@ -26,7 +26,7 @@ from ..providers.embedding_runtime import embed_texts
 from ..providers.runtime import build_langchain_chat_model
 from ..workflows import knowledge_qa as qa
 
-DEFAULT_SIZE = 60
+DEFAULT_SIZE = 200
 DEFAULT_MAX_CHUNK_CHARS = 1_800
 DEFAULT_LOW_SCORE_THRESHOLD = 0.70
 DEFAULT_OUTPUT_ROOT = Path("test-results/ragas")
@@ -715,6 +715,145 @@ def _lowest_records(records: Sequence[EvalRecord], metric: str, limit: int = 10)
     return sorted(candidates, key=lambda record: float(record.scores[metric] or 0.0))[:limit]
 
 
+def _check_citation_audit(record: EvalRecord) -> bool:
+    """Return True if the record passes the citation audit for a grounded answer."""
+    if record.answer_mode != "grounded":
+        return True
+    citations = record.citations or []
+    if not citations:
+        return False
+    # All citations must reference a chunk present in retrieved_contexts
+    context_ids = {
+        str(c.get("chunkId") or c.get("id") or ""): True
+        for c in record.retrieval_metadata
+        if isinstance(c, dict)
+    }
+    for citation in citations:
+        cid = str(citation.get("chunkId") or citation.get("id") or "")
+        if not cid or cid not in context_ids:
+            return False
+    return True
+
+
+def compute_rag_regression_metrics(records: Sequence[EvalRecord]) -> dict[str, Any]:
+    grounded = [r for r in records if r.answer_mode == "grounded"]
+    no_relevant = [r for r in records if r.answer_mode == "no_relevant_content"]
+    fts_only = [r for r in records if r.retrieval_mode == "fts5"]
+
+    # Citation audit pass rate for grounded answers
+    audit_passed = sum(1 for r in grounded if _check_citation_audit(r))
+    citation_audit_pass_rate = audit_passed / len(grounded) if grounded else 1.0
+
+    # False grounded: records where retrieval says no_relevant/fts-only but answer is grounded
+    false_grounded_no_relevant = sum(
+        1 for r in records
+        if r.retrieval_mode == "no_relevant" and r.answer_mode == "grounded"
+    )
+    false_grounded_fts_only = sum(
+        1 for r in records
+        if r.retrieval_mode == "fts5" and r.answer_mode == "grounded"
+    )
+
+    # Confidence median for grounded answers (using faithfulness as proxy)
+    confidences = [
+        float(r.scores["faithfulness"])
+        for r in grounded
+        if r.scores.get("faithfulness") is not None
+    ]
+    confidence_median = (
+        sorted(confidences)[len(confidences) // 2] if confidences else None
+    )
+
+    return {
+        "total_samples": len(records),
+        "grounded_count": len(grounded),
+        "no_relevant_count": len(no_relevant),
+        "fts_only_count": len(fts_only),
+        "citation_audit_pass_rate": round(citation_audit_pass_rate, 4),
+        "false_grounded_no_relevant_count": false_grounded_no_relevant,
+        "false_grounded_fts_only_count": false_grounded_fts_only,
+        "grounded_confidence_median": round(confidence_median, 4) if confidence_median is not None else None,
+    }
+
+
+def check_rag_regression_thresholds(metrics: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Evaluate RAG-specific blocking and warning thresholds.
+
+    Returns (blocking_reasons, warning_reasons).
+    """
+    from .eval_base import check_threshold
+
+    blocking: list[str] = []
+    warnings: list[str] = []
+
+    # Blocking
+    passed, reason = check_threshold(
+        "rag_grounded_citation_audit_pass_rate",
+        metrics.get("citation_audit_pass_rate"),
+        "ge",
+        0.95,
+    )
+    if not passed:
+        blocking.append(reason)
+
+    passed, reason = check_threshold(
+        "rag_false_grounded_no_relevant_count",
+        metrics.get("false_grounded_no_relevant_count"),
+        "eq",
+        0.0,
+    )
+    if not passed:
+        blocking.append(reason)
+
+    passed, reason = check_threshold(
+        "rag_false_grounded_fts_only_count",
+        metrics.get("false_grounded_fts_only_count"),
+        "eq",
+        0.0,
+    )
+    if not passed:
+        blocking.append(reason)
+
+    # Warning
+    if metrics.get("grounded_confidence_median") is not None:
+        passed, reason = check_threshold(
+            "rag_grounded_confidence_median",
+            metrics["grounded_confidence_median"],
+            "lt",
+            0.70,
+        )
+        if not passed:
+            warnings.append(reason)
+
+    return blocking, warnings
+
+
+def write_regression_json(
+    output_dir: Path,
+    *,
+    records: Sequence[EvalRecord],
+    graph_version: str = "knowledge-graph-v1",
+    runtime: str = "langgraph_rag",
+) -> dict[str, Any]:
+    metrics = compute_rag_regression_metrics(records)
+    blocking, warnings = check_rag_regression_thresholds(metrics)
+    payload = {
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "runtime": runtime,
+        "graphVersion": graph_version,
+        "totalSamples": metrics["total_samples"],
+        "metrics": metrics,
+        "blockingFailures": blocking,
+        "warnings": warnings,
+        "shouldBlock": bool(blocking),
+    }
+    (output_dir / "regression.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return payload
+
+
 def write_reports(
     output_dir: Path,
     *,
@@ -906,6 +1045,7 @@ def run_with_host(host: HostGatewayClient, args: argparse.Namespace) -> Path:
         document_ids=document_ids,
         dataset_cache_path=cache_path,
     )
+    write_regression_json(output_dir, records=evaluated_records)
     return output_dir
 
 

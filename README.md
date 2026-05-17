@@ -1,4 +1,4 @@
-# XueJian
+# XueJian / 学笺
 
 ![Visitors](https://visitor-badge.laobi.icu/badge?page_id=Dh-atomheart.XueJian)
 ![GitHub stars](https://img.shields.io/github/stars/Dh-atomheart/XueJian?style=flat-square)
@@ -6,41 +6,56 @@
 ![GitHub issues](https://img.shields.io/github/issues/Dh-atomheart/XueJian?style=flat-square)
 ![License](https://img.shields.io/github/license/Dh-atomheart/XueJian?style=flat-square)
 
-XueJian 是一款本地优先的 PDF 学习闪卡桌面应用。它围绕“资料导入 -> 阅读加工 -> 卡片生成 -> 分组管理 -> 间隔复习 -> 学习反馈 -> 知识问答”的学习闭环，把 PDF 中的知识沉淀为可管理、可复习、可追踪的学习资产。
+学笺是一个本地优先的 AI 学习工作台，目标是把 PDF 资料转化为可追踪、可复习、可问答的学习资产。
 
-项目当前以桌面端为主，优先保证本地数据、文档解析、卡片系统和复习流程稳定；AI 能力作为辅助生产工具，用于降低制卡和问答成本。
+它不是一个只做摘要或聊天的工具，而是围绕学习闭环设计：导入资料、解析内容、生成或手动创建卡片、按分组复习、记录反馈，并在需要时通过 Agentic RAG 和多 Agent workflow 帮助用户理解资料、追溯证据和生成复习材料。
 
 ## 核心能力
 
-- 文档库：导入 PDF，并将文件复制到应用本地数据目录。
-- 文档解析：使用 PyMuPDF 解析可复制文本 PDF，并保留页码、文本片段和来源信息。
-- 阅读器：基于 `pdfjs-dist` 构建桌面阅读体验，支持阅读时联动相关卡片。
-- 卡片系统：创建、编辑、分组和管理 Basic 学习卡片，支持 Markdown 和 KaTeX。
-- AI 制卡：通过 BYOK Provider 从文档内容生成中文学习卡片。
-- 间隔复习：按启用分组生成每日复习队列，使用四档反馈完成学习记录。
-- 知识问答：基于已解析和向量化的文档进行学习型问答，并展示可追溯来源。
+- **PDF 导入、解析与阅读**：将可复制文本的 PDF 导入本地文档库，解析为后续卡片、问答和来源追踪可用的文本片段。
+- **手动与 AI 卡片生成**：用户可以手动创建卡片，也可以让 AI 从文档证据中生成候选卡片，并保留来源信息。
+- **分组管理与每日复习**：以卡片和分组为学习资产核心，结合复习队列、四档反馈和学习记录形成长期记忆流程。
+- **Knowledge QA / Agentic RAG**：围绕已解析和向量化的资料进行学习型问答，支持检索、重写、rerank、相关性门控、上下文打包和引用审计。
+- **多 Agent 学习任务编排**：通过 `KnowledgeGraph`、`CardGraph`、`StudyGraph` 和 `SupervisorGraph` 组织复合学习任务，例如先理解资料，再生成卡片或学习建议。
+- **BYOK 与本地优先隐私边界**：用户自行配置 Provider 和 API Key；未配置模型时，仍可使用本地文档管理、手动建卡和复习能力。
 
-## 技术栈
+## 设计内涵
 
-- 桌面端：Tauri 2
-- 前端：React 19、TypeScript、Vite、Tailwind CSS、TanStack Query、Zustand
-- 本地层：Rust、SQLite、Stronghold、Tauri commands
-- 编排服务：Python orchestration sidecar、本地 HTTP、BackgroundJob
-- AI 与解析：LiteLLM、Pydantic、PyMuPDF、Docling
-- 测试：Vitest、Playwright、Cargo tests、native smoke
+学笺的重点不是堆叠 AI 功能，而是把 AI 能力放进可维护、可评估、可恢复的学习系统里。
+
+- **本地优先的数据权威**：Rust/Tauri host 和 SQLite 是业务数据权威。前端负责交互，Python orchestration sidecar 负责解析、模型调用和 workflow 编排，但不直接拥有最终业务状态。
+- **可追溯的学习资产**：PDF、文本片段、卡片、引用、分组和复习记录不是孤立对象，而是共同组成可回看、可编辑、可复习的知识资产。
+- **可观测的 Agentic RAG**：Knowledge QA 不被实现成黑盒 chain，而是拆成 query rewrite、retrieval、rerank、relevance gate、context packing、answer generation、citation audit 和 RAG trace 等步骤，便于定位质量问题。
+- **Schema-first Tool Calling**：工具调用通过 Pydantic schema、权限边界、错误分类和 `allowed_callers` 管理，避免 Agent 随意调用高风险能力。
+- **Evaluation-driven 质量闭环**：Ragas、citation audit、golden tasks 和回归门禁共同用于发现检索、引用、生成和调度中的退化问题。
+
+## 系统架构
+
+```text
+React / Tauri WebView
+  -> Rust / Tauri Host
+  -> SQLite / Stronghold / BackgroundJob / Host Gateway
+  -> Python Orchestration Sidecar
+  -> LangGraph / RAG / Provider Adapters / Evals
+```
+
+核心边界：
+
+- React 前端负责页面、交互、查询状态和用户反馈。
+- Rust/Tauri host 负责 Tauri commands、SQLite、迁移、后台任务、Stronghold 密钥存储和 host gateway。
+- Python orchestration sidecar 负责 PDF 解析、LangGraph workflow、Provider adapter、RAG、卡片生成和评估。
+- Python 不直接读写应用 SQLite，不持久化 API Key；需要持久化的业务结果通过 Rust/Host Gateway 受控写入。
 
 ## 快速开始
 
-### 环境要求
+前置依赖：
 
-- Node.js 与 npm
-- Rust 与 Cargo
+- Node.js 和 npm
+- Rust 和 Cargo
 - Python 3
 - Tauri CLI
 
-Python 编排服务依赖见 `xuejian/orchestration_service/requirements.txt`。
-
-### 安装依赖
+安装依赖：
 
 ```powershell
 cd xuejian
@@ -48,86 +63,69 @@ npm install
 pip install -r orchestration_service/requirements.txt
 ```
 
-### 前端开发预览
+运行 Web 预览：
 
 ```powershell
 cd xuejian
 npm run dev
 ```
 
-前端开发服务默认用于 Web 预览。完整桌面能力需要通过 Tauri 启动。
-
-### 桌面端开发
+运行完整桌面应用开发模式：
 
 ```powershell
 cd xuejian
 npm run tauri:dev
 ```
 
-Tauri 启动后会初始化本地数据库、密钥存储、Host Gateway 和 Python orchestration service。
+`npm run dev` 只启动 Vite Web 预览；完整的本地数据库、文件导入、密钥存储和 Python 编排服务需要通过 Tauri 启动。
 
-### 构建与测试
+AI 能力采用 BYOK 模式。用户需要在应用设置中配置自己的 Provider 和 API Key 后，才能使用 AI 制卡、embedding、Knowledge QA 或多 Agent workflow。未配置 API Key 时，学笺仍可用于本地文档管理、手动卡片和每日复习。
+
+## 常用开发命令
 
 ```powershell
 cd xuejian
 npm run build
 npm run test
 npm run test:e2e
-npm run tauri:build
+cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Rust native smoke：
+Python orchestration compile check 可从仓库根目录运行：
 
 ```powershell
-cd xuejian
-cargo run --manifest-path src-tauri/Cargo.toml --bin native-smoke
+python -m compileall xuejian/orchestration_service
 ```
 
-## 项目结构
+## 仓库结构
 
 ```text
 XueJianProject/
-├─ README.md
-├─ LICENSE
-├─ documents/                 # 面向发布读者的用户与开发者文档
-├─ docs/                      # 内部工程文档、架构契约和路线文档
-├─ scripts/                   # CI 与辅助脚本
-├─ runtime/                   # 运行时和 smoke 产物
-└─ xuejian/
-   ├─ src/                    # React 前端
-   ├─ src-tauri/              # Tauri/Rust 本地层
-   ├─ orchestration_service/  # Python 编排服务
-   └─ tests/                  # 单测、服务测试和 E2E
+|-- README.md
+|-- LICENSE
+|-- documents/                  # 面向用户和开发者的发布文档
+|-- scripts/                    # 仓库级 CI 和维护脚本
+|-- archive/                    # 已归档或废弃的历史资料
+`-- xuejian/
+    |-- src/                    # React 前端
+    |-- src-tauri/              # Tauri/Rust desktop host
+    |-- orchestration_service/  # Python orchestration sidecar
+    |-- tests/                  # 单测、服务测试和 E2E 测试
+    `-- scripts/                # 应用工作区脚本
 ```
 
-## 文档
+根目录 README 负责项目总览和入口导航；活跃应用代码位于 [`xuejian/`](./xuejian/)，应用工作区的更多约定见 [`xuejian/README.md`](./xuejian/README.md)。
 
-- [发布文档入口](./documents/index.md)
-- [用户手册](./documents/user-guide.md)
-- [开发者指南](./documents/developer-guide.md)
-- [内部工程文档入口](./docs/index.md)
+## 阅读路线
 
-`documents/` 面向普通用户、安装者、贡献者和二次开发者；`docs/` 面向项目开发路线、架构边界、工程契约和后续 AI agent 协作。
+- 用户上手：[`documents/user-guide.md`](./documents/user-guide.md)
+- 开发者指南：[`documents/developer-guide.md`](./documents/developer-guide.md)
 
-## 功能状态与限制
+## 未来愿景
 
-当前主线优先稳定 PDF、卡片、分组、复习和学习反馈。AI 卡片生成、文档向量化和知识问答已经接入本地编排服务，但外部模型能力依赖用户自己的 Provider 配置。
+当前主线聚焦 PDF 学习、卡片、复习、Knowledge QA 和多 Agent 学习编排。
+OCR、云同步、完整导出、播客、UI美化等会作为未来的开发愿景。
 
-以下能力不作为当前主线交付目标：
+## License
 
-- 扫描版 PDF OCR。
-- 多设备同步和账户系统。
-- 完整播客音频生成。
-- 动画演示生成。
-- 完整 Anki note/card type 系统。
-- 云端存储。
-
-## 数据与隐私
-
-XueJian 采用本地优先架构。业务数据以本机 SQLite 为权威来源，API Key 使用 Tauri Stronghold 存储。Python orchestration service 只负责解析和 AI workflow 执行，不直接写 SQLite，也不持久化 API Key。
-
-只有当用户配置并主动使用 AI Provider 时，应用才会向外部模型服务发送相关请求。
-
-## 许可证
-
-本项目按 GPL v3 发布，详见 [LICENSE](./LICENSE)。
+GPL-3.0-or-later. See [LICENSE](./LICENSE).

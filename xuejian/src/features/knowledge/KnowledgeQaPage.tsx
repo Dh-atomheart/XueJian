@@ -63,6 +63,7 @@ type TurnState = {
     id: string
     documentId: string
     documentTitle: string
+    passageIndex: number | null
     page: number | null
     snippet: string
     relevance: number | null
@@ -574,6 +575,7 @@ export function KnowledgeQaPage() {
           id: citation.id,
           documentId: citation.documentId,
           documentTitle: citation.documentTitle,
+          passageIndex: citation.passageIndex,
           pageLabel: citation.page != null ? `P.${citation.page}` : '未知页码',
           snippet: citation.snippet,
         })),
@@ -582,6 +584,7 @@ export function KnowledgeQaPage() {
         id: citation.id,
         documentId: citation.documentId,
         documentTitle: citation.documentTitle,
+        passageIndex: citation.passageIndex,
         pageLabel: citation.page != null ? `P.${citation.page}` : '未知页码',
         snippet: citation.snippet,
       }))}
@@ -1138,6 +1141,12 @@ function normalizeKnowledgeCitation(
       id: chunkId ?? `${documentId}-${index}`,
       documentId,
       documentTitle: documentTitleCache.get(documentId) ?? '文档',
+      passageIndex:
+        typeof citation['passageIndex'] === 'number' &&
+        Number.isInteger(citation['passageIndex']) &&
+        citation['passageIndex'] > 0
+          ? citation['passageIndex']
+          : null,
       page: typeof citation['page'] === 'number' ? citation['page'] : null,
       snippet: snippetCandidate,
       relevance: typeof citation['relevanceScore'] === 'number' ? citation['relevanceScore'] : null,

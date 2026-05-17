@@ -66,6 +66,10 @@ def test_dataset_cache_key_is_stable_for_same_inputs():
     assert len(first) == 16
 
 
+def test_default_ragas_question_count_is_200_plus():
+    assert evals.DEFAULT_SIZE >= 200
+
+
 def test_load_or_generate_questions_uses_jsonl_cache(tmp_path):
     cache_path = tmp_path / "dataset.jsonl"
     evals.save_questions(

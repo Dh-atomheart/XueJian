@@ -36,3 +36,41 @@ class SupervisorState(TypedDict, total=False):
     quality_envelope: dict[str, Any]
     error_category: str | None
     result: dict[str, Any]
+
+    # Phase 10: long-running task fields
+    task_status: str
+    parent_run_id: str
+    resume_token: str
+    current_step_index: int
+    follow_up_message: str
+    previous_artifact_refs: dict[str, Any]
+
+
+# Phase 10: valid task status values
+VALID_TASK_STATUSES = {
+    "queued",
+    "running",
+    "paused",
+    "waiting_for_user",
+    "completed",
+    "partial",
+    "failed",
+    "cancelled",
+}
+
+# Phase 10: allowed state transitions
+# current_status -> allowed next statuses
+ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+    "queued": {"running"},
+    "running": {"paused", "waiting_for_user", "completed", "partial", "failed", "cancelled"},
+    "paused": {"running", "cancelled"},
+    "waiting_for_user": {"running", "cancelled"},
+    "partial": {"running", "completed", "cancelled"},
+    "completed": set(),
+    "failed": set(),
+    "cancelled": set(),
+}
+
+
+def can_transition(from_status: str, to_status: str) -> bool:
+    return to_status in ALLOWED_TRANSITIONS.get(from_status, set())

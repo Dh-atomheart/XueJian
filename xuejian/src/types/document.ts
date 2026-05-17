@@ -621,7 +621,7 @@ export interface WorkflowRun {
   id: string
   workflowType: WorkflowType
   presetId: string | null
-  status: 'queued' | 'running' | 'waiting_confirmation' | 'completed' | 'failed' | 'cancelled'
+  status: 'queued' | 'running' | 'paused' | 'waiting_confirmation' | 'completed' | 'failed' | 'cancelled'
   threadId: string
   checkpointRef: string | null
   approvalPayload: Record<string, unknown> | null

@@ -4,10 +4,27 @@ import logging
 from typing import Any
 
 from ..providers.embedding_runtime import QueryEmbeddingRuntimeError, embed_query_with_resilience
+from ..rag.answer import embedding_error_status, excerpt_fallback_answer, status_answer, try_langchain_qa
+from ..rag.audit import _chunk_id, _truncate_text
+from ..rag.constants import RECENT_MESSAGES_LIMIT
+from ..rag.context import build_passages, merge_parent_context
+from ..rag.exceptions import WorkflowCancelled
+from ..rag.retriever import combine_retrieval_modes, embedding_readiness_status, merge_candidate_chunks, uses_degraded_lexical_fallback
+from ..rag.rewrite import build_second_retrieval_query, recent_messages_for_rewrite, rewrite_query, rewrite_trigger_reason
+from ..rag.trace import (
+    _default_audit_summary,
+    _default_gate_summary,
+    _default_merge_summary,
+    _default_packing_summary,
+    _default_rerank_summary,
+    _default_rewrite_summary,
+    _default_second_retrieval_summary,
+    _lexical_status,
+    build_rag_trace,
+)
 from ..tools.qa_tools import TOOL_REGISTRY
-from ..workflows import knowledge_qa as workflow
 from .artifact_store import persist_graph_artifacts
-from .knowledge_events import build_artifact_refs, build_rag_artifacts, emit_event, emit_progress, save_checkpoint
+from .knowledge_events import build_artifact_refs, build_rag_artifacts, emit_event, emit_progress
 from .knowledge_state import GRAPH_VERSION, RUNTIME, KnowledgeGraphState
 
 logger = logging.getLogger(__name__)
@@ -42,13 +59,13 @@ def _retrieval_summary(chunks: list[dict[str, Any]], retrieval_mode: str) -> dic
                 if isinstance(document_id, str) and document_id
             }
         ),
-        "lexicalStatus": workflow._lexical_status(chunks),
+        "lexicalStatus": _lexical_status(chunks),
         "retrievalMode": retrieval_mode,
     }
 
 
 def _query_embedding_meta_from_error(exc: Exception) -> dict[str, Any]:
-    status, _message = workflow._embedding_error_status(exc)
+    status, _message = embedding_error_status(exc)
     attempts = exc.attempts if isinstance(exc, QueryEmbeddingRuntimeError) else 0
     latency_ms = exc.latency_ms if isinstance(exc, QueryEmbeddingRuntimeError) else None
     return {
@@ -210,7 +227,8 @@ def _invalid_quality_envelope(envelope: object, error_category: str | None) -> d
 def initialize_run(state: KnowledgeGraphState) -> dict[str, Any]:
     host = _host(state)
     run_id = _run_id(state)
-    workflow._check_cancelled(host, run_id)
+    if run_id and host.is_run_cancelled(run_id):
+        raise WorkflowCancelled("knowledge Q&A workflow cancelled")
 
     config_with_key = getattr(host, "get_config_for_workflow", lambda _workflow_type: None)("knowledge_qa")
     config: dict[str, Any] = {}
@@ -227,7 +245,7 @@ def initialize_run(state: KnowledgeGraphState) -> dict[str, Any]:
         payload={
             "runtime": RUNTIME,
             "graphVersion": GRAPH_VERSION,
-            "questionPreview": workflow._truncate_text(state.get("question", ""), 60),
+            "questionPreview": _truncate_text(state.get("question", ""), 60),
             "documentCount": len(state.get("document_ids") or []),
         },
     )
@@ -242,23 +260,23 @@ def initialize_run(state: KnowledgeGraphState) -> dict[str, Any]:
             "attempts": 0,
             "latencyMs": None,
         },
-        "rewrite_summary": workflow._default_rewrite_summary(),
+        "rewrite_summary": _default_rewrite_summary(),
         "retrieval_mode": "hybrid",
         "retrieval_status": "ready",
         "retrieval_summary": _retrieval_summary([], "hybrid"),
-        "merge_summary": workflow._default_merge_summary(),
-        "rerank_summary": workflow._default_rerank_summary(),
-        "gate_summary": workflow._default_gate_summary(),
+        "merge_summary": _default_merge_summary(),
+        "rerank_summary": _default_rerank_summary(),
+        "gate_summary": _default_gate_summary(),
         "gate_decision": "not_run",
-        "second_retrieval_summary": workflow._default_second_retrieval_summary(),
+        "second_retrieval_summary": _default_second_retrieval_summary(),
         "remediation_count": 0,
         "remediation_reason": None,
-        "remediation_summary": workflow._default_second_retrieval_summary(),
+        "remediation_summary": _default_second_retrieval_summary(),
         "candidate_chunks": [],
         "expanded_contexts": {},
         "packed_chunks": [],
         "citations": [],
-        "audit_summary": workflow._default_audit_summary(),
+        "audit_summary": _default_audit_summary(),
         "artifact_refs": {},
         "fallback_used": False,
     }
@@ -299,7 +317,7 @@ def check_embedding_readiness(state: KnowledgeGraphState) -> dict[str, Any]:
             "error_category": "embedding_missing",
         }
 
-    readiness_status = workflow._embedding_readiness_status(host, active_profile, document_ids)
+    readiness_status = embedding_readiness_status(host, active_profile, document_ids)
     if readiness_status != "ready":
         emit_progress(
             host,
@@ -330,7 +348,7 @@ def check_embedding_readiness(state: KnowledgeGraphState) -> dict[str, Any]:
 def embed_question(state: KnowledgeGraphState) -> dict[str, Any]:
     host = _host(state)
     run_id = _run_id(state)
-    workflow._check_cancelled(host, run_id)
+    if run_id and host.is_run_cancelled(run_id): raise WorkflowCancelled("knowledge Q&A workflow cancelled")
     active_profile = state.get("active_profile")
     if not isinstance(active_profile, dict):
         return {}
@@ -367,9 +385,9 @@ def embed_question(state: KnowledgeGraphState) -> dict[str, Any]:
             },
         }
     except Exception as exc:
-        if isinstance(exc, workflow.WorkflowCancelled):
+        if isinstance(exc, WorkflowCancelled):
             raise
-        status, _message = workflow._embedding_error_status(exc)
+        status, _message = embedding_error_status(exc)
         logger.warning("KnowledgeGraph query embedding failed: %s", exc)
         emit_progress(
             host,
@@ -390,7 +408,7 @@ def embed_question(state: KnowledgeGraphState) -> dict[str, Any]:
 
 
 def load_conversation_context(state: KnowledgeGraphState) -> dict[str, Any]:
-    recent_messages = workflow._recent_messages_for_rewrite(
+    recent_messages = recent_messages_for_rewrite(
         _host(state),
         state.get("conversation_id"),
     )
@@ -402,8 +420,8 @@ def maybe_rewrite_query(state: KnowledgeGraphState) -> dict[str, Any]:
     run_id = _run_id(state)
     question = state.get("question", "")
     recent_messages = state.get("recent_messages") or []
-    rewrite_reason = workflow._rewrite_trigger_reason(question, recent_messages)
-    rewrite_summary = workflow._default_rewrite_summary(
+    rewrite_reason = rewrite_trigger_reason(question, recent_messages)
+    rewrite_summary = _default_rewrite_summary(
         trigger_reason=rewrite_reason,
         original_query=question,
         recent_message_count=len(recent_messages),
@@ -435,7 +453,7 @@ def maybe_rewrite_query(state: KnowledgeGraphState) -> dict[str, Any]:
     config = state.get("config") or {}
     api_key = str(state.get("api_key") or "")
     if not config:
-        rewrite_summary = workflow._default_rewrite_summary(
+        rewrite_summary = _default_rewrite_summary(
             "skipped_no_model",
             trigger_reason=rewrite_reason,
             original_query=question,
@@ -454,10 +472,10 @@ def maybe_rewrite_query(state: KnowledgeGraphState) -> dict[str, Any]:
         return {"rewrite_summary": rewrite_summary, "rewritten_query": None}
 
     try:
-        rewrite_candidate = workflow._rewrite_query(config, api_key, question, recent_messages)
+        rewrite_candidate = rewrite_query(config, api_key, question, recent_messages)
         if rewrite_candidate.strip() != question.strip():
             rewritten_query = rewrite_candidate
-            rewrite_summary = workflow._default_rewrite_summary(
+            rewrite_summary = _default_rewrite_summary(
                 "applied",
                 trigger_reason=rewrite_reason,
                 original_query=question,
@@ -466,7 +484,7 @@ def maybe_rewrite_query(state: KnowledgeGraphState) -> dict[str, Any]:
             )
         else:
             rewritten_query = None
-            rewrite_summary = workflow._default_rewrite_summary(
+            rewrite_summary = _default_rewrite_summary(
                 "same_as_original",
                 trigger_reason=rewrite_reason,
                 original_query=question,
@@ -474,11 +492,11 @@ def maybe_rewrite_query(state: KnowledgeGraphState) -> dict[str, Any]:
                 recent_message_count=len(recent_messages),
             )
     except Exception as exc:
-        if isinstance(exc, workflow.WorkflowCancelled):
+        if isinstance(exc, WorkflowCancelled):
             raise
         logger.warning("KnowledgeGraph rewrite failed: %s", exc)
         rewritten_query = None
-        rewrite_summary = workflow._default_rewrite_summary(
+        rewrite_summary = _default_rewrite_summary(
             "failed",
             trigger_reason=rewrite_reason,
             original_query=question,
@@ -501,7 +519,7 @@ def maybe_rewrite_query(state: KnowledgeGraphState) -> dict[str, Any]:
 def retrieve_evidence(state: KnowledgeGraphState) -> dict[str, Any]:
     host = _host(state)
     run_id = _run_id(state)
-    workflow._check_cancelled(host, run_id)
+    if run_id and host.is_run_cancelled(run_id): raise WorkflowCancelled("knowledge Q&A workflow cancelled")
     document_ids = state.get("document_ids") or []
     question = state.get("question", "")
     rewritten_query = state.get("rewritten_query")
@@ -537,8 +555,8 @@ def retrieve_evidence(state: KnowledgeGraphState) -> dict[str, Any]:
                 "rewritten_query": rewritten_query,
             },
         )
-        candidate_chunks = workflow._merge_candidate_chunks(candidate_chunks, rewrite_result.get("chunks") or [])
-        retrieval_mode = workflow._combine_retrieval_modes(
+        candidate_chunks = merge_candidate_chunks(candidate_chunks, rewrite_result.get("chunks") or [])
+        retrieval_mode = combine_retrieval_modes(
             retrieval_mode,
             str(rewrite_result.get("retrieval_mode") or "hybrid"),
         )
@@ -571,7 +589,7 @@ def merge_parent_context(state: KnowledgeGraphState) -> dict[str, Any]:
     )
     return {
         "expanded_contexts": result.get("expanded_contexts") or {},
-        "merge_summary": result.get("merge_summary") or workflow._default_merge_summary(),
+        "merge_summary": result.get("merge_summary") or _default_merge_summary(),
     }
 
 
@@ -600,7 +618,7 @@ def rerank_evidence(state: KnowledgeGraphState) -> dict[str, Any]:
             "api_key_ref": str(state.get("api_key") or ""),
         },
     )
-    rerank_summary = result.get("rerank_summary") or workflow._default_rerank_summary()
+    rerank_summary = result.get("rerank_summary") or _default_rerank_summary()
     emit_progress(
         host,
         run_id,
@@ -640,7 +658,7 @@ def relevance_gate(state: KnowledgeGraphState) -> dict[str, Any]:
             "is_second_retrieval": False,
         },
     )
-    gate_summary = result.get("gate_summary") or workflow._default_gate_summary()
+    gate_summary = result.get("gate_summary") or _default_gate_summary()
     decision = str(result.get("decision") or gate_summary.get("decision") or "no_relevant_content")
     emit_progress(
         host,
@@ -664,7 +682,7 @@ def relevance_gate(state: KnowledgeGraphState) -> dict[str, Any]:
 def maybe_remediate_retrieval(state: KnowledgeGraphState) -> dict[str, Any]:
     host = _host(state)
     run_id = _run_id(state)
-    workflow._check_cancelled(host, run_id)
+    if run_id and host.is_run_cancelled(run_id): raise WorkflowCancelled("knowledge Q&A workflow cancelled")
 
     question = state.get("question", "")
     rewritten_query = state.get("rewritten_query")
@@ -678,7 +696,7 @@ def maybe_remediate_retrieval(state: KnowledgeGraphState) -> dict[str, Any]:
 
     if not rewritten_query or rewritten_query == question:
         try:
-            second_query = workflow._build_second_retrieval_query(
+            second_query = build_second_retrieval_query(
                 config,
                 api_key,
                 question,
@@ -688,7 +706,7 @@ def maybe_remediate_retrieval(state: KnowledgeGraphState) -> dict[str, Any]:
             if second_query.strip() != question.strip():
                 second_query_status = "applied"
         except Exception as exc:
-            if isinstance(exc, workflow.WorkflowCancelled):
+            if isinstance(exc, WorkflowCancelled):
                 raise
             logger.warning("KnowledgeGraph second retrieval rewrite failed: %s", exc)
             second_query = rewritten_query or question
@@ -716,20 +734,20 @@ def maybe_remediate_retrieval(state: KnowledgeGraphState) -> dict[str, Any]:
         },
     )
     first_chunk_ids = {
-        workflow._chunk_id(chunk)
+        _chunk_id(chunk)
         for chunk in state.get("candidate_chunks") or []
-        if workflow._chunk_id(chunk)
+        if _chunk_id(chunk)
     }
     additional_chunk_count = sum(
         1
         for chunk in second_result.get("chunks") or []
-        if workflow._chunk_id(chunk) and workflow._chunk_id(chunk) not in first_chunk_ids
+        if _chunk_id(chunk) and _chunk_id(chunk) not in first_chunk_ids
     )
-    merged_candidates = workflow._merge_candidate_chunks(
+    merged_candidates = merge_candidate_chunks(
         state.get("candidate_chunks") or [],
         second_result.get("chunks") or [],
     )
-    retrieval_mode = workflow._combine_retrieval_modes(
+    retrieval_mode = combine_retrieval_modes(
         str(state.get("retrieval_mode") or "hybrid"),
         str(second_result.get("retrieval_mode") or "hybrid"),
     )
@@ -762,7 +780,7 @@ def maybe_remediate_retrieval(state: KnowledgeGraphState) -> dict[str, Any]:
     second_retrieval_summary = {
         "status": second_query_status,
         "used": True,
-        "queryPreview": workflow._truncate_text(second_query, 80),
+        "queryPreview": _truncate_text(second_query, 80),
         "additionalChunkCount": additional_chunk_count,
         "reason": second_query_reason,
     }
@@ -785,10 +803,10 @@ def maybe_remediate_retrieval(state: KnowledgeGraphState) -> dict[str, Any]:
     return {
         "candidate_chunks": second_pass_chunks,
         "expanded_contexts": merge_result.get("expanded_contexts") or {},
-        "merge_summary": merge_result.get("merge_summary") or workflow._default_merge_summary(),
-        "rerank_summary": rerank_result.get("rerank_summary") or workflow._default_rerank_summary(),
+        "merge_summary": merge_result.get("merge_summary") or _default_merge_summary(),
+        "rerank_summary": rerank_result.get("rerank_summary") or _default_rerank_summary(),
         "gate_decision": gate_decision,
-        "gate_summary": gate_result.get("gate_summary") or workflow._default_gate_summary(),
+        "gate_summary": gate_result.get("gate_summary") or _default_gate_summary(),
         "retrieval_mode": retrieval_mode,
         "retrieval_status": retrieval_status,
         "retrieval_summary": _retrieval_summary(second_pass_chunks, retrieval_mode),
@@ -821,7 +839,7 @@ def pack_context(state: KnowledgeGraphState) -> dict[str, Any]:
             "episodic_memory": None,
         },
     )
-    packing_summary = result.get("packing_summary") or workflow._default_packing_summary()
+    packing_summary = result.get("packing_summary") or _default_packing_summary()
     packed_chunks = result.get("packed_chunks") or []
     emit_progress(
         host,
@@ -836,19 +854,6 @@ def pack_context(state: KnowledgeGraphState) -> dict[str, Any]:
             "totalChars": packing_summary.get("totalChars", 0),
         },
     )
-    save_checkpoint(
-        host,
-        run_id,
-        "knowledge_graph",
-        "retrieval_ready",
-        {
-            "runtime": RUNTIME,
-            "graphVersion": GRAPH_VERSION,
-            "retrievalMode": state.get("retrieval_mode"),
-            "gateDecision": state.get("gate_decision"),
-            "chunkCount": len(packed_chunks),
-        },
-    )
     return {
         "packed_chunks": packed_chunks,
         "packing_summary": packing_summary,
@@ -858,7 +863,7 @@ def pack_context(state: KnowledgeGraphState) -> dict[str, Any]:
 def write_answer(state: KnowledgeGraphState) -> dict[str, Any]:
     host = _host(state)
     run_id = _run_id(state)
-    workflow._check_cancelled(host, run_id)
+    if run_id and host.is_run_cancelled(run_id): raise WorkflowCancelled("knowledge Q&A workflow cancelled")
 
     retrieval_mode = str(state.get("retrieval_mode") or "hybrid")
     packed_chunks = state.get("packed_chunks") or []
@@ -917,7 +922,7 @@ def write_answer(state: KnowledgeGraphState) -> dict[str, Any]:
         raise RuntimeError("Knowledge Q&A model is not configured")
 
     if retrieval_mode == "fts5":
-        fallback_reason = "contains_only_fallback" if workflow._uses_degraded_lexical_fallback(retrieval_mode, packed_chunks) else "lexical_only"
+        fallback_reason = "contains_only_fallback" if uses_degraded_lexical_fallback(retrieval_mode, packed_chunks) else "lexical_only"
         retrieval_status = str(state.get("retrieval_status") or "ready")
         emit_progress(
             host,
@@ -929,7 +934,7 @@ def write_answer(state: KnowledgeGraphState) -> dict[str, Any]:
             progress=0.88,
             metrics={},
         )
-        fallback_result = workflow._excerpt_fallback_answer(
+        fallback_result = excerpt_fallback_answer(
             packed_chunks,
             fallback_reason,
             retrieval_status=retrieval_status,
@@ -941,7 +946,7 @@ def write_answer(state: KnowledgeGraphState) -> dict[str, Any]:
             "retrieval_status": (fallback_result.get("answer") or {}).get("retrievalStatus") or "ready",
         }
 
-    passages_text = workflow._build_passages(packed_chunks, expanded_contexts)
+    passages_text = build_passages(packed_chunks, expanded_contexts)
     emit_progress(
         host,
         run_id,
@@ -953,9 +958,9 @@ def write_answer(state: KnowledgeGraphState) -> dict[str, Any]:
         metrics={},
     )
     try:
-        answer_data = workflow._try_langchain_qa(config, api_key, question, passages_text)
+        answer_data = try_langchain_qa(config, api_key, question, passages_text)
     except Exception as exc:
-        if isinstance(exc, workflow.WorkflowCancelled):
+        if isinstance(exc, WorkflowCancelled):
             raise
         logger.warning("KnowledgeGraph answer generation failed, using excerpt fallback: %s", exc)
         emit_progress(
@@ -968,7 +973,7 @@ def write_answer(state: KnowledgeGraphState) -> dict[str, Any]:
             progress=0.88,
             metrics={},
         )
-        fallback_result = workflow._excerpt_fallback_answer(
+        fallback_result = excerpt_fallback_answer(
             packed_chunks,
             f"model_error: {exc}",
             retrieval_mode=retrieval_mode,
@@ -1003,7 +1008,7 @@ def audit_citations(state: KnowledgeGraphState) -> dict[str, Any]:
     if not isinstance(answer_data, dict) or answer_data.get("answerMode") != "grounded":
         return {
             "citations": [],
-            "audit_summary": workflow._default_audit_summary(),
+            "audit_summary": _default_audit_summary(),
         }
 
     raw_citations = answer_data.get("citations", [])
@@ -1024,7 +1029,7 @@ def audit_citations(state: KnowledgeGraphState) -> dict[str, Any]:
             "chunks": state.get("packed_chunks") or [],
         },
     )
-    audit_summary = result.get("audit_summary") or workflow._default_audit_summary()
+    audit_summary = result.get("audit_summary") or _default_audit_summary()
     citations = result.get("citations") or []
     error_category = None if citations else "citation_audit_failed"
 
@@ -1056,13 +1061,13 @@ def build_rag_trace(state: KnowledgeGraphState) -> dict[str, Any]:
             "retrieval_mode": str(state.get("retrieval_mode") or "hybrid"),
             "chunks": state.get("packed_chunks") or [],
             "query_rewrite_used": bool(state.get("rewritten_query")),
-            "rewrite_summary": state.get("rewrite_summary") or workflow._default_rewrite_summary(),
-            "merge_summary": state.get("merge_summary") or workflow._default_merge_summary(),
-            "packing_summary": state.get("packing_summary") or workflow._default_packing_summary(),
-            "rerank_summary": state.get("rerank_summary") or workflow._default_rerank_summary(),
-            "gate_summary": state.get("gate_summary") or workflow._default_gate_summary(),
-            "second_retrieval_summary": state.get("second_retrieval_summary") or workflow._default_second_retrieval_summary(),
-            "audit_summary": state.get("audit_summary") or workflow._default_audit_summary(),
+            "rewrite_summary": state.get("rewrite_summary") or _default_rewrite_summary(),
+            "merge_summary": state.get("merge_summary") or _default_merge_summary(),
+            "packing_summary": state.get("packing_summary") or _default_packing_summary(),
+            "rerank_summary": state.get("rerank_summary") or _default_rerank_summary(),
+            "gate_summary": state.get("gate_summary") or _default_gate_summary(),
+            "second_retrieval_summary": state.get("second_retrieval_summary") or _default_second_retrieval_summary(),
+            "audit_summary": state.get("audit_summary") or _default_audit_summary(),
             "failure_reason": _result_failure_reason(state),
         },
     )
@@ -1072,18 +1077,18 @@ def build_rag_trace(state: KnowledgeGraphState) -> dict[str, Any]:
 def finalize_result(state: KnowledgeGraphState) -> dict[str, Any]:
     host = _host(state)
     run_id = _run_id(state)
-    rag_trace = state.get("rag_trace") or workflow._build_rag_trace(
+    rag_trace = state.get("rag_trace") or build_rag_trace(
         readiness_status=str(state.get("readiness_status") or "ready"),
         retrieval_mode=str(state.get("retrieval_mode") or "hybrid"),
         chunks=state.get("packed_chunks") or [],
         query_rewrite_used=bool(state.get("rewritten_query")),
-        rewrite_summary=state.get("rewrite_summary") or workflow._default_rewrite_summary(),
-        merge_summary=state.get("merge_summary") or workflow._default_merge_summary(),
-        packing_summary=state.get("packing_summary") or workflow._default_packing_summary(),
-        rerank_summary=state.get("rerank_summary") or workflow._default_rerank_summary(),
-        gate_summary=state.get("gate_summary") or workflow._default_gate_summary(),
-        second_retrieval_summary=state.get("second_retrieval_summary") or workflow._default_second_retrieval_summary(),
-        audit_summary=state.get("audit_summary") or workflow._default_audit_summary(),
+        rewrite_summary=state.get("rewrite_summary") or _default_rewrite_summary(),
+        merge_summary=state.get("merge_summary") or _default_merge_summary(),
+        packing_summary=state.get("packing_summary") or _default_packing_summary(),
+        rerank_summary=state.get("rerank_summary") or _default_rerank_summary(),
+        gate_summary=state.get("gate_summary") or _default_gate_summary(),
+        second_retrieval_summary=state.get("second_retrieval_summary") or _default_second_retrieval_summary(),
+        audit_summary=state.get("audit_summary") or _default_audit_summary(),
         failure_reason=_result_failure_reason(state),
     )
     query_embedding_meta = state.get("query_embedding_meta") or {}
@@ -1092,7 +1097,7 @@ def finalize_result(state: KnowledgeGraphState) -> dict[str, Any]:
     answer_data = state.get("answer_data")
 
     if error_category in EMBEDDING_STATUS_MESSAGES:
-        result = workflow._status_answer(
+        result = status_answer(
             EMBEDDING_STATUS_MESSAGES[error_category],
             error_category,
             retrieval_mode=retrieval_mode,
@@ -1128,7 +1133,7 @@ def finalize_result(state: KnowledgeGraphState) -> dict[str, Any]:
             candidate_answer = str(answer_data.get("answer") or "").strip()
             if candidate_answer:
                 answer_text = candidate_answer
-        result = workflow._status_answer(
+        result = status_answer(
             answer_text,
             str(state.get("retrieval_status") or "no_hits"),
             retrieval_mode=retrieval_mode,
@@ -1190,22 +1195,6 @@ def finalize_result(state: KnowledgeGraphState) -> dict[str, Any]:
             "answerMode": result.get("answer", {}).get("answerMode"),
             "retrievalStatus": result.get("answer", {}).get("retrievalStatus"),
             "citationCount": len(citations),
-        },
-    )
-    save_checkpoint(
-        host,
-        run_id,
-        "knowledge_graph",
-        "finalized_result",
-        {
-            "runtime": result.get("runtime"),
-            "graphVersion": result.get("graphVersion"),
-            "fallbackUsed": result.get("fallbackUsed"),
-            "answerMode": result.get("answer", {}).get("answerMode"),
-            "retrievalStatus": result.get("answer", {}).get("retrievalStatus"),
-            "artifactRefs": artifact_refs,
-            "qualityEnvelope": quality_envelope,
-            "errorCategory": artifact_error_category,
         },
     )
     return {

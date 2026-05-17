@@ -6,10 +6,11 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from .supervisor_nodes import (
+    _route_after_control,
+    _route_after_execute,
     execute_step,
     finalize_summary,
     maybe_replan,
-    observe,
     plan,
     policy_check,
     self_evaluate,
@@ -69,7 +70,6 @@ def build_supervisor_graph():
     graph.add_node("self_evaluate", self_evaluate)
     graph.add_node("policy_check", policy_check)
     graph.add_node("execute_step", execute_step)
-    graph.add_node("observe", observe)
     graph.add_node("maybe_replan", maybe_replan)
     graph.add_node("finalize_summary", finalize_summary)
 
@@ -77,9 +77,30 @@ def build_supervisor_graph():
     graph.add_edge("understand_task", "plan")
     graph.add_edge("plan", "self_evaluate")
     graph.add_edge("self_evaluate", "policy_check")
-    graph.add_edge("policy_check", "execute_step")
-    graph.add_edge("execute_step", "observe")
-    graph.add_edge("observe", "maybe_replan")
+
+    # Phase 10: conditional routing after policy_check
+    # Either continue to execute_step or exit to finalize_summary
+    graph.add_conditional_edges(
+        "policy_check",
+        _route_after_control,
+        {
+            "execute_step": "execute_step",
+            "finalize_summary": "finalize_summary",
+        },
+    )
+
+    # Phase 10: conditional routing after execute_step
+    # Either loop back to check_control or proceed to maybe_replan
+    graph.add_conditional_edges(
+        "execute_step",
+        _route_after_execute,
+        {
+            "check_control": "policy_check",
+            "maybe_replan": "maybe_replan",
+            "finalize_summary": "finalize_summary",
+        },
+    )
+
     graph.add_edge("maybe_replan", "finalize_summary")
     graph.add_edge("finalize_summary", END)
     return graph.compile()
@@ -89,6 +110,82 @@ class SupervisorGraphRunner:
     def __init__(self, host: Any) -> None:
         self.host = host
         self._graph = build_supervisor_graph()
+
+    def _build_initial_state(
+        self,
+        run_id: str,
+        *,
+        task_type: str,
+        user_request: str,
+        document_ids: list[str] | None = None,
+        card_group_ids: list[str] | None = None,
+        options: dict[str, Any] | None = None,
+        provider_config_id: str = "",
+        planner_config: dict[str, Any] | None = None,
+        planner_api_key: str = "",
+        parent_run_id: str = "",
+        resume_token: str = "",
+        follow_up_message: str = "",
+        restored_state: dict[str, Any] | None = None,
+    ) -> SupervisorState:
+        """Build the initial state for a graph run, optionally restoring from checkpoint."""
+        state: SupervisorState = {
+            "run_id": run_id,
+            "task_type": task_type,
+            "user_request": user_request,
+            "document_ids": document_ids or [],
+            "card_group_ids": card_group_ids or [],
+            "options": options or {},
+            "provider_config_id": provider_config_id,
+            "planner_config": planner_config or {},
+            "planner_api_key": planner_api_key,
+            "host_ref": self.host,
+            "parent_run_id": parent_run_id,
+            "resume_token": resume_token,
+            "follow_up_message": follow_up_message,
+        }
+
+        # Phase 10: if restoring from checkpoint, merge restored fields
+        # Checkpoint uses camelCase keys; map to snake_case state keys
+        if isinstance(restored_state, dict):
+            field_map = {
+                "current_step_index": ["currentStep", "current_step_index"],
+                "artifact_refs": ["artifactRefs", "artifact_refs"],
+                "artifacts": ["artifacts"],
+                "decision_records": ["decisionRecords", "decision_records"],
+                "completed_steps": ["completedSteps", "completed_steps"],
+                "subgraph_results": ["subgraphResults", "subgraph_results"],
+                "budget_counters": ["budgetCounters", "budget_counters"],
+                "quality_envelope": ["qualityEnvelope", "quality_envelope"],
+                "error_category": ["errorCategory", "error_category"],
+                "route_plan": ["routePlan", "route_plan"],
+                "self_eval": ["selfEval", "self_eval"],
+                "plan_revisions": ["planRevisions", "plan_revisions"],
+                "is_compound_task": ["isCompoundTask", "is_compound_task"],
+                "task_status": ["taskStatus", "task_status"],
+                "previous_artifact_refs": ["previousArtifactRefs", "previous_artifact_refs"],
+            }
+            for state_key, checkpoint_keys in field_map.items():
+                for ck in checkpoint_keys:
+                    if ck in restored_state:
+                        state[state_key] = restored_state[ck]  # type: ignore[literal-required]
+                        break
+
+        return state
+
+    def _run_graph(self, state: SupervisorState) -> dict[str, Any]:
+        """Execute the compiled graph and return the result payload."""
+        run_id = str(state.get("run_id") or "")
+        try:
+            final_state = self._graph.invoke(state)
+        except Exception as exc:  # noqa: BLE001
+            error_category = _classify_supervisor_error(exc)
+            logger.exception("SupervisorGraph failed for run %s: %s", run_id[:8], exc)
+            return _failure_payload(run_id, error_category, str(exc))
+        result = final_state.get("result") if isinstance(final_state, dict) else None
+        if isinstance(result, dict):
+            return result
+        return _failure_payload(run_id, "supervisor_result_missing", "Supervisor finished without a result payload.")
 
     def run(
         self,
@@ -102,26 +199,61 @@ class SupervisorGraphRunner:
         provider_config_id: str = "",
         planner_config: dict[str, Any] | None = None,
         planner_api_key: str = "",
+        parent_run_id: str = "",
+        follow_up_message: str = "",
     ) -> dict[str, Any]:
-        state: SupervisorState = {
-            "run_id": run_id,
-            "task_type": task_type,
-            "user_request": user_request,
-            "document_ids": document_ids or [],
-            "card_group_ids": card_group_ids or [],
-            "options": options or {},
-            "provider_config_id": provider_config_id,
-            "planner_config": planner_config or {},
-            "planner_api_key": planner_api_key,
-            "host_ref": self.host,
-        }
-        try:
-            final_state = self._graph.invoke(state)
-        except Exception as exc:  # noqa: BLE001
-            error_category = _classify_supervisor_error(exc)
-            logger.exception("SupervisorGraph failed for run %s: %s", run_id[:8], exc)
-            return _failure_payload(run_id, error_category, str(exc))
-        result = final_state.get("result") if isinstance(final_state, dict) else None
-        if isinstance(result, dict):
-            return result
-        return _failure_payload(run_id, "supervisor_result_missing", "Supervisor finished without a result payload.")
+        state = self._build_initial_state(
+            run_id,
+            task_type=task_type,
+            user_request=user_request,
+            document_ids=document_ids,
+            card_group_ids=card_group_ids,
+            options=options,
+            provider_config_id=provider_config_id,
+            planner_config=planner_config,
+            planner_api_key=planner_api_key,
+            parent_run_id=parent_run_id,
+            follow_up_message=follow_up_message,
+        )
+        return self._run_graph(state)
+
+    def run_from_checkpoint(
+        self,
+        run_id: str,
+        *,
+        task_type: str,
+        user_request: str,
+        document_ids: list[str] | None = None,
+        card_group_ids: list[str] | None = None,
+        options: dict[str, Any] | None = None,
+        provider_config_id: str = "",
+        planner_config: dict[str, Any] | None = None,
+        planner_api_key: str = "",
+    ) -> dict[str, Any]:
+        """Phase 10: resume a run from its latest checkpoint."""
+        restored: dict[str, Any] = {}
+        if self.host is not None:
+            load_checkpoint = getattr(self.host, "load_checkpoint", None)
+            if callable(load_checkpoint):
+                try:
+                    checkpoint = load_checkpoint(run_id)
+                    if isinstance(checkpoint, dict):
+                        payload = checkpoint.get("payload") or checkpoint
+                        if isinstance(payload, dict):
+                            restored = payload
+                except Exception as exc:
+                    logger.warning("Failed to load checkpoint for run %s: %s", run_id[:8], exc)
+
+        state = self._build_initial_state(
+            run_id,
+            task_type=task_type,
+            user_request=user_request,
+            document_ids=document_ids,
+            card_group_ids=card_group_ids,
+            options=options,
+            provider_config_id=provider_config_id,
+            planner_config=planner_config,
+            planner_api_key=planner_api_key,
+            restored_state=restored,
+        )
+        return self._run_graph(state)
